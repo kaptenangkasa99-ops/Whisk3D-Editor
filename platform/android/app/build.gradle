@@ -9,11 +9,11 @@ def buildDate = new Date().format('yy.MM.dd')
 def supportedAbis = ['arm64-v8a', 'armeabi-v7a', 'x86_64']
 
 android {
-    compileSdkVersion 34
+    compileSdkVersion 36
     defaultConfig {
         applicationId "com.whisk3d"
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 36
         versionCode 1
         versionName buildDate
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"

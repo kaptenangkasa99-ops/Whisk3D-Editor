@@ -47,7 +47,8 @@ SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dInteractionState.cpp
 # config/mute del Core: W3dScript.cpp lo usa (ConfigMudo/ConfigSetMudo/ConfigGetStr...).
 # Faltaba en el build del editor -> undefined symbols al linkear.
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dConfig.cpp
-# SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/w3dGraphics.cpp #1.1
+SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dClipboardSDL.cpp
+# backend grafico del Core para Android: GLES2, no el GL de escritorio.
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/gles2/w3dGraphicsGLES2.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/math/Vector3.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/math/Quaternion.cpp
@@ -59,6 +60,8 @@ SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/physics/W3dFisica.cpp
 # AUDIO (efectos de los juegos: beep()). Mixer del Core + salida SDL2 (el celular tiene sonido)
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/audio/W3dAudio.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/audio/W3dAudioSDL.cpp
+SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/audio/W3dMusic.cpp
+SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/audio/W3dVolumen.cpp
 SRC_FILES += $(filter-out %/lua.c %/luac.c,$(wildcard $(PROJECT_ROOT)/thirdparty/lua/src/*.c))
 
 LOCAL_SRC_FILES := $(patsubst $(MY_PATH)/%,%,$(SRC_FILES))
