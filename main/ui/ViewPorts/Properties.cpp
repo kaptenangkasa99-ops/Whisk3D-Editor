@@ -1366,14 +1366,14 @@ static void AccionMenuT2dAlignH(){
     if (!PropsActivo || !T2dActivo()) return;
     if (!MenuT2dAlignH){ MenuT2dAlignH = new PopupMenu(); MenuT2dAlignH->action = AccionT2dAlignHElegido; }
     MenuT2dAlignH->Limpiar();
-    MenuT2dAlignH->Agregar("Izquierda", 0); MenuT2dAlignH->Agregar("Centro", 1); MenuT2dAlignH->Agregar("Derecha", 2);
+    MenuT2dAlignH->Agregar("Left", 0); MenuT2dAlignH->Agregar("Center", 1); MenuT2dAlignH->Agregar("Right", 2);
     AbrirMenuBajoBoton(MenuT2dAlignH, PropsActivo->propT2dAlignH->button);
 }
 static void AccionMenuT2dAlignV(){
     if (!PropsActivo || !T2dActivo()) return;
     if (!MenuT2dAlignV){ MenuT2dAlignV = new PopupMenu(); MenuT2dAlignV->action = AccionT2dAlignVElegido; }
     MenuT2dAlignV->Limpiar();
-    MenuT2dAlignV->Agregar("Arriba", 0); MenuT2dAlignV->Agregar("Centro", 1); MenuT2dAlignV->Agregar("Abajo", 2);
+    MenuT2dAlignV->Agregar("Top", 0); MenuT2dAlignV->Agregar("Center", 1); MenuT2dAlignV->Agregar("Bottom", 2);
     AbrirMenuBajoBoton(MenuT2dAlignV, PropsActivo->propT2dAlignV->button);
 }
 // FUENTE: la de Whisk3D o un .ttf elegido con el file browser (se hornea al vuelo, ver Fuente2D)
@@ -1425,8 +1425,8 @@ static void AccionMenuImgModo(){
     if (!MenuImgModo){ MenuImgModo = new PopupMenu(); MenuImgModo->action = AccionImgModoElegido; }
     MenuImgModo->Limpiar();
     MenuImgModo->titulo = T("Mode");
-    MenuImgModo->Agregar("Estirar", 0);   // deforma para llenar el rect
-    MenuImgModo->Agregar("Ajustar", 1);   // entera, con bandas
+    MenuImgModo->Agregar("Stretch", 0);   // deforma para llenar el rect
+    MenuImgModo->Agregar("Fit", 1);   // entera, con bandas
     MenuImgModo->Agregar("Cover", 2);     // llena recortando
     AbrirMenuBajoBoton(MenuImgModo, PropsActivo->propImgModo->button);
 }
@@ -1599,7 +1599,7 @@ static void AccionCompilarJuego(){
                          g_proyCompilar.orientacion, g_proyCompilar.usarFisica,
                          g_proyCompilar.usarSonido, g_proyCompilar.modoDebug,
                          g_proyCompilar.assetsModo == 1);
-    else Notificar("Compilar: no hay ninguna UI en la escena", true);
+    else Notificar("Compile: there is no UI in the scene", true);
 }
 static PopupMenu* MenuPlat = NULL;
 static void AccionPlatElegida(int id){
@@ -1629,7 +1629,7 @@ static void AccionGenerarUID(){
     unsigned r = ((unsigned)rand() << 17) ^ ((unsigned)rand() << 6) ^ (unsigned)rand();
     g_proyCompilar.uid = 0xE0000000u | (r & 0x0FFFFFFFu);
     if (PropsActivo && PropsActivo->propJuegoUID) PropsActivo->propJuegoUID->button->text = NombreUID();
-    Notificar("UID del juego generado (se guarda con el proyecto)", false);
+    Notificar("UID of the game generated (saved with the project)", false);
     g_redraw = true;
 }
 // desplegable "Modo ventana": como arranca la ventana del juego COMPILADO
@@ -1644,9 +1644,9 @@ static void AccionMenuModoVent(){
     if (!MenuModoVent){ MenuModoVent = new PopupMenu(); MenuModoVent->action = AccionModoVentElegido; }
     MenuModoVent->Limpiar();
     MenuModoVent->titulo = "Modo ventana";
-    MenuModoVent->Agregar("Ventana", 0);
-    MenuModoVent->Agregar("Pantalla completa", 1);
-    MenuModoVent->Agregar("Sin bordes", 2);
+    MenuModoVent->Agregar("Window", 0);
+    MenuModoVent->Agregar("Full Screen", 1);
+    MenuModoVent->Agregar("Borderless", 2);
     AbrirMenuBajoBoton(MenuModoVent, PropsActivo->propJuegoModoVent->button);
 }
 // desplegable "Orientacion": a que orientacion queda clavado el juego COMPILADO.
@@ -1662,10 +1662,10 @@ static void AccionMenuOrient(){
     if (!PropsActivo || !PropsActivo->propJuegoOrient) return;
     if (!MenuOrientJuego){ MenuOrientJuego = new PopupMenu(); MenuOrientJuego->action = AccionOrientElegida; }
     MenuOrientJuego->Limpiar();
-    MenuOrientJuego->titulo = "Orientacion";
-    MenuOrientJuego->Agregar("Todas", 0);
-    MenuOrientJuego->Agregar("Solo vertical", 1);
-    MenuOrientJuego->Agregar("Solo horizontal", 2);
+    MenuOrientJuego->titulo = "Orientation";
+    MenuOrientJuego->Agregar("All", 0);
+    MenuOrientJuego->Agregar("Vertical Only", 1);
+    MenuOrientJuego->Agregar("Horizontal Only", 2);
     AbrirMenuBajoBoton(MenuOrientJuego, PropsActivo->propJuegoOrient->button);
 }
 // desplegable "Assets": como viajan los archivos del juego COMPILADO (sueltos y
@@ -1681,8 +1681,8 @@ static void AccionMenuAssets(){
     if (!MenuAssetsJuego){ MenuAssetsJuego = new PopupMenu(); MenuAssetsJuego->action = AccionAssetsElegido; }
     MenuAssetsJuego->Limpiar();
     MenuAssetsJuego->titulo = "Assets";
-    MenuAssetsJuego->Agregar("Sueltos (editables)", 0);
-    MenuAssetsJuego->Agregar("Empaquetados (protegidos)", 1);
+    MenuAssetsJuego->Agregar(" loose (editable)", 0);
+    MenuAssetsJuego->Agregar("Packaged (protected)", 1);
     AbrirMenuBajoBoton(MenuAssetsJuego, PropsActivo->propJuegoAssets->button);
 }
 // ICONO del juego: un PNG con alpha en su MAXIMA definicion; Compilar juego genera
@@ -1712,7 +1712,7 @@ static void AccionIconoElegido(const std::string& rutaElegida){
     g_redraw = true;
 }
 static void AccionMenuIcono(){
-    AbrirFileBrowser("Icono del juego", "Elegir", ".png", AccionIconoElegido);
+    AbrirFileBrowser("Game icon", "Choose", ".png", AccionIconoElegido);
 }
 static void AccionUIexportar(){
     if (!UIActivaProps()) return;
@@ -1784,9 +1784,9 @@ static void AccionMenuT2dLineas(){
     if (!MenuT2dLineas){ MenuT2dLineas = new PopupMenu(); MenuT2dLineas->action = AccionT2dLineasElegido; }
     MenuT2dLineas->Limpiar();
     MenuT2dLineas->titulo = T("Lines");
-    MenuT2dLineas->Agregar("Una linea", 0);            // todo junto, sin saltos
-    MenuT2dLineas->Agregar("Por palabras", 1);         // salta en los espacios (como css)
-    MenuT2dLineas->Agregar("En cualquier parte", 2);   // salta donde haga falta
+    MenuT2dLineas->Agregar("A line", 0);            // todo junto, sin saltos
+    MenuT2dLineas->Agregar("By words", 1);         // salta en los espacios (como css)
+    MenuT2dLineas->Agregar("Anywhere", 2);   // salta donde haga falta
     AbrirMenuBajoBoton(MenuT2dLineas, PropsActivo->propT2dLineas->button);
 }
 
@@ -1879,9 +1879,9 @@ static void AccionMenuTamModo(){
     if (!MenuTamModo){ MenuTamModo = new PopupMenu(); MenuTamModo->action = AccionTamModoElegido; }
     MenuTamModo->Limpiar();
     MenuTamModo->titulo = T("Unit");
-    MenuTamModo->Agregar("Fraccion", TAM2D_FRACCION);   // fraccion del rect del padre
-    MenuTamModo->Agregar("Pixeles", TAM2D_PX);          // px del lienzo, tal cual
-    MenuTamModo->Agregar("Escalado", TAM2D_ESCALADO);   // px x escala de pantalla (tipo dpi)
+    MenuTamModo->Agregar("Fraction", TAM2D_FRACCION);   // fraccion del rect del padre
+    MenuTamModo->Agregar("Pixels", TAM2D_PX);          // px del lienzo, tal cual
+    MenuTamModo->Agregar("Scaled", TAM2D_ESCALADO);   // px x escala de pantalla (tipo dpi)
     AbrirMenuBajoBoton(MenuTamModo, pb->button);
 }
 // ajusta unidad/rango/pasos de una fila Width/Height segun la unidad (tamModo)
@@ -1928,8 +1928,8 @@ static void AccionMenuHijosAjuste(){
     if (!MenuHijosAjuste){ MenuHijosAjuste = new PopupMenu(); MenuHijosAjuste->action = AccionHijosAjusteElegido; }
     MenuHijosAjuste->Limpiar();
     MenuHijosAjuste->titulo = T("Fit");
-    MenuHijosAjuste->Agregar("Estirar", 0);   // se reparten el 100% por peso
-    MenuHijosAjuste->Agregar("Minimo", 1);    // cada uno su tamano; Expandir absorbe el resto
+    MenuHijosAjuste->Agregar("Stretch", 0);   // se reparten el 100% por peso
+    MenuHijosAjuste->Agregar("Minimum", 1);    // cada uno su tamano; Expandir absorbe el resto
     AbrirMenuBajoBoton(MenuHijosAjuste, PropsActivo->propHijosAjuste->button);
 }
 static PopupMenu* MenuHijosAlign = NULL;
@@ -1945,9 +1945,9 @@ static void AccionMenuHijosAlign(){
     if (!MenuHijosAlign){ MenuHijosAlign = new PopupMenu(); MenuHijosAlign->action = AccionHijosAlignElegido; }
     MenuHijosAlign->Limpiar();
     MenuHijosAlign->titulo = T("Align");
-    MenuHijosAlign->Agregar("Inicio", 0);
-    MenuHijosAlign->Agregar("Centro", 1);
-    MenuHijosAlign->Agregar("Fin", 2);
+    MenuHijosAlign->Agregar("Start", 0);
+    MenuHijosAlign->Agregar("Center", 1);
+    MenuHijosAlign->Agregar("End", 2);
     AbrirMenuBajoBoton(MenuHijosAlign, PropsActivo->propHijosAlign->button);
 }
 // DISTRIBUCION del eje principal (estilo css). Solo aplica con ajuste MINIMO: con
@@ -2069,8 +2069,8 @@ static void AccionMenuVidModo(){
     if (!MenuVidModo){ MenuVidModo = new PopupMenu(); MenuVidModo->action = AccionVidModoElegido; }
     MenuVidModo->Limpiar();
     MenuVidModo->titulo = T("Mode");
-    MenuVidModo->Agregar("Estirar", 0);
-    MenuVidModo->Agregar("Ajustar", 1);
+    MenuVidModo->Agregar("Stretch", 0);
+    MenuVidModo->Agregar("Fit", 1);
     MenuVidModo->Agregar("Cover", 2);
     AbrirMenuBajoBoton(MenuVidModo, PropsActivo->propVidModo->button);
 }
@@ -2106,7 +2106,7 @@ static void VidArchivoElegido(const std::string& rutaElegida){
 }
 static void AccionVidArchivo(){
     if (!Vid2dActivo()) return;
-    AbrirFileBrowser("Cargar video", T("Open"), ".mp4 .webm .gif .mov .avi", VidArchivoElegido);
+    AbrirFileBrowser("Load video", T("Open"), ".mp4 .webm .gif .mov .avi", VidArchivoElegido);
 }
 
 // ============================ SCRIPT (estilo Unity) ============================
@@ -2145,7 +2145,7 @@ static void ScriptElegido(const std::string& rutaElegida) {
 static void AccionScriptAgregar() {
     if (!ObjActivo) return;
     g_scriptCambiarIdx = -1;
-    AbrirFileBrowser("Elegir script", T("Open"), ".lua .luac", ScriptElegido);
+    AbrirFileBrowser("Choose script", T("Open"), ".lua .luac", ScriptElegido);
 }
 // el script SELECCIONADO en la lista de la tarjeta Control (-1 = ninguno)
 static int ScriptActivoIdx() {
@@ -2308,7 +2308,7 @@ static void AccionScriptCardFila() {
     int ultima = (int)g->properties.size() - 1;
     if (fila == 0) {                 // [0] el archivo: elegir otro .lua
         g_scriptCambiarIdx = card;
-        AbrirFileBrowser("Elegir script", T("Open"), ".lua .luac", ScriptElegido);
+        AbrirFileBrowser("Choose script", T("Open"), ".lua .luac", ScriptElegido);
         return;
     }
     if (fila == ultima) {            // ultima fila: QUITAR el script
@@ -2373,7 +2373,7 @@ static void AbrirMenuPal(int* target, PropButton* boton){
     if (!MenuPal){ MenuPal = new PopupMenu(); MenuPal->action = AccionPalElegida; }
     MenuPal->Limpiar();
     MenuPal->titulo = T("Palette");
-    MenuPal->Agregar("Propio", -1);
+    MenuPal->Agregar(T("Own"), -1);
     if (cs)
         for (size_t i = 0; i < cs->size(); i++)
             MenuPal->Agregar((*cs)[i].nombre, (int)i);
@@ -2411,10 +2411,10 @@ static void AccionPaletasElegida(int id){
     if (id == -1) {                      // "Igual que el padre": el objeto hereda
         if (ObjActivo) ObjActivo->paleta.clear();
     } else if (id == n) {                // "Nueva paleta": una nueva por defecto, asignada al objeto
-        int idx = W3dPaletaNueva("Paleta", -1);
+        int idx = W3dPaletaNueva(T("New Palette"), -1);
         if (idx >= 0 && ObjActivo) ObjActivo->paleta = W3dPaletas()[idx].nombre;
     } else if (id == n + 2) {            // "Duplicar": copia de la actual, asignada al objeto
-        int idx = W3dPaletaNueva("Paleta", gPalEdit);
+        int idx = W3dPaletaNueva(T("Duplicate"), gPalEdit);
         if (idx >= 0 && ObjActivo) ObjActivo->paleta = W3dPaletas()[idx].nombre;
     } else if (id == n + 1) {            // "Borrar paleta": la actual; el objeto vuelve a heredar
         W3dPaletaBorrarPaleta(gPalEdit);
@@ -2437,8 +2437,8 @@ static void AccionMenuPaletas(){
         MenuPaletas->Agregar(ps[i].nombre, i);
     MenuPaletas->Agregar(T("New Palette"), n);             // nueva por defecto, asignada al objeto
     if (gPalEdit >= 0 && gPalEdit < n){                    // hay una paleta asignada: gestionarla
-        MenuPaletas->Agregar("Duplicar", n + 2);          // copia de la actual
-        MenuPaletas->Agregar("Borrar paleta", n + 1);     // borrar la actual (vuelve a heredar)
+        MenuPaletas->Agregar(T("Duplicate"), n + 2);          // copia de la actual
+        MenuPaletas->Agregar(T("Delete Palette"), n + 1);     // borrar la actual (vuelve a heredar)
     }
     AbrirMenuBajoBoton(MenuPaletas, PropsActivo->propPaletaSel->button);
 }
@@ -2459,7 +2459,7 @@ static void AccionMenuPaletaObj(){
     if (!MenuPaletaObj){ MenuPaletaObj = new PopupMenu(); MenuPaletaObj->action = AccionPaletaObjElegida; }
     MenuPaletaObj->Limpiar();
     MenuPaletaObj->titulo = T("Palette");
-    MenuPaletaObj->Agregar("Igual que el padre", -1);
+    MenuPaletaObj->Agregar(T("Same as Parent"), -1);
     std::vector<Paleta>& ps = W3dPaletas();
     for (size_t i = 0; i < ps.size(); i++)
         MenuPaletaObj->Agregar(ps[i].nombre, (int)i);
@@ -2559,9 +2559,9 @@ static void AccionMenuHijosLayout(){
     if (!MenuHijosLayout){ MenuHijosLayout = new PopupMenu(); MenuHijosLayout->action = AccionHijosLayoutElegido; }
     MenuHijosLayout->Limpiar();
     MenuHijosLayout->titulo = T("Layout");
-    MenuHijosLayout->Agregar("Libremente", 0);   // cada hijo con su ancla y su posicion
-    MenuHijosLayout->Agregar("Filas", 1);        // se reparten el alto (100% del area)
-    MenuHijosLayout->Agregar("Columnas", 2);     // se reparten el ancho
+    MenuHijosLayout->Agregar(T("Freely"), 0);   // cada hijo con su ancla y su posicion
+    MenuHijosLayout->Agregar(T("Rows"), 1);        // se reparten el alto (100% del area)
+    MenuHijosLayout->Agregar(T("Columns"), 2);     // se reparten el ancho
     AbrirMenuBajoBoton(MenuHijosLayout, PropsActivo->propHijosLayout->button);
 }
 
@@ -2882,9 +2882,9 @@ static void AccionMenuPvsMetodo(){
     if (!PropsActivo || !PropsActivo->propPvsMetodo) return;
     if (!MenuPvsMetodo){ MenuPvsMetodo = new PopupMenu(); MenuPvsMetodo->action = AccionPvsMetodoElegido; }
     MenuPvsMetodo->Limpiar();
-    MenuPvsMetodo->Agregar(T("Triangulos (PVS)"), 0);
+    MenuPvsMetodo->Agregar(T("Triangles (PVS)"), 0);
     { static bool gBspOff = false;    // *gris == false -> item DESHABILITADO (gris, no clickeable)
-      MenuItem* it = MenuPvsMetodo->Agregar("BSP (pendiente)", 1);
+      MenuItem* it = MenuPvsMetodo->Agregar(T("BSP (pending)"), 1);
       if (it) it->gris = &gBspOff; }
     AbrirMenuBajoBoton(MenuPvsMetodo, PropsActivo->propPvsMetodo->button);
 }
@@ -2893,8 +2893,8 @@ static void AccionPvsRecalcular(){
     extern int W3dPVSRecalcular(Mesh*);   // main/edit/MeshEdit.cpp
     int n = W3dPVSRecalcular((Mesh*)ObjActivo);
     g_redraw = true;
-    if (n > 0) Notificar(T("PVS recalculado"), false);
-    else       Notificar(T("PVS: falta <modelo>.pvs.json junto al .obj de origen"), true);
+    if (n > 0) Notificar(T("PVS recalculated"), false);
+    else       Notificar(T("PVS: <model>.pvs.json is missing along with the source .obj"), true);
 }
 
 // "Apply Modifier": hornea la malla generada en la editable + saca el modificador del stack
@@ -2920,7 +2920,7 @@ static void AccionOptimizarVertexGroups(){
     if (!ObjActivo || ObjActivo->getType() != ObjectType::mesh) return;
     g_pendingOptVGMesh = (Mesh*)ObjActivo;
     if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
-    confirmarPopup->Abrir("Esto modificara el vertex group y lo simplificara a 1 hueso por vertice (skinning mas rapido). Puede haber perdida de datos.", HacerOptimizarVG);
+    confirmarPopup->Abrir("This will modify the vertex group and simplify it to 1 hue per vertex (skinning is faster). Data may be lost.", HacerOptimizarVG);
 }
 
 #ifdef __EMSCRIPTEN__
@@ -3653,7 +3653,7 @@ static void VertexAnimInsertarKeyframeCapa(int capa){
     if (ai < 0 || ai >= (int)m->animations.size() || !m->animations[ai]) return;
     VertexAnimation* an = m->animations[ai];
     if (!m->vertex || m->vertexSize <= 0) return;
-    if (capaUV && !m->uv) { Notificar("Insertar keyframe UV: la malla no tiene UV", true); return; }
+    if (capaUV && !m->uv) { Notificar("Insert UV keyframe: there is no UV in the box", true); return; }
     an->target = m;
     // Ctrl+Z: snapshot ANTES de tocar los frames (KeyframesUndo captura el blob de la anim
     // activa). Cierra al final -> un paso de undo por keyframe insertado/reemplazado.
@@ -3794,7 +3794,7 @@ static void BorrarVertexAnimDe(Mesh* m){
     // la ACTIVA pasa a ser otra (o ninguna) y las claves del dope "objvtx:/objuv:/objnrm:" no
     // dicen de cual son -> se sueltan, o la 'X' del dope borraria poses de la anim de al lado
     DopeSoltarVertexAnim();
-    Notificar("Animacion borrada: " + nom, false);
+    Notificar("Blurred animation:" + nom, false);
     PropertiesLayoutDirty = true; g_redraw = true;
 }
 static void AccionObjAnimDel(){
@@ -4291,7 +4291,7 @@ static void ProyCarpetaElegida(const std::string& elegido) {
 }
 // el campo "Carpeta" ES el boton de examinar: abre el explorador en modo carpeta
 static void AccionBrowseProyCarpeta() {
-    AbrirFileBrowser("Carpeta del proyecto", T("Use this file"), ".w3d", ProyCarpetaElegida, true);
+    AbrirFileBrowser("Project folder", T("Use this file"), ".w3d", ProyCarpetaElegida, true);
 }
 
 // llena los campos de la tarjeta desde w3dPath (al abrir/guardar/cambiar)
@@ -4328,7 +4328,7 @@ static void AccionProyAbrirElegido(const std::string& ruta) {
     AbrirProyectoDesde(ruta);
 }
 static void AccionProyAbrir() {
-    AbrirFileBrowser("Abrir proyecto", "Abrir", ".w3d", AccionProyAbrirElegido);
+    AbrirFileBrowser("Open project", "Open", ".w3d", AccionProyAbrirElegido);
 }
 // valida que el proyecto tenga NOMBRE antes de guardar. Si falta, marca el campo en rojo
 // (PropText::error) + avisa por toast, y devuelve false: el caller NO guarda (antes, sin
@@ -4339,7 +4339,7 @@ static bool ProyValidarNombre() {
     PropsActivo->propProyNombre->error = falta;
     if (falta) {
         extern void Notificar(const std::string&, bool);
-        Notificar("Ponele un nombre al proyecto para poder guardar", true);
+        Notificar("Please give the project a name to be able to save it", true);
         g_redraw = true;
     }
     return !falta;
@@ -4389,18 +4389,18 @@ static void ProyExtraerCarpetaElegida(const std::string& elegido) {
     }
     char b[256];
     if (fallados)
-        snprintf(b, sizeof(b), "Extraidos %d archivo(s); %d fallaron (ver el log)", sacados, fallados);
+        snprintf(b, sizeof(b), "Extracted %d file(s); %d failed (see the log)", sacados, fallados);
     else
-        snprintf(b, sizeof(b), "Extraidos %d archivo(s). Son COPIAS: para que un cambio "
-                               "vuelva al proyecto hay que importarlo de nuevo", sacados);
+        snprintf(b, sizeof(b), "Extracted %d file(s). These are COPIES: for a change to take effect "
+                               "in the project, you need to import it again", sacados);
     Notificar(b, fallados != 0);
 }
 static void AccionProyExtraer() {
     if (!W3dContenedorHayMontado()) {
-        Notificar("Extraer: primero guarda el proyecto (los assets viven adentro del .w3d)", true);
+        Notificar("Extract: first save the project (the assets live inside the .w3d)", true);
         return;
     }
-    AbrirFileBrowser("Extraer los assets a...", T("Use this file"), "", ProyExtraerCarpetaElegida, true);
+    AbrirFileBrowser("Extract assets to...", T("Use this file"), "", ProyExtraerCarpetaElegida, true);
 }
 
 
@@ -4493,21 +4493,21 @@ void Properties::ConstruirGrupos(){
 
     // ===== pestania OBJETO: tarjeta "Animacion" — las animaciones DEL objeto
     // (contenedores; hoy: vertex anims de la malla). Lista + New + Delete. =====
-    propObjAnim = new GroupPropertie("Animacion");
-    propListObjAnims = new PropListMeshParts("Animacion");
+    propObjAnim = new GroupPropertie("Animation");
+    propListObjAnims = new PropListMeshParts("Animation");
     propListObjAnims->modo = 7;
     propObjAnim->properties.push_back(propListObjAnims);
     // rango + fps de la animacion seleccionada
-    { PropFloat* pS = new PropFloat("Inicio"); pS->entero=true; pS->stepFino=1; pS->stepGrueso=10; pS->dragStep=1;
+    { PropFloat* pS = new PropFloat("Start"); pS->entero=true; pS->stepFino=1; pS->stepGrueso=10; pS->dragStep=1;
       pS->value=&g_objAnimStartF; pS->onChange=AccionObjAnimStart; gPropObjAnimStart=pS;
       propObjAnim->properties.push_back(pS); }
-    { PropFloat* pE = new PropFloat("Fin"); pE->entero=true; pE->stepFino=1; pE->stepGrueso=10; pE->dragStep=1;
+    { PropFloat* pE = new PropFloat("End"); pE->entero=true; pE->stepFino=1; pE->stepGrueso=10; pE->dragStep=1;
       pE->value=&g_objAnimEndF; pE->onChange=AccionObjAnimEnd; gPropObjAnimEnd=pE;
       propObjAnim->properties.push_back(pE); }
     { PropFloat* pF = new PropFloat("FPS"); pF->entero=true; pF->SetRango(1,120); pF->stepFino=1; pF->stepGrueso=5; pF->dragStep=1;
       pF->value=&g_objAnimFpsF; pF->onChange=AccionObjAnimFps; gPropObjAnimFps=pF;
       propObjAnim->properties.push_back(pF); }
-    { PropButton* pb = new PropButton("Nueva animacion", IconType::keyframe);
+    { PropButton* pb = new PropButton("New Animation", IconType::keyframe);
       pb->action = AccionObjAnimNew;
       propObjAnim->properties.push_back(pb); }
     { PropButton* pb = new PropButton(T("Delete"), -1);
@@ -4978,10 +4978,10 @@ void Properties::ConstruirGrupos(){
     propUIcard->properties.push_back(propUIver3D);
     // la ESCALA GLOBAL del contenido: x1 = N95, x2/x3/x4 = pantallas mas grandes. El checkbox "igual que el editor"
     // la ata al GlobalScale por plataforma (y oculta el valor manual); destildado = manual, como antes.
-    propUIescalaIgual = new PropBool("Escala igual que el editor");
+    propUIescalaIgual = new PropBool("Scale equal to the editor");
     propUIescalaIgual->onChange = AccionUIescalaIgual;
     propUIcard->properties.push_back(propUIescalaIgual);
-    propUIescala = new PropFloat("Escala", "x");
+    propUIescala = new PropFloat("Scale", "x");
     propUIescala->SetRango(1.0f, 8.0f); propUIescala->entero = true;
     propUIcard->properties.push_back(propUIescala);
     // el lienzo: "como el render" (default, en vivo) o RESPONSIVE con tamano propio
@@ -5139,16 +5139,16 @@ void Properties::ConstruirGrupos(){
     propMargTodos = new PropFloat(T("Margin"), "px");
     propMargTodos->SetRango(0.0f, 2048.0f);
     propMargen->properties.push_back(propMargTodos);
-    propMargIzq = new PropFloat("Marg izq", "px");
+    propMargIzq = new PropFloat(T("Left margin"), "px");
     propMargIzq->SetRango(0.0f, 2048.0f);
     propMargen->properties.push_back(propMargIzq);
-    propMargDer = new PropFloat("Marg der", "px");
+    propMargDer = new PropFloat(T("Right margin"), "px");
     propMargDer->SetRango(0.0f, 2048.0f);
     propMargen->properties.push_back(propMargDer);
-    propMargArr = new PropFloat("Marg arriba", "px");
+    propMargArr = new PropFloat(T("Top margin"), "px");
     propMargArr->SetRango(0.0f, 2048.0f);
     propMargen->properties.push_back(propMargArr);
-    propMargAba = new PropFloat("Marg abajo", "px");
+    propMargAba = new PropFloat(T("Bottom margin"), "px");
     propMargAba->SetRango(0.0f, 2048.0f);
     propMargen->properties.push_back(propMargAba);
 
@@ -5456,23 +5456,23 @@ void Properties::ConstruirGrupos(){
 
     // ===== pestania RENDER: tarjeta "Render" (arriba) + tarjeta "Export" (abajo) =====
     // ===== tarjeta ARCHIVO (pestania Render, PRIMERA): el proyecto .w3d =====
-    propArchivo = new GroupPropertie("Archivo");
+    propArchivo = new GroupPropertie(T("Archive"));
     propArchivo->anchoValores = 0.62f;   // columna ancha (paths)
-    propProyAbrir = new PropButton("Abrir proyecto", IconType::carpeta);
+    propProyAbrir = new PropButton(T("Open project"), IconType::carpeta);
     propProyAbrir->action = AccionProyAbrir;
     propArchivo->properties.push_back(propProyAbrir);
     { std::string dir, nom;   // al abrir por doble click w3dPath ya esta seteado
       size_t sb = w3dPath.find_last_of("/\\");
       if (sb != std::string::npos) { dir = w3dPath.substr(0, sb); nom = w3dPath.substr(sb + 1); }
       else nom = w3dPath;
-      propProyCarpeta = new PropText("Carpeta", dir);
+      propProyCarpeta = new PropText(T("Folder"), dir);
       propProyCarpeta->onClick = AccionBrowseProyCarpeta; // el campo Carpeta ES el "Browse folder"
       propArchivo->properties.push_back(propProyCarpeta);
-      propProyNombre = new PropText("Nombre", nom); }
+      propProyNombre = new PropText(T("Name"), nom); }
     propArchivo->properties.push_back(propProyNombre);
     // (el checkbox "Empaquetar assets" viejo se elimino: los assets del PROYECTO
     // son siempre archivos externos; empaquetar es del juego COMPILADO, tarjeta Juego)
-    propProyGuardar = new PropButton("Guardar", IconType::guardar);
+    propProyGuardar = new PropButton(T("Save"), IconType::guardar);
     propProyGuardar->action = AccionProyGuardar;
     propArchivo->properties.push_back(propProyGuardar);
     // GUARDADO POR VERSIONES: guarda normal + deja <proyecto>_vNN.w3d al lado
@@ -5480,24 +5480,24 @@ void Properties::ConstruirGrupos(){
     propProyVersion = new PropButton(GuardarVersionLabel(), IconType::guardar);
     propProyVersion->action = AccionProyVersion;
     propArchivo->properties.push_back(propProyVersion);
-    propProyComo = new PropButton("Guardar como", IconType::guardar);
+    propProyComo = new PropButton(T("Save as"), IconType::guardar);
     propProyComo->action = AccionProyComo;
     propArchivo->properties.push_back(propProyComo);
     // EXTRAER: los assets de adentro del .w3d a una carpeta, para editarlos afuera
-    propProyExtraer = new PropButton("Extraer assets", IconType::carpeta);
+    propProyExtraer = new PropButton(T("Extract assets"), IconType::carpeta);
     propProyExtraer->action = AccionProyExtraer;
     propArchivo->properties.push_back(propProyExtraer);
     GroupProperties.push_back(propArchivo);
 
 
-    propRender = new GroupPropertie("Render");
+    propRender = new GroupPropertie(T("Render"));
     propRender->anchoValores = 0.62f; // columna de valor ANCHA (paths)
     // salida partida en dos campos: Path (carpeta) + File name (nombre.png).
     // Default del path: carpeta de salida por defecto (Android = Descargas).
     propRenderPath = new PropText(T("Path"), w3dFileSystem::GetDefaultOutputDir());
     propRenderPath->onClick = AccionBrowseRender; // el campo Path ES el "Browse folder": al clickear abre el explorador
     propRender->properties.push_back(propRenderPath);
-    propRenderOutput = new PropText("Nombre", "render.png");
+    propRenderOutput = new PropText(T("Name"), "render.png");
     propRender->properties.push_back(propRenderOutput);
     // resolucion editable (default 640x480). Puede ser MAYOR que la ventana: se rinde por tiles.
     renderW = 640.0f; renderH = 480.0f;
@@ -5577,20 +5577,20 @@ void Properties::ConstruirGrupos(){
 
     // ===== Tarjeta "Juego" (debajo de Animacion): compilar + el cache del viaje en
     // el tiempo. El juego NO se mezcla con la UI ni con las animaciones normales.
-    propJuego = new GroupPropertie("Juego");
-    propJuegoPlat = new PropButton("Plataforma");
+    propJuego = new GroupPropertie(T("Game"));
+    propJuegoPlat = new PropButton(T("Platform"));
     propJuegoPlat->conLabel = true;
     propJuegoPlat->button->desplegable = true;
     propJuegoPlat->button->text = NombrePlat(g_proyCompilar.plataforma);
     propJuegoPlat->action = AccionMenuPlat;
     propJuego->properties.push_back(propJuegoPlat);
-    propJuegoModoVent = new PropButton("Modo ventana");
+    propJuegoModoVent = new PropButton(T("Window mode"));
     propJuegoModoVent->conLabel = true;
     propJuegoModoVent->button->desplegable = true;
     propJuegoModoVent->button->text = NombreModoVent(g_proyCompilar.modoVentana);
     propJuegoModoVent->action = AccionMenuModoVent;
     propJuego->properties.push_back(propJuegoModoVent);
-    propJuegoOrient = new PropButton("Orientacion");
+    propJuegoOrient = new PropButton(T("Guidance"));
     propJuegoOrient->conLabel = true;
     propJuegoOrient->button->desplegable = true;
     propJuegoOrient->button->text = NombreOrientacion(g_proyCompilar.orientacion);
@@ -5598,14 +5598,14 @@ void Properties::ConstruirGrupos(){
     propJuego->properties.push_back(propJuegoOrient);
     // icono del juego: elegir un PNG (con alpha, maxima definicion); las versiones
     // chicas las genera Compilar juego. Se guarda en el .w3d como ruta externa.
-    propJuegoIcono = new PropButton("Icono");
+    propJuegoIcono = new PropButton(T("Icon"));
     propJuegoIcono->conLabel = true;
     propJuegoIcono->button->text = NombreIconoJuego();
     propJuegoIcono->action = AccionMenuIcono;
     propJuego->properties.push_back(propJuegoIcono);
     // assets del juego compilado: sueltos (editables, como siempre) o empaquetados
     // (protegidos: dentro del binario, ofuscados, sin archivos que copiar/instalar)
-    propJuegoAssets = new PropButton("Assets");
+    propJuegoAssets = new PropButton(T("Assets"));
     propJuegoAssets->conLabel = true;
     propJuegoAssets->button->desplegable = true;
     propJuegoAssets->button->text = NombreAssetsModo(g_proyCompilar.assetsModo);
@@ -5613,45 +5613,45 @@ void Properties::ConstruirGrupos(){
     propJuego->properties.push_back(propJuegoAssets);
     // UID de Symbian del juego: cada juego es su PROPIA app (no pisa el editor). El boton
     // GENERA un UID random (rango self-signed) que se guarda en el .w3d. Solo lo usa el target Symbian.
-    propJuegoUID = new PropButton("UID Symbian");
+    propJuegoUID = new PropButton(T("Symbian UID"));
     propJuegoUID->conLabel = true;
     propJuegoUID->button->text = NombreUID();
     propJuegoUID->action = AccionGenerarUID;
     propJuegoUID->oculto = (g_proyCompilar.plataforma != 5);  // visible solo con Symbian
     propJuego->properties.push_back(propJuegoUID);
     // subsistemas opcionales: destildado = el juego compilado sale SIN ese modulo
-    propJuegoFisica = new PropBool("Usar motor de fisica");
+    propJuegoFisica = new PropBool(T("Use physics engine"));
     propJuegoFisica->value = &g_proyCompilar.usarFisica;
     propJuego->properties.push_back(propJuegoFisica);
-    propJuegoSonido = new PropBool("Usar sonido");
+    propJuegoSonido = new PropBool(T("Use sound"));
     propJuegoSonido->value = &g_proyCompilar.usarSonido;
     propJuego->properties.push_back(propJuegoSonido);
     // volumen del gameplay 0..100 (audio del juego): baja/sube en vivo (onChange aplica la ganancia al mixer).
-    { PropFloat* pV = new PropFloat("Volumen", "%");
+    { PropFloat* pV = new PropFloat(T("Volume"), "%");
       pV->SetRango(0.0f, 100.0f); pV->entero = true;
       pV->stepFino = 1.0f; pV->stepGrueso = 10.0f; pV->dragStep = 1.0f;
       g_juegoVolF = (float)g_proyCompilar.volumen; pV->value = &g_juegoVolF; pV->onChange = AccionJuegoVolumen;
       propJuego->properties.push_back(pV); }
     // modo debug: tildado = W3D_DEV_LOG=1 (log + ring + depurar()); destildado
     // (default) = produccion, W3D_DEV_LOG=0 (sin mensajes de debug ni ring)
-    propJuegoDebug = new PropBool("Modo debug");
+    propJuegoDebug = new PropBool(T("Debug mode"));
     propJuegoDebug->value = &g_proyCompilar.modoDebug;
     propJuego->properties.push_back(propJuegoDebug);
-    propJuegoCompilar = new PropButton("Compilar juego", IconType::gamepad);
+    propJuegoCompilar = new PropButton(T("Compile game"), IconType::gamepad);
     propJuegoCompilar->action = AccionCompilarJuego;
     propJuego->properties.push_back(propJuegoCompilar);
     // checkbox: cache de juego (rewind) ON/OFF. Destildado -> el sim NO snapshotea la escena cada tick = juego
     // FLUIDO (ver SimJuego.cpp). Con el cache OFF, el campo "Cache" y "No reemplazar estados" se ocultan (refresh).
-    propJuegoCacheOn = new PropBool("Cache de juego");
+    propJuegoCacheOn = new PropBool(T("Game cache"));
     propJuegoCacheOn->value = &gSimCacheOn;
     propJuegoCacheOn->onChange = AccionSimCacheOn;   // al togglear: corta el cache limpio (sin frames fantasma)
     propJuego->properties.push_back(propJuegoCacheOn);
-    propJuegoCacheMax = new PropFloat("Cache", "frames");
+    propJuegoCacheMax = new PropFloat(T("Cache"), T("frames"));
     propJuegoCacheMax->SetRango(10.0f, 100000.0f); propJuegoCacheMax->entero = true;
     propJuegoCacheMax->stepFino = 10.0f; propJuegoCacheMax->stepGrueso = 50.0f; propJuegoCacheMax->dragStep = 1.0f;
     g_simCacheF = (float)gSimCacheMax; propJuegoCacheMax->value = &g_simCacheF; propJuegoCacheMax->onChange = AccionSimCache;
     propJuego->properties.push_back(propJuegoCacheMax);
-    propAnimConservar = new PropBool("No reemplazar estados");
+    propAnimConservar = new PropBool(T("Don't replace states"));
     propAnimConservar->value = &AnimConservarEstados;
     propJuego->properties.push_back(propAnimConservar);
     GroupProperties.push_back(propJuego);
@@ -5659,7 +5659,7 @@ void Properties::ConstruirGrupos(){
     // ===== Tarjeta "Keyframe": el keyframe elegido en el editor de curvas, con numeros exactos =====
     // Aparece SOLO cuando hay uno elegido. X = frame (entero), Y = valor. Los handles son puntos (offset desde el
     // keyframe) y solo se pueden tipear si el tipo los guarda (Free/Aligned); con los calculados quedan grises.
-    propKeyframe = new GroupPropertie("Keyframe");
+    propKeyframe = new GroupPropertie(T("Keyframe"));
     propKeyframe->icono = (int)IconType::keyframe;   // el rombo, igual que el del timeline
     propKeyframe->anchoValores = 0.55f;
     { PropFloat* p1 = new PropFloat("Frame X");
@@ -6069,7 +6069,7 @@ void Properties::ConstruirGrupos(){
     propPvsMetodo = new PropButton(T("Method")); propPvsMetodo->button->desplegable = true;
     propPvsMetodo->action = AccionMenuPvsMetodo;
     propModifierProps->properties.push_back(propPvsMetodo);
-    propPvsRecalc = new PropButton(T("Recalcular"));
+    propPvsRecalc = new PropButton(T("Recalculate"));
     propPvsRecalc->action = AccionPvsRecalcular;
     propModifierProps->properties.push_back(propPvsRecalc);
     propPvsInfo = new PropLabel("");   // "N sectores, sector activo S" / "sin .pvs.json"
@@ -6722,7 +6722,7 @@ void Properties::RefreshTargetProperties(){
                     g->properties.push_back(pb);
                 }
                 // ultima fila: QUITAR este script
-                PropButton* pq = new PropButton("Quitar script", -1);
+                PropButton* pq = new PropButton("Remove script", -1);
                 pq->action = AccionScriptCardFila;
                 g->properties.push_back(pq);
             }
@@ -6819,7 +6819,7 @@ void Properties::RefreshTargetProperties(){
     if (propPaletaObjSel)
         propPaletaObjSel->button->text = (ObjActivo && !ObjActivo->paleta.empty())
                                              ? ObjActivo->paleta
-                                             : std::string("Igual que el padre");
+                                             : std::string("Same as parent");
     // UI: la tarjeta de la raiz de la interfaz. Las filas responsive solo aparecen con
     // "como el render" apagado (value NULL / oculto: no ocupan fila).
     if (propUIver3D){
@@ -7723,7 +7723,7 @@ void Properties::ActualizarPestanias(){
         if (esArmMod) ActualizarSkinArmature(mm); // mantener skinArmature en sync con el modificador
         // Culling (PVS por triangulo): metodo + Recalcular + la info del sidecar cargado
         if (propPvsMetodo) { propPvsMetodo->oculto = !esPvs;
-            if (esPvs) propPvsMetodo->button->text = (mod->metodoPVS == 1) ? "BSP (pendiente)" : T("Triangulos (PVS)"); }
+            if (esPvs) propPvsMetodo->button->text = (mod->metodoPVS == 1) ? "BSP (pendiente)" : T("Triangles (PVS)"); }
         if (propPvsRecalc) propPvsRecalc->oculto = !esPvs;
         if (propPvsInfo) { propPvsInfo->oculto = !esPvs;
             if (esPvs) {
@@ -7731,7 +7731,7 @@ void Properties::ActualizarPestanias(){
                 if (!mod->pvsSectores.empty())
                     snprintf(inf, sizeof(inf), "%d sectores | sector activo: %d", (int)mod->pvsSectores.size(), mod->sectorPVS);
                 else
-                    snprintf(inf, sizeof(inf), "%s", mod->pvsCargado ? "sin <modelo>.pvs.json (malla completa)" : "sidecar sin cargar (Recalcular)");
+                    snprintf(inf, sizeof(inf), "%s", mod->pvsCargado ? T("without <model>.pvs.json (complete mesh)") : T("sidecar not loaded (Recalculate)"));
                 propPvsInfo->name = inf;
             } }
         // Apply: con cualquier modificador seleccionado, SALVO el Culling (no hornea nada: la malla ya esta intacta)

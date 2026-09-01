@@ -1047,8 +1047,11 @@ int main(int argc, char* argv[]) {
     MenuPantallaH = winH;
     rootViewport->Resize(winW, winH);
 
+#if !defined(__ANDROID__)
     // MODO TEST: "whisk3d --script <ruta>" corre un script de comandos (sin GUI) y
     // sale (0 = todo OK, 1 = fallo). Ver main/test/W3dScript.cpp.
+    // En Android no se compila la suite de tests y este symbol no existe; se mantiene
+    // fuera del APK para evitar el undefined symbol al linkear.
     for (int ai = 1; ai < argc; ai++) {
         if (std::string(argv[ai]) == "--script" && ai + 1 < argc) {
             bool ok = W3dRunScript(argv[ai + 1]);
@@ -1056,6 +1059,7 @@ int main(int argc, char* argv[]) {
             return ok ? 0 : 1;
         }
     }
+#endif
 
     // "whisk3d --open <archivo>" IMPORTA un modelo al arrancar (util para probar/depurar render + skinning sin el
     // file browser). Rutea por extension: .fbx -> ImportFBX; el resto -> ImportOBJ.

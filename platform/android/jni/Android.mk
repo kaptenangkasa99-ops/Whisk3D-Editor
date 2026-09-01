@@ -26,10 +26,12 @@ LOCAL_MODULE := main
 CORE := Whisk3DCore
 
 # Archivos incluidos
-
+# Excluimos la suite de tests del editor (main/test): es un runner de scripts para desktop,
+# no forma parte del runtime de Android y termina trayendo W3dRunCommand/W3dRunScript al binario
+# final, donde genera el undefined symbol que vimos al linkear.
 SRC_FILES := $(shell find $(PROJECT_ROOT)/main $(PROJECT_ROOT)/libs/$(CORE)/objects \
 $(PROJECT_ROOT)/libs/$(CORE)/animation $(PROJECT_ROOT)/libs/WhiskUI \
--name '*.cpp')
+\( -path '$(PROJECT_ROOT)/main/test' -prune \) -o -name '*.cpp' -print)
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/io/w3dFilesystem.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/gfx/w3dTexture.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/io/w3dCompress.cpp
@@ -48,7 +50,9 @@ SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dInteractionState.cpp
 # Faltaba en el build del editor -> undefined symbols al linkear.
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dConfig.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/base/W3dClipboardSDL.cpp
-# backend grafico del Core para Android: GLES2, no el GL de escritorio.
+# backend grafico del Core para Android: usar la ruta GLES2 del motor. El backend
+# fijo de desktop usa GL 1.x/GLdouble/glClipPlane/glPushMatrix y no existe en GLES2;
+# para Android hay que compilar el backend de shaders ES2 y no el pipeline fijo.
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/gles2/w3dGraphicsGLES2.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/math/Vector3.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/math/Quaternion.cpp
@@ -102,7 +106,7 @@ LOCAL_CPP_FEATURES := exceptions rtti
 LOCAL_CFLAGS := -DLUA_USE_POSIX -DW3D_ENABLE_AUDIO '-Dl_fseek(f,o,w)=fseek(f,o,w)' '-Dl_ftell(f)=ftell(f)' -Dl_seeknum=long
 # Version = fecha de compilacion YY.MM.DD (igual que el versionName del APK). Se recalcula en CADA build (shell date)
 # -> siempre fresca. Sirve para el titulo de ventana y el header del .obj exportado.
-LOCAL_CPPFLAGS := -std=c++17 -DW3D_VERSION=\"$(shell date +%y.%m.%d)\"
+LOCAL_CPPFLAGS := -std=c++17 -DW3D_VERSION=\"$(shell date +%y.%m.%d)\" -DW3D_GLES2
 
 LOCAL_SHARED_LIBRARIES := SDL2
 #LOCAL_LDLIBS := -lGLESv1_CM -llog -landroid # Descomentar si en un futuro se necesitan builds 1.1
