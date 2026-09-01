@@ -3393,7 +3393,7 @@ static PopupMenu* AnimSubmenuPool(size_t i){ while (g_animSubmenus.size() <= i) 
 void ConstruirMenuAnim(PopupMenu* menu){
     menu->Limpiar();
     InitSceneAnimations();
-    menu->Agregar("Juego", ANIM_ID_JUEGO, IconType::gamepad);
+    menu->Agregar(T("Game"), ANIM_ID_JUEGO, IconType::gamepad);
     PopupMenu* subEsc = AnimSubmenuPool(0); subEsc->Limpiar(); subEsc->action = menu->action; // submenu "Scenes"
     for (size_t i=0;i<SceneAnimations.size();i++) subEsc->Agregar(SceneAnimations[i]->name, (int)i, IconType::camera);
     menu->Agregar(T("Scenes"), 0, IconType::camera, subEsc);

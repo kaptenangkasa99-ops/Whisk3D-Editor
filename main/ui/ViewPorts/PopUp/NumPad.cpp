@@ -620,9 +620,9 @@ void SimbolosPopup::Render(){
       int barTY = barraY + (celH - RenglonHeightGS) / 2;
       w3dEngine::Color4f(acc[0], acc[1], acc[2], 1.0f);
       w3dEngine::PushMatrix(); w3dEngine::Translatef((GLfloat)(borderGS + gapGS), (GLfloat)barTY, 0);
-      RenderBitmapText(std::string("aceptar"), textAlign::left, popUpWindow->width / 2); w3dEngine::PopMatrix();
+      RenderBitmapText(std::string("Accept"), textAlign::left, popUpWindow->width / 2); w3dEngine::PopMatrix();
       w3dEngine::PushMatrix(); w3dEngine::Translatef((GLfloat)(popUpWindow->width - borderGS - gapGS), (GLfloat)barTY, 0);
-      RenderBitmapText(std::string("cancelar"), textAlign::right, popUpWindow->width / 2); w3dEngine::PopMatrix(); }
+      RenderBitmapText(std::string("Cancel"), textAlign::right, popUpWindow->width / 2); w3dEngine::PopMatrix(); }
     endView();
 }
 
