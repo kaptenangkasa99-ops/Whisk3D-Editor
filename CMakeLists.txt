@@ -99,6 +99,12 @@ list(APPEND SRC_FILES
     # todo es stub no-op, asi que agregarlos no cambia nada hasta habilitar el flag (abajo).
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/audio/W3dAudio.cpp
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/audio/W3dAudioSDL.cpp
+    # re-aplica el volumen global a todas las pistas de musica vivas; sin este cpp la
+    # llamada desde W3dVolumen.cpp queda sin resolucion en el link.
+    ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/audio/W3dMusic.cpp
+    # volumen maestro y mute del motor: el .w3d puede declarar un volumen inicial de proyecto.
+    # Sin este cpp el link falla con "w3dEngine::VolumenAplicarProyecto".
+    ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/audio/W3dVolumen.cpp
     # PORTAPAPELES del sistema (Core): backend SDL (en Symbian se usa W3dClipboardSymbian.cpp via .mmp)
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/base/W3dClipboardSDL.cpp
 )

@@ -39,7 +39,7 @@
 // (el boton de la tarjeta Archivo no existe en esa UI). El .cpp igual se compila
 // (regla del repo: todo .cpp nuevo de main/ entra al Whisk3D.mmp).
 int GuardarVersionSiguienteN() { return 1; }
-std::string GuardarVersionLabel() { return "Guardar version v1"; }
+std::string GuardarVersionLabel() { return "Save version v1"; }
 bool GuardarVersionEjecutar() { return false; }
 void GuardarVersionColectarDe(const std::string&, const std::string&,
                               const std::string&, std::set<std::string>*) {}

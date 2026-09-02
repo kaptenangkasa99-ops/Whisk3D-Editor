@@ -16,23 +16,23 @@ REM raiz del repo = 2 niveles arriba de este script (platform\windows\)
 set "ROOT=%~dp0..\.."
 pushd "%ROOT%" || exit /b 1
 
-where cmake >nul 2>nul || (echo ERROR: cmake no esta en el PATH. Instalalo de https://cmake.org/download/ && goto :fail)
-where git   >nul 2>nul || (echo ERROR: git no esta en el PATH. && goto :fail)
+where cmake >nul 2>nul || (echo ERROR: cmake is not in PATH. Install it from https://cmake.org/download/ && goto :fail)
+where git   >nul 2>nul || (echo ERROR: git is not in PATH. && goto :fail)
 
 set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=Release"
 
-echo == Actualizando submodulos (SDL2, Whisk3DCore, WhiskUI)...
+echo == Updating submodules (SDL2, Whisk3DCore, WhiskUI)...
 git submodule update --init --recursive || goto :fail
 
-echo == Configurando (platform\windows\build)... (cmake elige el Visual Studio instalado; x64 por defecto)
+echo == Configuring (platform\windows\build)... (cmake detects the installed Visual Studio; x64 by default)
 cmake -S . -B platform\windows\build || goto :fail
 
-echo == Compilando (%CONFIG%)...
+echo == Building (%CONFIG%)...
 cmake --build platform\windows\build --config %CONFIG% --parallel || goto :fail
 
 echo.
-echo Whisk3D compilado:
+echo Whisk3D built:
 echo   %ROOT%\platform\windows\build\%CONFIG%\whisk3d.exe
 echo.
 
@@ -46,23 +46,23 @@ if not defined NSISDIR if exist "%PF%\NSIS\makensis.exe"   set "NSISDIR=%PF%\NSI
 if not defined NSISDIR goto :sin_nsis
 
 if not "%NSISDIR%"=="." set "PATH=%PATH%;%NSISDIR%"
-echo == Generando instalador .exe con NSIS...
+echo == Generating installer .exe with NSIS...
 pushd platform\windows\build
 cpack -G NSIS -C %CONFIG%
 set "CPACKERR=%errorlevel%"
 popd
 if not "%CPACKERR%"=="0" (
-  echo *** El instalador FALLO ^(cpack^). El whisk3d.exe de arriba igual quedo compilado. ***
+  echo *** Installer FAILED ^(cpack^). The whisk3d.exe above was still built successfully. ***
   goto :done
 )
 echo.
-echo Instalador generado en:
+echo Installer generated in:
 for %%F in ("%ROOT%\platform\windows\build\Whisk3D-*-win64.exe") do echo   %%~fF
 goto :done
 
 :sin_nsis
-echo Instalador .exe: NSIS no encontrado, se OMITE ^(el whisk3d.exe de arriba ya funciona^).
-echo   Para generarlo: instala NSIS  [winget install NSIS.NSIS]  y volve a correr este .bat.
+echo Installer .exe: NSIS not found, so it is SKIPPED ^(the whisk3d.exe above already works^).
+echo   To generate it: install NSIS  [winget install NSIS.NSIS]  and run this .bat again.
 
 :done
 popd
@@ -71,7 +71,7 @@ exit /b 0
 
 :fail
 echo.
-echo *** La compilacion FALLO. Revisa el error de arriba. ***
+echo *** Build FAILED. Check the error above. ***
 popd
 pause
 exit /b 1
