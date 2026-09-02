@@ -1,8 +1,8 @@
-// ============================================================================
-//  BindsJuego.cpp — ver BindsJuego.h. Los binds 2D de juego COMPARTIDOS por el
-//  editor (Play) y el runtime compilado, mas el estado por-frame que necesitan.
-//  C++03 puro (Symbian/Android). Comentarios sin acentos.
-// ============================================================================
+// ==========================================================================
+// BindsJuego.cpp — see BindsJuego.h. Los binds 2D game SHARED by him
+// editor (Play) and the runtime is compiled, but the per-frame state is required.
+// Pure C++03 (Symbian/Android). Comments without accents.
+// ==========================================================================
 #include "script/BindsJuego.h"
 #include "script/W3dScript.h"          // W3dScriptParamObjeto
 #include "physics/W3dFisica.h"         // adaptador 2D de la fisica del Core (lienzo + tamano del elemento)
@@ -16,10 +16,10 @@
 #include "render/UIOverlay.h"          // UI2D_TamanoLienzo, UI2D_EsElemento2D, UI2DPos
 #include "render/OpcionesRender.h"     // g_redraw (+ g_renderAspect para pantallaDe)
 #include "base/w3dlog.h"               // w3dLogf: log PROPIO (nunca printf/stdout -> abria la consola blanca)
-// (Camera.h NO se incluye aca: arrastra variables.h, que es solo del editor. Todo
-//  lo que necesita una camara pasa por los hooks de BindsJuego.h, que instala quien
-//  linkee el objeto Camera. Asi el bind existe y funciona en cualquier build que
-//  traiga camara, en vez de ser un stub mudo segun el #ifdef del build.)
+// (Camera.h is NOT included here: drag variables.h, which is only from the editor. All
+// what needs a camera goes through the BindsJuego.h hooks, which installs everything
+// link the Camera object. So the bind exists and works in any build that
+// betray camera, instead of being a silent stub according to the #ifdef of the build.)
 #include "io/UI2DFormato.h"            // g_w3dDirProyecto: base de las rutas relativas de sonido()
 #include "W3dAlmacen.h"                // W3dAlmacenMontado(): setTextura respeta las entradas del contenedor v4
 #include "base/W3dConfig.h"            // ConfigMudo(): mute global del Core
@@ -34,15 +34,15 @@ extern "C" {
 #include <map>      // cache de sonidos cargados por sonido()
 #include <string>
 
-// audio del Core, forward-decl (evita el include del dir de audio, como en W3dScript.cpp).
-// Sin -DW3D_ENABLE_AUDIO son stubs no-op -> sonido() no hace nada y no rompe.
+// audio dell Core, forward-deck (avoids including the audio dir, as in W3dScript.cpp).
+// Sin -DW3D_ENABLE_AUDIO son stubs no-op -> sonido() does nothing and does not rupture.
 namespace w3dEngine { class W3dSound; W3dSound* W3dSoundLoad(const char*); int W3dSoundPlayPitch(W3dSound*, float, bool, float); void W3dSoundStopFade(int, float); }
 
 // ---------------------------------------------------------------------------
-//  TAMANO del lienzo del juego: el MISMO que ve el render del overlay
-//  (UI2D_TamanoLienzo). En el editor es el UI que se edita; en el runtime es
-//  g_gameRenderW/H (que W3dGameRender deja igual al lienzo). Asi el script
-//  (pantalla/posPx) y el dibujo COINCIDEN en los dos lados.
+// SIZE of the game deck: the SIZE that sees the rendering of the overlay
+// (UI2D_TamanoLienzo). In the editor it is the UI that is edited; in the runtime is
+// g_gameRenderW/H (which W3dGameRender should be the same as before). So the script
+// (screen/posPx) and the COINCIDEN drawing on the sides.
 // ---------------------------------------------------------------------------
 static void TamLienzo(float* w, float* h) {
     UI2D_TamanoLienzo(w, h);
@@ -369,13 +369,13 @@ static int LPararSonido(lua_State* L) {
     if (id > 0) w3dEngine::W3dSoundStopFade(id, fade);
     return 0;
 }
-// setSector(obj, s): sector ACTIVO del modificador "Culling" (PVS por triangulo) de la
-// malla. s es 1-based; 0 o fuera de rango = malla completa (fallback). El lua del juego
-// lo llama al cambiar el nodo/camara del riel; el swap de indices es una sola re-subida
-// del IBO (nunca trabajo por frame). Objeto sin el modificador / no-malla = no-op.
-// HOOK y no un extern directo: este .cpp se comparte con el RUNTIME del juego compilado,
-// que NO linkea el editor (main/edit). El editor lo instala (MeshEdit.cpp); sin instalar,
-// setSector es un no-op que linkea igual (mismo patron que W3dScriptSetBindExtra).
+// setSector(obj, s): ACTIVE sector of the "Culling" modifier (PVS per triangle) there
+// malla. s es 1-based; 0 or range power = complete malla (fallback). The moon of the game
+// call him to change the node/camara del riel; the index swap is a simple re-rise
+// del IBO (I never work per frame). Object without the modifier / no-malla = no-op.
+// HOOK and no direct extern: this .cpp is shared with the RUNTIME of the compiled game,
+// that DOES NOT link the editor (main/edit). The editor installs it (MeshEdit.cpp); without installing,
+// setSector is a no-op that links the same (same patron as W3dScriptSetBindExtra).
 bool (*W3dPVSSetSectorHook)(Object*, int) = 0;
 static int LSetSector(lua_State* L) {
     Object* o = W3dScriptParamObjeto(L, 1);
@@ -383,20 +383,20 @@ static int LSetSector(lua_State* L) {
     if (o && W3dPVSSetSectorHook) W3dPVSSetSectorHook(o, sec);
     return 0;
 }
-// --- VISIBILIDAD POR CELDA (VisSet / VisZona) ---
-// visCelda(obj): la celda ACTIVA (1-based; 0 = malla completa). obj puede ser la
-// malla con el modificador Culling por triangulo o una VisZona. nil = sin dato.
-// setVisAncla(zona, obj): fija el objeto cuya posicion decide la celda en los
-// modos grilla/volumenes de la zona (pisa el ancla declarada en el .w3d).
-// setVisCurvaT(zona, t [, riel]): modo curva: el juego entrega el indice
-// FRACCIONARIO del nodo del riel (el mismo ancla que ya calcula para la camara);
-// la zona avanza de a UNA celda por tick hacia ese objetivo (el stepper vive en
-// la zona). El 3er argumento (opcional) identifica DE QUE riel es ese indice:
-// un string con el nombre de la Curve, o la Curve misma. Si la zona declara
-// `riel:` y no coincide, cae a su fallback (multi-riel, ver VisZona.h); sin
-// declarar riel el identificador se ignora (compatibilidad total).
-// Mismo patron de HOOKS que setSector: el editor los instala (MeshEdit/VisZona);
-// sin instalar, los binds son no-op seguros que linkean igual.
+// --- VISIBILITY BY CELDA (VisSet / VisZona) ---
+// visCelda(obj): the cell ACTIVA (1-based; 0 = full bag). omg it could be there
+// package with the Culling modifier by triangle or a VisZona. nil = sin data.
+// setVisAncla(zone, obj): set the object whose position decides the cell in them
+// grid modes/zone volumes (step on the angle declared in the .w3d).
+// setVisCurvaT(zone, t [, riel]): curve mode: the game delivers the index
+// FRACTIONARY of the river node (the same number calculates for the chamber);
+// the zone advances from the UNA cell per tick to this objective (the stepper lives in
+// the zone). The 3rd argument (optional) identifies WHAT riel this index is from:
+// a string with the name of the Curve, or the Curve itself. If the zone declares
+// `riel:` y does not coincide, falls to su fallback (multi-riel, see VisZona.h); yes
+// declare riel the identifier is ignored (full compatibility).
+// Same HOOKS patron that setSector: the editor installs them (MeshEdit/VisZona);
+// without installing, the binds are no-op secure that linkean equal.
 int  (*W3dVisCeldaHook)(Object*) = 0;
 bool (*W3dVisAnclaHook)(Object*, Object*) = 0;
 bool (*W3dVisCurvaTHook)(Object*, float, const char*) = 0;
@@ -426,8 +426,8 @@ static int LSetVisCurvaT(lua_State* L) {
     if (zona && W3dVisCurvaTHook) W3dVisCurvaTHook(zona, t, riel);
     return 0;
 }
-// setLote(coleccion, "estatico"|"off"): prende/apaga el lote estatico de una
-// Collection (P4). Mismo patron de hook (lo instala Collection.cpp); no-op seguro.
+// setLot(collection, "static"|"off"): sets/deletes the static batch of one
+// Collection (P4). Same hook patron (it installs Collection.cpp); secure no-op.
 bool (*W3dSetLoteHook)(Object*, const char*) = 0;
 static int LSetLote(lua_State* L) {
     Object* o = W3dScriptParamObjeto(L, 1);
@@ -440,7 +440,7 @@ static int LSetLote(lua_State* L) {
 // en el runtime compilado queda NULL y el bind es un no-op seguro.
 void (*W3dParticulasEmitirHook)(Object* o, int n) = 0;
 
-// LA CAMARA POR HOOK (ver BindsJuego.h): los instala main/objects/Camera.cpp.
+// CAMERA HOOKS (see GameBindings.h): installed in main/objects/Camera.cpp.
 bool (*W3dCamaraProyectarHook)(Object*, float, float, float*, float*, bool*) = 0;
 bool (*W3dCamaraRielSetHook)(Object*, Object*, const char*, bool, const int*) = 0;
 bool (*W3dCamaraRielNodoHook)(Object*, float) = 0;
@@ -487,10 +487,10 @@ static int LSetTam(lua_State* L) {
 // salir(): pide cerrar el juego (la plataforma corta el loop). En el editor no hace efecto visible.
 static int LSalir(lua_State*) { gQuit = true; return 0; }
 
-// apretado(objeto) -> bool. true SOLO en el frame del tap/click NUEVO (flanco de bajada) cuyo punto
-// cae DENTRO del rect en pantalla del objeto. Vale para mouse Y para cualquier dedo (multitouch).
-// El rect es el RESUELTO por el layout (anclas/flex, como cajaUI): un boton dentro de un contenedor
-// se toca DONDE SE DIBUJA; si aun no se dibujo cae al rect crudo (CajaHitLienzo).
+// apretado(object) -> bool. true SOLO on the frame of the NEW tap/click (flank of bass) whose point
+// falls INSIDE the rect on the object screen. Valid for Y mouse for any finger (multitouch).
+// The rect is the RESUELTO by the layout (anclas/flex, like cajaUI): a button inside a container
+// if played DONDE SE DIBUJA; If you don't say it, it falls right away (CajaHitLienzo).
 static int LApretado(lua_State* L) {
     Object* o = W3dScriptParamObjeto(L, 1);
     float cx, cy, hw, hh;
@@ -943,49 +943,49 @@ void BindsJuegoRegistrar(void* Lv) {
     lua_State* L = (lua_State*)Lv;
     W3dFisicaSetAdaptador2D(FisicaLienzo, FisicaTam2D, FisicaCajaUI,
                             FisicaPosCruda);   // idempotente (se llama por cada lua_State)
-    lua_pushcfunction(L, LPantalla);    lua_setglobal(L, "pantalla");
+    lua_pushcfunction(L, LPantalla);    lua_setglobal(L, "screen");
     lua_pushcfunction(L, LPosPx);       lua_setglobal(L, "posPx");
     lua_pushcfunction(L, LSetPosPx);    lua_setglobal(L, "setPosPx");
-    lua_pushcfunction(L, LTamPx);       lua_setglobal(L, "tamPx");
-    lua_pushcfunction(L, LSetTamPx);    lua_setglobal(L, "setTamPx");
+    lua_pushcfunction(L, LTamPx);       lua_setglobal(L, "getScreenPx");
+    lua_pushcfunction(L, LSetTamPx);    lua_setglobal(L, "setScreenPx");
     lua_pushcfunction(L, LSetTexto);    lua_setglobal(L, "setTexto");
     lua_pushcfunction(L, LSetTextura);  lua_setglobal(L, "setTextura");
-    lua_pushcfunction(L, LSonido);      lua_setglobal(L, "sonido");
-    lua_pushcfunction(L, LPararSonido); lua_setglobal(L, "pararSonido");
+    lua_pushcfunction(L, LSonido);      lua_setglobal(L, "sound");
+    lua_pushcfunction(L, LPararSonido); lua_setglobal(L, "stopSound");
     lua_pushcfunction(L, LSetSector);   lua_setglobal(L, "setSector");
-    lua_pushcfunction(L, LVisCelda);      lua_setglobal(L, "visCelda");
-    lua_pushcfunction(L, LSetVisAncla);   lua_setglobal(L, "setVisAncla");
-    lua_pushcfunction(L, LSetVisCurvaT);  lua_setglobal(L, "setVisCurvaT");
-    lua_pushcfunction(L, LSetLote);       lua_setglobal(L, "setLote");
-    lua_pushcfunction(L, LEmitir);      lua_setglobal(L, "emitir");
-    lua_pushcfunction(L, LMostrar);     lua_setglobal(L, "mostrar");
-    lua_pushcfunction(L, LSetOpacidad); lua_setglobal(L, "setOpacidad");
-    lua_pushcfunction(L, LSetTam);      lua_setglobal(L, "setTam");
-    lua_pushcfunction(L, LSalir);       lua_setglobal(L, "salir");
+    lua_pushcfunction(L, LVisCelda);      lua_setglobal(L, "visibilityCell");
+    lua_pushcfunction(L, LSetVisAncla);   lua_setglobal(L, "setVisibilityAnchor");
+    lua_pushcfunction(L, LSetVisCurvaT);  lua_setglobal(L, "setVisibilityCurve");
+    lua_pushcfunction(L, LSetLote);       lua_setglobal(L, "setCollection");
+    lua_pushcfunction(L, LEmitir);      lua_setglobal(L, "emitter");
+    lua_pushcfunction(L, LMostrar);     lua_setglobal(L, "show");
+    lua_pushcfunction(L, LSetOpacidad); lua_setglobal(L, "setOpacity");
+    lua_pushcfunction(L, LSetTam);      lua_setglobal(L, "setFontScreenSize");
+    lua_pushcfunction(L, LSalir);       lua_setglobal(L, "quot");
     // facilidades: logica generica del juego (una linea en lua)
-    lua_pushcfunction(L, LApretado);    lua_setglobal(L, "apretado");
-    lua_pushcfunction(L, LChocan);      lua_setglobal(L, "chocan");
-    lua_pushcfunction(L, LLimitar);     lua_setglobal(L, "limitar");
-    lua_pushcfunction(L, LDentro);      lua_setglobal(L, "dentro");
-    lua_pushcfunction(L, LEscala);      lua_setglobal(L, "escala");
-    lua_pushcfunction(L, LAreaSegura);  lua_setglobal(L, "areaSegura");
-    lua_pushcfunction(L, LFundir);      lua_setglobal(L, "fundir");
-    lua_pushcfunction(L, LCajaUI);      lua_setglobal(L, "cajaUI");
-    lua_pushcfunction(L, LPantallaDe);  lua_setglobal(L, "pantallaDe");
+    lua_pushcfunction(L, LApretado);    lua_setglobal(L, "isPressed");
+    lua_pushcfunction(L, LChocan);      lua_setglobal(L, "isColliding");
+    lua_pushcfunction(L, LLimitar);     lua_setglobal(L, "clamp");
+    lua_pushcfunction(L, LDentro);      lua_setglobal(L, "isInside");
+    lua_pushcfunction(L, LEscala);      lua_setglobal(L, "getScale");
+    lua_pushcfunction(L, LAreaSegura);  lua_setglobal(L, "getSafeArea");
+    lua_pushcfunction(L, LFundir);      lua_setglobal(L, "fade");
+    lua_pushcfunction(L, LCajaUI);      lua_setglobal(L, "getUIBox");
+    lua_pushcfunction(L, LPantallaDe);  lua_setglobal(L, "screenOf");
     // el RIEL de la camara, cambiable en juego (area abierta / elevador / sala lateral)
-    lua_pushcfunction(L, LSetRiel);     lua_setglobal(L, "setRiel");
-    lua_pushcfunction(L, LSetRielNodo); lua_setglobal(L, "setRielNodo");
-    lua_pushcfunction(L, LSetMiradaRiel); lua_setglobal(L, "setMiradaRiel");
-    lua_pushcfunction(L, LRielDe);      lua_setglobal(L, "rielDe");
-    lua_pushcfunction(L, LLenteDe);     lua_setglobal(L, "lenteDe");
-    lua_pushcfunction(L, LSetLente);    lua_setglobal(L, "setLente");
+    lua_pushcfunction(L, LSetRiel);     lua_setglobal(L, "setRail");
+    lua_pushcfunction(L, LSetRielNodo); lua_setglobal(L, "setRailNode");
+    lua_pushcfunction(L, LSetMiradaRiel); lua_setglobal(L, "setRailLookAt");
+    lua_pushcfunction(L, LRielDe);      lua_setglobal(L, "railOf");
+    lua_pushcfunction(L, LLenteDe);     lua_setglobal(L, "lensOf");
+    lua_pushcfunction(L, LSetLente);    lua_setglobal(L, "setLens");
     // los mandos enchufados (hotplug): cuantos hay y como se llama cada uno
-    lua_pushcfunction(L, LControles);   lua_setglobal(L, "controles");
-    lua_pushcfunction(L, LControl);     lua_setglobal(L, "control");
+    lua_pushcfunction(L, LControles);   lua_setglobal(L, "controllers");
+    lua_pushcfunction(L, LControl);     lua_setglobal(L, "controller");
     // los tres que estaban SOLO en el editor (ver el bloque de arriba)
-    lua_pushcfunction(L, LCamaraXZ);    lua_setglobal(L, "camaraXZ");
-    lua_pushcfunction(L, LObjetivo);    lua_setglobal(L, "objetivo");
-    lua_pushcfunction(L, LParametro);   lua_setglobal(L, "parametro");
+    lua_pushcfunction(L, LCamaraXZ);    lua_setglobal(L, "cameraXZ");
+    lua_pushcfunction(L, LObjetivo);    lua_setglobal(L, "target");
+    lua_pushcfunction(L, LParametro);   lua_setglobal(L, "parameter");
     // multi-escena: cambiarEscena(nombre[,reiniciar]) — mismo bind en editor y runtime
     W3dEscenaRegistrarBind(Lv);
 }
