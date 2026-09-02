@@ -948,7 +948,7 @@ void BindsJuegoRegistrar(void* Lv) {
     lua_pushcfunction(L, LSetPosPx);    lua_setglobal(L, "setPosPx");
     lua_pushcfunction(L, LTamPx);       lua_setglobal(L, "getScreenPx");
     lua_pushcfunction(L, LSetTamPx);    lua_setglobal(L, "setScreenPx");
-    lua_pushcfunction(L, LSetTexto);    lua_setglobal(L, "setTexto");
+    lua_pushcfunction(L, LSetTexto);    lua_setglobal(L, "setText");
     lua_pushcfunction(L, LSetTextura);  lua_setglobal(L, "setTextura");
     lua_pushcfunction(L, LSonido);      lua_setglobal(L, "sound");
     lua_pushcfunction(L, LPararSonido); lua_setglobal(L, "stopSound");
