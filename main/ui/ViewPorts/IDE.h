@@ -17,6 +17,7 @@
 // NO por indice: agregar/reordenar botones no rompe nada; mismo esquema que 2D/UV).
 enum BarRolIDE {
     BRIDE_Script = 1, // selector desplegable: los .lua del proyecto (marca el abierto)
+    BRIDE_NewClass,   // crea una clase/script Lua nuevo en scripts/
     BRIDE_Guardar,    // guarda el archivo (Ctrl+S)
     BRIDE_Refresh     // guarda + recarga los scripts EN VIVO si el juego corre
 };
@@ -130,6 +131,7 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
         void SincronizarBarra();
         // abre el PRIMER script del proyecto si hay uno y no hay nada abierto
         void AbrirPrimerScript();
+        void NuevaClaseLua();
 
     private:
         void Mutar(int op);              // antes de CADA mutacion: undo + marcar sucio

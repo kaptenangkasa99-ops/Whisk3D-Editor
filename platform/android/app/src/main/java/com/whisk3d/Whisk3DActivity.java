@@ -12,6 +12,22 @@ import org.libsdl.app.SDLActivity;
 // Actividad principal de Whisk3D. Extiende SDLActivity (SDL2). Antes de arrancar,
 // SDL carga las librerias nativas que devuelve getLibraries(): libSDL2.so + libmain.so.
 public class Whisk3DActivity extends SDLActivity {
+    private boolean storageReady() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
+    }
+
+    private void requestStorageAccess() {
+        if (storageReady()) return;
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                  Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
+            catch (Exception ignored) { }
+        }
+    }
+
     @Override
     protected String[] getLibraries() {
         return new String[]{
@@ -27,6 +43,10 @@ public class Whisk3DActivity extends SDLActivity {
     // legible gracias al permiso All Files Access de abajo).
     @Override
     protected String[] getArguments() {
+        if (!storageReady()) {
+            requestStorageAccess();
+            return new String[0];
+        }
         Intent it = getIntent();
         if (it != null) {
             String extra = it.getStringExtra("w3d");
@@ -103,18 +123,12 @@ public class Whisk3DActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                          Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
-                } catch (Exception e) {
-                    // fallback: la lista general de "acceso a todos los archivos" (algunos OEM no tienen la per-app)
-                    try { startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
-                    catch (Exception e2) { /* sin la pantalla de settings: el usuario lo activa a mano */ }
-                }
-            }
-        }
+        requestStorageAccess();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        requestStorageAccess();
     }
 }

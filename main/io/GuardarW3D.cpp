@@ -39,6 +39,7 @@
 #include "io/JsonW3d.h"                // JsonNumTexto: floats con round-trip EXACTO
 #include "io/UI2DFormato.h"
 #include "io/W3dContenedor.h"          // FORMATO v4: el .w3d ES un zip y todo va adentro
+#include "io/W3dZip.h"                 // detectar si el destino existente es v4 ZIP
 #include "W3dEscena.h"                // escenaInicial / modoEscenas (se guardan con el proyecto)
 #include "W3dPaletas.h"               // las paletas del PROYECTO (raiz "paletas" del .w3d)
 #include "objects/Objects.h"
@@ -80,6 +81,7 @@
 #include "w3dFilesystem.h"
 #include "w3dlog.h"
 #include <stdio.h>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <algorithm>   // std::sort: los refs de script se escriben en orden deterministico
@@ -273,6 +275,10 @@ static std::string gQuien;
 
 static std::string W3dRefEmitir(std::string& ruta) {
     if (!gEsc) return ruta;
+    if (!ruta.empty() && ruta[0] != '/' && !(ruta.size() > 2 && ruta[1] == ':')) {
+        std::string base = g_w3dDirProyecto;
+        if (!base.empty() && W3dEsNombreDeEntrada(ruta)) ruta = base + "/" + ruta;
+    }
     return gEsc->Ingerir(ruta, NULL, gQuien);
 }
 
@@ -283,6 +289,9 @@ static std::string W3dRefEmitir(std::string& ruta) {
 // (el nombre de entrada para los internos), que es lo que resuelve ReadFileBytes.
 static std::string Asset(CtxGuardar* cx, std::string& rutaDisco) {
     if (rutaDisco.empty()) return rutaDisco;
+    if (rutaDisco[0] != '/' && !(rutaDisco.size() > 2 && rutaDisco[1] == ':') &&
+        !g_w3dDirProyecto.empty() && W3dEsNombreDeEntrada(rutaDisco))
+        rutaDisco = g_w3dDirProyecto + "/" + rutaDisco;
     return cx->esc->Ingerir(rutaDisco, NULL, gQuien);
 }
 
@@ -2028,8 +2037,9 @@ bool GuardarW3D(const std::string& ruta) {
     //  Se escribe SIEMPRE asi; los formatos viejos (JSON plano v3, zip v2 y el
     //  texto Whisk3D{}) se siguen ABRIENDO y se MIGRAN en este mismo guardado.
     // ------------------------------------------------------------------
+    const bool v5Carpeta = !W3dZipEs(ruta);
     W3dContenedorEscritor esc;
-    esc.Iniciar(ruta, W3dContenedorLector());
+    esc.Iniciar(ruta, W3dContenedorLector(), v5Carpeta);
     gEsc = &esc;
     gQuien.clear();
     g_w3dRefEmit = W3dRefEmitir;      // el .w3dui emite nombres de entrada (ver UI2DFormato.h)
@@ -2048,9 +2058,9 @@ bool GuardarW3D(const std::string& ruta) {
     // LAYOUT DE CARPETAS. Separados a proposito: un cambio de esquema no obliga a
     // mover archivos y al reves. PROHIBIDO meter aca fecha, usuario, hostname o
     // rutas de la maquina: cualquier campo volatil rompe el round-trip byte a byte.
-    s += "  \"version\": 4,\n";
-    // formato 2 = el contenedor estilo OpenDocument (mimetype primero + LEEME.txt)
-    s += "  \"contenedor\": { \"formato\": 2, \"generador\": \"Whisk3D\" },\n";
+    s += v5Carpeta ? "  \"version\": 5,\n" : "  \"version\": 4,\n";
+    if (!v5Carpeta)
+        s += "  \"contenedor\": { \"formato\": 2, \"generador\": \"Whisk3D\" },\n";
     // ICONO del juego: entra al contenedor bajo proyecto/ (el PNG en maxima
     // definicion; Compilar juego genera de ahi los tamanos chicos)
     if (!g_proyIcono.empty()) {
@@ -2195,10 +2205,11 @@ bool GuardarW3D(const std::string& ruta) {
         if (ok && !esc.AgregarBytes("proyecto.json", s)) ok = false;
         // estilo OpenDocument: "mimetype" (que Escribir() manda primera) y el
         // LEEME.txt que le explica el arbol al que abra el zip con un descompresor
-        if (ok) esc.EscribirCabeceraOdf();
+        if (ok && !v5Carpeta) esc.EscribirCabeceraOdf();
         // lo que el editor no referencia y venia en el .w3d se preserva VERBATIM
         // (alguien pudo meter un notas.txt a mano con un descompresor)
         if (ok) esc.PreservarPasajeras();
+        if (ok && v5Carpeta) esc.AsegurarEstructura();
         if (ok) esc.EscribirExternos();
         std::string falta;
         if (ok && !esc.Verificar(falta)) {
@@ -2292,6 +2303,16 @@ static void GuardarPendienteAhora() {
 // escribia encima sin decir nada; Render y Export si preguntan).
 static void GuardarElegido(const std::string& elegido) {
     g_guardarPendiente = W3dRutaDeSalida(elegido, NombreProyectoSugerido(), ".w3d");
+    // v5 layout: a new project owns one directory. Existing file selections and
+    // v4 ZIP destinations keep their exact path and format.
+    if (!elegido.empty() && w3dFileSystem::IsDir(elegido) &&
+        !w3dFileSystem::FileExists(g_guardarPendiente)) {
+        std::string nombre = NombreProyectoSugerido();
+        std::string carpeta = w3dFileSystem::JoinPath(elegido, nombre);
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::u8path(carpeta), ec);
+        if (!ec) g_guardarPendiente = w3dFileSystem::JoinPath(carpeta, nombre + ".w3d");
+    }
     if (w3dFileSystem::FileExists(g_guardarPendiente)) {
         if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
         confirmarPopup->Abrir("The file \"" + Base(g_guardarPendiente) +

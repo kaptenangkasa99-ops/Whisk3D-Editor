@@ -5,6 +5,7 @@
 #include "io/W3dZip.h"
 #include "io/W3dAlmacen.h"
 #include "io/UI2DFormato.h"   // W3dRutaBajoCarpeta: LA regla de "esta ruta cuelga de esta carpeta"
+#include "ViewPorts/Notificaciones.h"
 #include "w3dFilesystem.h"
 #include "w3dlog.h"
 #include <stdio.h>
@@ -133,16 +134,83 @@ public:
 static AlmacenContenedor* gAlmacen = NULL;
 static std::string  gRutaMontada;
 
+static const char* const kEstructuraCarpetas[] = {
+    "escenas/", "scripts/", "texturas/", "fuentes/", "sonidos/", "videos/",
+    "mallas/", "animaciones/", "modelos/", "proyecto/", "extra/", 0
+};
+static const char* const kScriptEjemplo =
+    "-- Script de ejemplo de Whisk3D. Asignalo a un objeto para probarlo.\n"
+    "\n"
+    "function start()\n"
+    "end\n"
+    "\n"
+    "function update(dt)\n"
+    "end\n";
+static const char* const kScriptEjemploUI =
+    "-- Segundo ejemplo: punto de partida para un script de interfaz.\n"
+    "\n"
+    "function start()\n"
+    "end\n"
+    "\n"
+    "function update(dt)\n"
+    "end\n";
+
+static int EstructuraAgregarOverlay(AlmacenContenedor* almacen) {
+    if (!almacen) return 0;
+    int agregadas = 0;
+    for (int i = 0; kEstructuraCarpetas[i]; i++) {
+        bool existe = false;
+        std::vector<std::string> entradas;
+        almacen->Listar(entradas);
+        for (size_t j = 0; j < entradas.size(); j++)
+            if (entradas[j].compare(0, strlen(kEstructuraCarpetas[i]), kEstructuraCarpetas[i]) == 0) {
+                existe = true; break;
+            }
+        if (!existe) {
+            almacen->editadas[std::string(kEstructuraCarpetas[i]) + ".keep"] =
+                std::vector<unsigned char>();
+            agregadas++;
+        }
+    }
+    bool tieneLua = false;
+    std::vector<std::string> entradas;
+    almacen->Listar(entradas);
+    for (size_t i = 0; i < entradas.size(); i++) {
+        if (entradas[i].compare(0, 8, "scripts/") == 0 &&
+            entradas[i].size() > 5 && entradas[i].compare(entradas[i].size() - 4, 4, ".lua") == 0) {
+            tieneLua = true; break;
+        }
+    }
+    if (!tieneLua) {
+        std::vector<unsigned char> a(kScriptEjemplo, kScriptEjemplo + strlen(kScriptEjemplo));
+        std::vector<unsigned char> b(kScriptEjemploUI, kScriptEjemploUI + strlen(kScriptEjemploUI));
+        almacen->editadas["scripts/sample_controller.lua"] = a;
+        almacen->editadas["scripts/sample_ui.lua"] = b;
+        agregadas += 2;
+    }
+    return agregadas;
+}
+
 bool W3dContenedorHayMontado() { return gAlmacen != NULL; }
 W3dZipLector* W3dContenedorLector() { return gAlmacen ? &gAlmacen->zip.Lector() : NULL; }
 
 bool W3dContenedorEscribirEntrada(const std::string& entrada, const void* datos, size_t tam) {
     if (!gAlmacen || !W3dEsNombreDeEntrada(entrada)) return false;
     std::vector<unsigned char>& d = gAlmacen->editadas[entrada];
-    d.assign((const unsigned char*)datos, (const unsigned char*)datos + tam);
+    if (tam == 0) d.clear();
+    else if (!datos) return false;
+    else d.assign((const unsigned char*)datos, (const unsigned char*)datos + tam);
     w3dLogf("[W3D] entrada editada en memoria: %s (%u bytes; se hornea al guardar el proyecto)",
             entrada.c_str(), (unsigned)tam);
     return true;
+}
+int W3dContenedorAsegurarEstructura() {
+    int n = EstructuraAgregarOverlay(gAlmacen);
+    if (n > 0) {
+        w3dLogfW("[W3D] proyecto incompleto: se agregaron %d entradas de estructura y ejemplos Lua", n);
+        Notificar("Project structure was incomplete; added folders and sample Lua scripts. Press Project Save to keep them.", false);
+    }
+    return n;
 }
 bool W3dContenedorEntradaEditada(const std::string& entrada) {
     return gAlmacen && gAlmacen->editadas.find(entrada) != gAlmacen->editadas.end();
@@ -438,13 +506,14 @@ static bool EsAbsoluta(const std::string& r) {
     return !r.empty() && (r[0] == '/' || r[0] == '\\' || (r.size() > 2 && r[1] == ':'));
 }
 
-W3dContenedorEscritor::W3dContenedorEscritor() : viejo(NULL), contadorTmp(0) {}
+W3dContenedorEscritor::W3dContenedorEscritor() : viejo(NULL), contadorTmp(0), enCarpeta(false) {}
 W3dContenedorEscritor::~W3dContenedorEscritor() { LimpiarTemporales(); }
 
-void W3dContenedorEscritor::Iniciar(const std::string& rutaFinal, W3dZipLector* v) {
+void W3dContenedorEscritor::Iniciar(const std::string& rutaFinal, W3dZipLector* v, bool carpeta) {
     rutaDestino = rutaFinal;
     dirDestino  = CarpetaDe(rutaFinal);
     viejo       = v;
+    enCarpeta   = carpeta;
     contadorTmp = 0;
     pend.clear(); porNombre.clear(); porHuella.clear();
     yaResueltas.clear(); externos.clear(); olvidadas.clear();
@@ -735,6 +804,29 @@ void W3dContenedorEscritor::EscribirCabeceraOdf() {
     if (!Tiene("LEEME.txt")) AgregarBytes("LEEME.txt", W3dContenedorLeeme(), false);
 }
 
+int W3dContenedorEscritor::AsegurarEstructura() {
+    int agregadas = 0;
+    for (int i = 0; kEstructuraCarpetas[i]; i++) {
+        bool existe = false;
+        for (std::map<std::string, size_t>::const_iterator it = porNombre.begin(); it != porNombre.end(); ++it)
+            if (it->first.compare(0, strlen(kEstructuraCarpetas[i]), kEstructuraCarpetas[i]) == 0) {
+                existe = true; break;
+            }
+        if (!existe && AgregarBytes(std::string(kEstructuraCarpetas[i]) + ".keep", "", false)) agregadas++;
+    }
+    bool tieneLua = false;
+    for (std::map<std::string, size_t>::const_iterator it = porNombre.begin(); it != porNombre.end(); ++it)
+        if (it->first.compare(0, 8, "scripts/") == 0 && it->first.size() > 5 &&
+            it->first.compare(it->first.size() - 4, 4, ".lua") == 0) { tieneLua = true; break; }
+    if (!tieneLua) {
+        if (AgregarBytes("scripts/sample_controller.lua", kScriptEjemplo, false)) agregadas++;
+        if (AgregarBytes("scripts/sample_ui.lua", kScriptEjemploUI, false)) agregadas++;
+    }
+    if (agregadas > 0)
+        w3dLogfW("[W3D] guardado: se agregaron %d entradas de estructura y ejemplos Lua", agregadas);
+    return agregadas;
+}
+
 bool W3dContenedorEscritor::AgregarTemporal(const std::string& nombre, const std::string& rutaTmp) {
     if (Tiene(nombre)) {
         w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
@@ -829,6 +921,18 @@ bool W3dContenedorEscritor::Verificar(std::string& falta) {
 // ---------------------------------------------------------------------------
 
 void W3dContenedorEscritor::PreservarPasajeras() {
+    if (gAlmacen) {
+        for (std::map<std::string, std::vector<unsigned char> >::const_iterator it = gAlmacen->editadas.begin();
+             it != gAlmacen->editadas.end(); ++it) {
+            if (Tiene(it->first)) continue;
+            W3dEntradaPend e;
+            e.nombre = it->first; e.origen = 0; e.bytes = it->second;
+            e.tam = (unsigned)e.bytes.size();
+            e.crc = e.bytes.empty() ? 0u : Crc32(&e.bytes[0], e.bytes.size());
+            porNombre[e.nombre] = pend.size();
+            pend.push_back(e);
+        }
+    }
     if (!viejo) return;
     std::vector<std::string> todas;
     viejo->Listar(todas);
@@ -896,6 +1000,35 @@ void W3dContenedorEscritor::EscribirExternos() {
 }
 
 bool W3dContenedorEscritor::Escribir(const std::string& rutaTmpZip) {
+    if (enCarpeta) {
+        for (size_t i = 0; i < pend.size(); i++) {
+            const W3dEntradaPend& e = pend[i];
+            std::vector<unsigned char> datos;
+            if (e.origen == 0) datos = e.bytes;
+            else if (e.origen == 1) {
+                if (!w3dFileSystem::ReadFileBytes(e.fuente, datos)) return false;
+            } else if (!viejo || !viejo->Leer(e.fuente, datos)) return false;
+            // In v5 proyecto.json is the selected metadata file; assets keep
+            // their canonical paths below its parent directory.
+            std::string destino = (e.nombre == "proyecto.json") ? rutaTmpZip
+                                                                  : dirDestino + "/" + e.nombre;
+            size_t slash = destino.find_last_of("/\\");
+            if (slash != std::string::npos) MkdirRec(destino.substr(0, slash));
+            std::string temporal = destino + ".w3dtmp";
+            FILE* f = fopen(temporal.c_str(), "wb");
+            if (!f) return false;
+            size_t escritos = datos.empty() ? 0 : fwrite(&datos[0], 1, datos.size(), f);
+            bool ok = fclose(f) == 0 && escritos == datos.size();
+            if (!ok) { remove(temporal.c_str()); return false; }
+#ifdef _WIN32
+            remove(destino.c_str());
+#endif
+            if (rename(temporal.c_str(), destino.c_str()) != 0) {
+                remove(temporal.c_str()); return false;
+            }
+        }
+        return true;
+    }
     // ORDEN DETERMINISTA (estilo OpenDocument): "mimetype" PRIMERA, despues
     // proyecto.json, despues todo lo demas ALFABETICO. Un hexdump de los
     // primeros 74 bytes dice:

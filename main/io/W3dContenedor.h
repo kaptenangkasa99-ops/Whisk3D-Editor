@@ -52,6 +52,10 @@ class W3dZipLector;
 bool W3dContenedorMontar(const std::string& rutaW3d);
 void W3dContenedorDesmontar();
 bool W3dContenedorHayMontado();
+// agrega, sin pisar nada, las carpetas normativas y ejemplos Lua de un
+// contenedor incompleto. En un proyecto montado queda en el overlay hasta el
+// siguiente GuardarW3D.
+int W3dContenedorAsegurarEstructura();
 // el lector del contenedor montado (NULL si no hay). Lo usa el guardado
 // incremental para reenvasar byte a byte lo que no cambio.
 W3dZipLector* W3dContenedorLector();
@@ -208,7 +212,7 @@ public:
 
     // 'rutaFinal' = el .w3d destino (de ahi salen los temporales y la base de las
     // rutas relativas de los externos). 'viejo' = el contenedor montado (o NULL).
-    void Iniciar(const std::string& rutaFinal, W3dZipLector* viejo);
+    void Iniciar(const std::string& rutaFinal, W3dZipLector* viejo, bool carpeta = false);
 
     // EL CORAZON: mete un asset adentro y devuelve lo que hay que ESCRIBIR en el
     // archivo (su nombre de entrada, o "ext:..." si queda afuera). 'ruta' se
@@ -258,6 +262,9 @@ public:
     // Escribir() manda PRIMERA) y "LEEME.txt". Se llama en cada guardado: las dos
     // se REGENERAN siempre, nunca se preservan del archivo viejo.
     void EscribirCabeceraOdf();
+    // agrega las carpetas normativas y ejemplos si faltan en el ZIP que se va
+    // a escribir; nunca reemplaza entradas existentes.
+    int AsegurarEstructura();
 
     // EXTERNOS.txt (solo si hay alguna ref "ext:")
     void EscribirExternos();
@@ -287,6 +294,7 @@ private:
 
     std::string    dirDestino;
     std::string    rutaDestino;
+    bool           enCarpeta;
     W3dZipLector*  viejo;
     int            contadorTmp;
     std::vector<W3dEntradaPend>   pend;

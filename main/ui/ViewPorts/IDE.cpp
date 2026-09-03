@@ -14,6 +14,7 @@
 #include "W3dLang.h"                     // T() para los textos de la barra
 #include "variables.h"                   // w3dPath (el proyecto abierto)
 #include <stdio.h>                       // guardado atomico: fopen/fwrite/rename
+#include <filesystem>
 
 namespace gfx = w3dEngine;
 
@@ -126,12 +127,16 @@ void IDEColectarScripts(std::vector<std::string>* rutas) {
     }
     std::string dir = IdeCarpetaProyecto();
     if (dir.empty()) return;
-    std::string carpeta = dir + "/contenido";
-    std::vector<w3dFileSystem::DirEntry> ents;
-    if (w3dFileSystem::ListDir(carpeta, ents))
+    std::vector<std::string> carpetas;
+    carpetas.push_back(dir + "/scripts"); // v5 loose-folder project
+    carpetas.push_back(dir + "/contenido"); // v3 compatibility
+    for (size_t c = 0; c < carpetas.size(); c++) {
+        std::vector<w3dFileSystem::DirEntry> ents;
+        if (!w3dFileSystem::ListDir(carpetas[c], ents)) continue;
         for (size_t i = 0; i < ents.size(); i++)
             if (!ents[i].isDir && IdeTerminaEn(ents[i].name, ".lua"))
-                IdeAgregarRuta(carpeta + "/" + ents[i].name, rutas);
+                IdeAgregarRuta(carpetas[c] + "/" + ents[i].name, rutas);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +246,9 @@ IDE::IDE() {
     b = new Button(T("Script"), -1);
     b->rol = BRIDE_Script; b->desplegable = true; b->caretMenu = true;
     BarButtons.push_back(b);
+    b = new Button(T("New Lua Class"));
+    b->rol = BRIDE_NewClass;
+    BarButtons.push_back(b);
     b = new Button(T("Save"));
     b->rol = BRIDE_Guardar;
     BarButtons.push_back(b);
@@ -259,6 +267,37 @@ void IDE::AbrirPrimerScript() {
     std::vector<std::string> rutas;
     IDEColectarScripts(&rutas);
     if (!rutas.empty()) AbrirArchivo(rutas[0]);
+}
+
+void IDE::NuevaClaseLua() {
+    if (w3dPath.empty()) {
+        Notificar("New Lua Class: save the project first", true);
+        return;
+    }
+    if (W3dContenedorHayMontado()) {
+        Notificar("New Lua Class is available for v5 folder projects", true);
+        return;
+    }
+    std::string dir = IdeCarpetaProyecto() + "/scripts";
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::u8path(dir), ec);
+    if (ec) { Notificar("New Lua Class: cannot create scripts folder", true); return; }
+    std::string base = dir + "/new_class.lua";
+    for (int n = 2; std::filesystem::exists(std::filesystem::u8path(base), ec); n++) {
+        char suffix[16]; sprintf(suffix, "_%d", n);
+        base = dir + "/new_class" + suffix + ".lua";
+    }
+    const std::string texto =
+        "function start()\n"
+        "end\n"
+        "\n"
+        "function update(dt)\n"
+        "end\n";
+    if (!w3dFileSystem::WriteTextFile(base, texto)) {
+        Notificar("New Lua Class: cannot write the script", true);
+        return;
+    }
+    if (AbrirArchivo(base)) Notificar("Created Lua class " + IDENombreScript(base), false);
 }
 
 // texto crudo -> lineas del buffer (sin '\r'; tab -> 4 espacios: la fuente
@@ -319,7 +358,10 @@ void IDE::SetTexto(const std::string& texto) {
 // .w3dtmp al lado y recien si salio completo se renombra sobre el .lua. Si el
 // disco falla a mitad de camino, el original queda intacto.
 bool IDE::Guardar() {
-    if (archivo.empty()) return false;
+    if (archivo.empty()) {
+        Notificar("IDE Save: no Lua script is open", true);
+        return false;
+    }
     std::string t = GetTexto();
     // ---------------------------------------------------------------------
     //  EL SCRIPT VIVE ADENTRO DEL .w3d: se guarda A SU ENTRADA.
@@ -336,7 +378,8 @@ bool IDE::Guardar() {
             return false;
         }
         sucio = false;
-        Notificar(IDENombreScript(archivo) + " guardado (guarda el proyecto para que quede en el .w3d)", false);
+        Notificar(IDENombreScript(archivo) +
+              " saved in the project buffer; press Project Save to write the .w3d", false);
         g_redraw = true;
         return true;
     }
@@ -958,7 +1001,7 @@ void IDE::Render() {
     // el codigo, por tramos de color del lexer
     gfx::Scissor(x + gutterW, glY, (width > gutterW) ? width - gutterW : 0, hVis);
     if (archivo.empty() && n == 1 && lineas[0].empty()) {
-        IdeTexto(textX0, py0, "(no hay scripts .lua en el proyecto)",
+        IdeTexto(textX0, py0, "(there are no .lua scripts in the project)",
                  ListaColores[static_cast<int>(ColorID::grisUI)]);
     }
     std::vector<unsigned char> tipos;

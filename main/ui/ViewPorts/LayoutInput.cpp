@@ -1936,7 +1936,7 @@ static void LayoutAbrirMenuIDEScript(IDE* ide, int x, int y) {
     gMenuIDEScript->Limpiar();
     IDEColectarScripts(&gIDEScriptRutas); // escenas + contenido/*.lua, sin repetidos
     if (gIDEScriptRutas.empty()) {
-        gMenuIDEScript->Agregar("(no hay scripts .lua)", -1);
+        gMenuIDEScript->Agregar("(no .lua scripts)", -1);
     } else {
         for (size_t i = 0; i < gIDEScriptRutas.size(); i++) {
             bool abierto = (gIDEScriptRutas[i] == ide->archivo);
@@ -1963,6 +1963,7 @@ bool LayoutClickBarraIDE(IDE* ide, int mx, int my) {
         int bx = b->sx, by = b->sy + b->height - GlobalScale;
         switch (b->rol) {
             case BRIDE_Script:  LayoutAbrirMenuIDEScript(ide, bx, by); return true;
+            case BRIDE_NewClass: ide->NuevaClaseLua(); return true;
             case BRIDE_Guardar: ide->Guardar(); return true;
             case BRIDE_Refresh: ide->Refresh(); return true;
         }

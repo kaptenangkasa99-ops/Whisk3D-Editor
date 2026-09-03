@@ -22547,6 +22547,23 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                      BarRolBtn(ide->BarButtons, BRIDE_Refresh);
         printf("      [idetest] barra por roles (Script/Save/Refresh): %s\n", roles ? "OK" : "FALTAN");
         if (!roles) ok = false;
+        if (roles) {
+            ide->archivo = rutaLua;
+            ide->SetTexto("-- save button\nprint('saved')");
+            ide->SincronizarBarra();
+            ide->ActualizarBarra();
+            Button* bSave = BarRolBtn(ide->BarButtons, BRIDE_Guardar);
+            bool clickSave = bSave && LayoutClickBarraIDE(ide, bSave->sx + bSave->width / 2,
+                                                          bSave->sy + bSave->height / 2);
+            bool saveRead = false;
+            std::string saveText = w3dFileSystem::ReadTextFile(rutaLua, &saveRead);
+            bool saveButton = clickSave && saveRead && saveText == ide->GetTexto() && !ide->sucio;
+            printf("      [idetest] click Save: dispatch=%d relectura=%d limpio=%d -> %s\n",
+                   clickSave ? 1 : 0, saveRead ? 1 : 0, ide->sucio ? 0 : 1,
+                   saveButton ? "OK" : "MAL");
+            if (!saveButton) ok = false;
+            remove(rutaLua.c_str());
+        }
         if (hayProyecto && !rutas.empty()) {
             // el titulo del selector lleva '*' con cambios sin guardar
             ide->AbrirArchivo(rutas[0]);

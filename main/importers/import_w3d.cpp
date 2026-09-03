@@ -1427,6 +1427,8 @@ static std::string gDirProyecto;
 // v4: el proyecto abierto es un CONTENEDOR y las rutas del JSON son NOMBRES DE
 // ENTRADA. Lo prende AbrirW3D en el brazo del contenedor y lo apaga al terminar.
 static bool gProyectoV4 = false;
+// v5 keeps proyecto.json as a regular file and assets beside it in folders.
+static bool gProyectoV5 = false;
 
 // una ruta del json -> ruta real (LA unica resolucion de referencias del .w3d).
 //   "ext:..."   -> EXTERNA deliberada: se saca el prefijo y se resuelve contra la
@@ -1448,6 +1450,7 @@ static std::string RutaJson(const std::string& r, const std::string& base) {
     }
     if (r[0] == '/' || (r.size() > 2 && r[1] == ':')) return r;   // absoluta
     if (gProyectoV4 && W3dEsNombreDeEntrada(r)) return r;         // entrada del contenedor
+        if (gProyectoV5) return (gDirProyecto.empty() ? base : gDirProyecto) + "/" + r;
     std::string enBase = base + "/" + r;
     if (!w3dFileSystem::FileExists(enBase) &&
         !gDirProyecto.empty() && gDirProyecto != base) {
@@ -3502,6 +3505,7 @@ bool W3dProyectoCargarEscena3D(const void* datos, size_t n) {
     g_w3dRefsEntradas = false;
     gProyectoV4 = false;
     W3dNombresCargando = false;
+    gProyectoV5 = false;
     // MIGRACION del objeto Constraint VIEJO (el nodo suelto que apunta a su
     // objetivo): sus propiedades pasan al objeto apuntado. El editor la corre
     // siempre al abrir; el juego NO la corria, asi que un proyecto con nodos
@@ -3723,6 +3727,9 @@ static bool AbrirW3DContenedor(const std::string& ruta) {
     }
     ProgresoActualizar(0.22f);   // proyecto.json leido y descomprimido
     gProyectoV4 = true;
+        gProyectoV5 = false;
+        gProyectoV5 = false;
+        gProyectoV5 = false;
     g_w3dRefsEntradas = true;          // los .w3dui tambien traen nombres de entrada
     g_w3dRefExtMarcar = W3dRefExternaMarcar;
     bool ok = AbrirEscenaJson((const char*)&datos[0], datos.size(), std::string());
@@ -3849,7 +3856,8 @@ void AbrirW3D(const std::string& ruta) {
         bool esTexto = (datos.size() - i >= 7 && memcmp(&datos[i], "Whisk3D", 7) == 0) ||
                        (i < datos.size() && (datos[i] == '/' || datos[i] == '#'));   // comentario inicial
         if (i < datos.size() && datos[i] == '{') {
-            formato = "json";
+            formato = "json v5 folder";
+            gProyectoV5 = true;
             ok = AbrirEscenaJson((const char*)&datos[0] + i, datos.size() - i, gDirProyecto);
         } else if (esTexto) {
             formato = "texto viejo";
