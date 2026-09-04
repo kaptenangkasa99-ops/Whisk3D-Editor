@@ -1,0 +1,2 @@
+check how the flow on save and open project wrking
+we ahve misunderstand that save version is the save system versionow make new system where new project creates necessary sturctures projects and when beingsaved it is asaved that way 

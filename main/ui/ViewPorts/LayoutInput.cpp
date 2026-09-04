@@ -15,6 +15,7 @@
 #include "ViewPorts/UVEditor.h"
 #include "ViewPorts/Editor2D.h"
 #include "ViewPorts/IDE.h"      // editor de texto de scripts lua (selector/Save/Refresh)
+#include "ViewPorts/Welcome.h"
 #include "ViewPorts/Timeline.h"
 #include "WhiskUI/draw/glesdraw.h"
 #include "WhiskUI/draw/rectangle.h" // el velo del modo foco
@@ -63,6 +64,7 @@
 #include "WhiskUI/text/bitmapText.h"  // texto de las notificaciones
 #include "WhiskUI/draw/icons.h"       // iconos notifOk / notifError
 #include "WhiskUI/theme/colores.h"     // ColorID
+#include "WhiskUI/widgets/PopupMenu.h"
 #include "w3dlog.h"         // las notificaciones tambien van al log
 // (los tipos GL + el dibujo vienen del engine: w3dGraphics.h / w3dEngine, ya incluido arriba)
 
@@ -78,6 +80,44 @@ void (*LayoutImportGlb)() = NULL;  // "Add > Imports > GLB": explorador filtrado
 void (*LayoutWarpMouse)(int x, int y) = NULL;
 void (*LayoutArbolCambiado)() = NULL;
 
+static PopupMenu* gMenuBienvenida = NULL;
+
+static void BienvenidaNuevo() {
+    if (gMenuBienvenida) gMenuBienvenida->Cerrar();
+    Notificar("New project", false);
+}
+
+static void BienvenidaAbrirElegido(const std::string& ruta) {
+    extern void AbrirProyectoDesde(const std::string&);
+    AbrirProyectoDesde(ruta);
+}
+
+static void BienvenidaAbrir() {
+    if (gMenuBienvenida) gMenuBienvenida->Cerrar();
+    AbrirFileBrowser("Open project", "Open", ".w3d", BienvenidaAbrirElegido);
+}
+
+void LayoutMostrarBienvenida() {
+    if (!gMenuBienvenida) {
+        gMenuBienvenida = new PopupMenu();
+        gMenuBienvenida->titulo = "Welcome to Whisk3D";
+        gMenuBienvenida->Agregar("New Project", 0, (int)IconType::mas)->accion = BienvenidaNuevo;
+        gMenuBienvenida->Agregar("Open Project", 1, (int)IconType::carpeta)->accion = BienvenidaAbrir;
+    }
+    if (MenuAbierto) MenuAbierto->Cerrar();
+    gMenuBienvenida->Abrir(MenuPantallaW / 2 - gMenuBienvenida->width / 2,
+                           MenuPantallaH / 2 - gMenuBienvenida->height / 2,
+                           MenuPantallaW, MenuPantallaH);
+    MenuAbierto = gMenuBienvenida;
+}
+
+void LayoutBienvenidaReubicar() {
+    if (gMenuBienvenida && gMenuBienvenida->abierto)
+        gMenuBienvenida->Abrir(MenuPantallaW / 2 - gMenuBienvenida->width / 2,
+                               MenuPantallaH / 2 - gMenuBienvenida->height / 2,
+                               MenuPantallaW, MenuPantallaH);
+}
+
 // ====================================================================
 // arbol: helpers (Row y Column se distinguen por ContainerKind, sin RTTI)
 // ====================================================================
@@ -92,8 +132,26 @@ static ViewportBase* LayoutCrearViewport(int aId) {
         case 5: return new Editor2D();
         case 6: return new Console();
         case 7: return new IDE();
+        case 8: return new Welcome();
     }
     return NULL;
+}
+
+void LayoutBienvenidaNuevoProyecto() {
+    if (!rootViewport || rootViewport->ViewportKind() != 9) return;
+    int w = rootViewport->width, h = rootViewport->height;
+    delete rootViewport;
+    Viewport3D* vp3d = NULL;
+    rootViewport = LayoutPorDefecto(w, h, &vp3d);
+    viewPortActive = vp3d;
+    g_redraw = true;
+}
+
+void LayoutBienvenidaAbrirProyecto() {
+    AbrirFileBrowser("Open project", "Open", ".w3d", [](const std::string& ruta) {
+        extern void AbrirProyectoDesde(const std::string&);
+        AbrirProyectoDesde(ruta);
+    });
 }
 
 // ====================================================================
@@ -1442,6 +1500,7 @@ void LayoutAbrirMenuTipo(ViewportBase* aVp) {
         gMenuTipo->Agregar(T("2D Editor"), 5);
         gMenuTipo->Agregar("Console", 6);
         gMenuTipo->Agregar("IDE", 7);
+        gMenuTipo->Agregar("Welcome", 8);
         if (aVp != rootViewport) gMenuTipo->Agregar(T("Expand"), 20);
         // OJO nombres: dividir "en columnas" = 2 paneles LADO A LADO (ViewportRow);
         // "en filas" = APILADOS (ViewportColumn). Antes decia Fila/Columna al reves.
@@ -3783,6 +3842,9 @@ bool LayoutClickUI(int mx, int my) {
 
     ViewportBase* under = FindViewportUnderMouse(rootViewport, mx, my);
     if (!under || !under->isLeaf()) return false;
+
+    if (under->ViewportKind() == 9)
+        return ((Welcome*)under)->Click(mx, my);
 
     // 0) la barra de HERRAMIENTAS (abajo), COMPARTIDA: 3D (historial/orientacion/ejes/tilde-cruz),
     // UV editor y Editor 2D (G/R/S). El hit + despacho por rol viven en ViewportBase (ToolbarBase.cpp);

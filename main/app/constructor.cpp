@@ -107,6 +107,7 @@ void ConstructUniversal(int argc, char* argv[]) {
     // siempre hay un viewport activo (borde verde) por defecto: sin mouse
     // (Symbian) es la unica referencia; con mouse el hover lo pisa enseguida.
     viewPortActive = vp3dInicial;
+    if (argc <= 1) LayoutMostrarBienvenida();
 
     /*rootViewport = new ViewportColumn(
         new Outliner(),

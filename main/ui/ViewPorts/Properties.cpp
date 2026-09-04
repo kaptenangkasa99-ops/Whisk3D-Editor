@@ -5477,16 +5477,16 @@ void Properties::ConstruirGrupos(){
     propArchivo->properties.push_back(propProyGuardar);
     // GUARDADO POR VERSIONES: guarda normal + deja <proyecto>_vNN.w3d al lado
     // (el label muestra el N real; se refresca en ProyectoSincronizarCampos)
-    propProyVersion = new PropButton(GuardarVersionLabel(), IconType::guardar);
-    propProyVersion->action = AccionProyVersion;
-    propArchivo->properties.push_back(propProyVersion);
-    propProyComo = new PropButton(T("Save as"), IconType::guardar);
-    propProyComo->action = AccionProyComo;
-    propArchivo->properties.push_back(propProyComo);
+    // propProyVersion = new PropButton(GuardarVersionLabel(), IconType::guardar);
+    // propProyVersion->action = AccionProyVersion;
+    // propArchivo->properties.push_back(propProyVersion);
+    // propProyComo = new PropButton(T("Save as"), IconType::guardar);
+    // propProyComo->action = AccionProyComo;
+    // propArchivo->properties.push_back(propProyComo);
     // EXTRAER: los assets de adentro del .w3d a una carpeta, para editarlos afuera
-    propProyExtraer = new PropButton(T("Extract assets"), IconType::carpeta);
-    propProyExtraer->action = AccionProyExtraer;
-    propArchivo->properties.push_back(propProyExtraer);
+    // propProyExtraer = new PropButton(T("Extract assets"), IconType::carpeta);
+    // propProyExtraer->action = AccionProyExtraer;
+    // propArchivo->properties.push_back(propProyExtraer);
     GroupProperties.push_back(propArchivo);
 
 

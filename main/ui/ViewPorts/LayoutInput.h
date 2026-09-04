@@ -62,6 +62,11 @@ struct LayoutKey {
 // true = la UI (menu/barra/panel) consumio el click; false = es de la
 // escena 3D (cada plataforma decide: pick, transform, etc.)
 bool LayoutClickUI(int mx, int my);
+void LayoutBienvenidaNuevoProyecto();
+void LayoutBienvenidaAbrirProyecto();
+// muestra la pantalla inicial de bienvenida en un arranque sin proyecto
+void LayoutMostrarBienvenida();
+void LayoutBienvenidaReubicar();
 
 // click en la barra del UV editor, por ROL (BarRolUV). Publica para que el comando de test
 // 'uvbar' (W3dScript) ejercite el MISMO camino que el click real.

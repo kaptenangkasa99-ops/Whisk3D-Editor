@@ -540,6 +540,7 @@ static void ProcesarEvento(SDL_Event& e) {
         MenuPantallaW = winW;
         MenuPantallaH = winH;
         rootViewport->Resize(winW, winH);
+        LayoutBienvenidaReubicar();
     } else {
         InputUsuarioSDL3(e);
     }
