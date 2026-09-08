@@ -1895,34 +1895,34 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     // ya hay un build corriendo: NO se dispara otro (el resto del editor sigue usable;
     // la barra de abajo muestra el que esta en curso)
     if (g_bldActivo.load()) {
-        Notificar("Compilar: ya hay una compilacion en curso", true);
+        Notificar("Compile: a compilation is already in progress.", true);
         return false;
     }
     // Windows (4) y Symbian (5): el pipeline de build de estos targets todavia NO esta
     // cableado a este boton (el flujo de abajo genera el runtime SDL/cmake de Linux/web/
     // android). Se hace aparte para no romper este camino. Mensaje claro en vez de fallar raro.
     if (plataforma == 5) {
-        Notificar("Symbian .sisx: el target todavia no esta cableado a este boton (viene).", true);
+        Notificar("Compile: Symbian .sisx: the target is not yet connected to this button (coming soon).", true);
         return false;
     }
     if (plataforma == 4) {
-        Notificar("Windows .exe: todavia no se genera desde el boton (viene). El EDITOR se compila con platform/windows/build_windows.bat.", true);
+        Notificar("Compile: Windows .exe: the target is not yet connected to this button (coming soon).", true);
         return false;
     }
     std::vector<ObjScript> objs;
     std::vector<std::string> rutasLua;
     if (SceneCollection) RecolectarScripts(SceneCollection, &objs, &rutasLua);
     if (objs.empty()) {
-        Notificar("Compilar: el proyecto no tiene scripts (agregalos a un objeto Script)", true);
+        Notificar("Compile: the project has no scripts (add them to a Script object)", true);
         return false;
     }
     std::string repo = RepoRoot();
     if (repo.empty()) {
-        Notificar("Compilar: no encuentro el repo Whisk3D (fuentes del runtime). "
-                  "Fija la raiz del repo en Ajustes (o compila desde el arbol de codigo).", true);
+        Notificar("Compile: I can't find the Whisk3D repo (runtime sources). "
+                  "Set the repo root in Settings (or compile from the code tree).", true);
         return false;
     }
-    // la carpeta del JUEGO: la del .w3d abierto. Sin proyecto guardado queda la
+    // la carpeta del JUEGO: la del .w3d abierto. Sin Project saved: queda la
     // heuristica de siempre (la carpeta del primer .lua) -- que con la
     // estructura contenido/ ya no es la raiz, por eso manda el .w3d.
     // (rutasLua puede venir VACIO: scripts con ruta vacia; ultimo recurso ".")
@@ -2024,7 +2024,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             usados.push_back(cand);
             std::string arch = cand + ".w3dui";
             if (!UI2DGuardar(e, out + "/" + arch, proy)) {
-                Notificar("Compilar: no pude escribir una escena (.w3dui)", true); return false;
+                Notificar("Compile: could not write a scene (.w3dui)", true); return false;
             }
             EscenaGen g; g.archivo = arch; g.nombre = e->name; escenas.push_back(g);
         }
@@ -2032,7 +2032,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         // UNA sola escena / legacy: exportar la UI activa. base = carpeta del proyecto (proy)
         // para que texturas/fuente queden relativas planas (igual que multi) y resuelvan al lado.
         if (!UI2DGuardar(u, out + "/" + w3duiLegacy, proy)) {
-            Notificar("Compilar: no pude escribir el .w3dui", true); return false;
+            Notificar("Compile: could not write the .w3dui", true); return false;
         }
     }
     // los scripts .lua (de TODAS las escenas) al lado, planos
@@ -2192,8 +2192,8 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             w3dLogf("CompilarJuego: %d referencia(s) externa(s) copiadas al staging (%d afuera "
                     "de la carpeta del proyecto, no viajan)", copiadas, afuera);
         if (afuera > 0)
-            Notificar("Compilar: hay referencias externas fuera de la carpeta del proyecto; "
-                      "no viajan con el juego", true);
+            Notificar("Compile: there are external references outside the project folder; "
+                      "They aren't traveling with the team.", true);
     }
     { char cmd[1200]; snprintf(cmd, sizeof(cmd), "cp \"%s/res/Skins/Whisk3D/font.png\" \"%s/font.png\"", repo.c_str(), out.c_str()); if (system(cmd)) {} }
     // ...y lo que SOLO nombra el lua por ruta relativa (sonidos/, musica/): ver
@@ -2212,11 +2212,11 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     if (!modoDebug) {
         std::string errLua; unsigned nLua = 0; size_t bFuente = 0, bByte = 0;
         if (!CompilarLuasStaging(out, &errLua, &nLua, &bFuente, &bByte)) {
-            Notificar("Compilar: error en un script lua: " + errLua, true);
-            w3dLogfE("CompilarJuego: bytecode fallo: %s", errLua.c_str());
+            Notificar("Compile: error in a Lua script: " + errLua, true);
+            w3dLogfE("CompileGame: bytecode failure: %s", errLua.c_str());
             return false;
         }
-        w3dLogf("CompilarJuego: %u script(s) lua a bytecode stripped (%u -> %u bytes)",
+        w3dLogf("CompileGame: %u script(s) lua a bytecode stripped (%u -> %u bytes)",
                 nLua, (unsigned)bFuente, (unsigned)bByte);
     }
 
@@ -2241,7 +2241,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         }
         conIcono = GenerarIconos(abs, out, &iconosLinux);
         if (!conIcono)
-            Notificar("Compilar: no pude leer el icono (" + Base(g_proyIcono) +
+            Notificar("Compile: I couldn't read the icon (" + Base(g_proyIcono) +
                       "); sigo sin icono", true);
     }
 
@@ -2265,7 +2265,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     if (empaquetarAssets) {
         std::string errPak;
         if (!EscribirPak(out, nombre, &errPak)) {
-            Notificar("Compilar: no pude empaquetar los assets (" + errPak + ")", true);
+            Notificar("Compile: I couldn't package the assets (" + errPak + ")", true);
             return false;
         }
     } else {
@@ -2282,13 +2282,13 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     if (!EscribirMain(out + "/main.cpp", "font.png", multi, w3duiLegacy, objs, escenas, inicial,
                       modoVentana, winW, winH, orientacion, usarSonido, nombre, conIcono,
                       empaquetarAssets, con3D)) {
-        Notificar("Compilar: no pude generar main.cpp", true); return false;
+        Notificar("Compile: could not generate main.cpp", true); return false;
     }
     // CMakeLists para PC (Linux): GENERADO (copia/instala TODAS las escenas + scripts + texturas
     // cuando van sueltos; empaquetado compila pak.cpp y no copia/instala nada del juego)
     if (!EscribirCMake(out + "/CMakeLists.txt", nombre, usarFisica, usarSonido, modoDebug,
                        iconosLinux, empaquetarAssets, con3D)) {
-        Notificar("Compilar: no pude generar CMakeLists.txt", true); return false;
+        Notificar("Compile: could not generate CMakeLists.txt", true); return false;
     }
 
     // [3/4] compilar para la plataforma elegida — ASINCRONICO: de aca en adelante

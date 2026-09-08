@@ -3461,7 +3461,7 @@ bool W3dProyectoCargarEscena3D(const void* datos, size_t n) {
     if (!datos || n == 0) return false;
     if (!SceneCollection) SceneCollection = new Object(NULL, "Scene");
     // los nombres entran CRUDOS (igual que en el editor): el archivo ya viene con
-    // los nombres definitivos del proyecto guardado y las refs de los scripts
+    // los nombres definitivos del Project saved: y las refs de los scripts
     // resuelven contra ESOS.
     W3dNombresCargando = true;
     gPendModArm.clear(); gPendModTgt.clear(); gPendModGen.clear();

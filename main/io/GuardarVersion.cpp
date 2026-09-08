@@ -259,7 +259,7 @@ std::string GuardarVersionLabel() {
 // ---------------------------------------------------------------------------
 bool GuardarVersionEjecutar() {
     if (w3dPath.empty()) {
-        Notificar("Guardar version: el proyecto no tiene ubicacion (usa Guardar primero)", true);
+        Notificar("Save version: the project has no location (use Save first)", true);
         return false;
     }
     std::string dir  = VerDirVersiones(w3dPath);   // <carpeta del proyecto>/versiones

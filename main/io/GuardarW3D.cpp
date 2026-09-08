@@ -2215,7 +2215,7 @@ bool GuardarW3D(const std::string& ruta) {
         if (ok && !esc.Verificar(falta)) {
             w3dLogfE("[W3D] el guardado se ABORTA: la referencia interna '%s' no tiene entrada en el .w3d",
                      falta.c_str());
-            Notificar("Guardar ABORTADO: falta '" + falta + "' adentro del proyecto; NO se toco " + Base(ruta), true);
+            Notificar("Save ABORTED: missing'" + falta + "' inside the project; it was NOT touched " + Base(ruta), true);
             ok = false;
         }
         // el harness inyecta aca el disco lleno (comando 'saveatom')
@@ -2229,7 +2229,7 @@ bool GuardarW3D(const std::string& ruta) {
         if (!ok) {
             remove(tmpZip.c_str());
             if (falta.empty())
-                Notificar("Guardar: escritura incompleta; NO se toco " + Base(ruta), true);
+                Notificar("Save: incomplete writing; NOT touched " + Base(ruta), true);
             return false;
         }
         // el contenedor viejo tiene el archivo destino ABIERTO: soltarlo antes del rename
@@ -2238,7 +2238,7 @@ bool GuardarW3D(const std::string& ruta) {
         if (!RenombrarSobre(tmpZip, ruta)) {
             remove(tmpZip.c_str());
             if (estabaMontado) W3dContenedorMontar(w3dPath);   // volver a lo que habia
-            Notificar("Guardar: no pude reemplazar " + Base(ruta) + " (quedo la version anterior)", true);
+            Notificar("Save: could not replace " + Base(ruta) + " (old version remains)", true);
             return false;
         }
         // y se monta el que acabamos de escribir: de aca en adelante las rutas en
@@ -2251,20 +2251,20 @@ bool GuardarW3D(const std::string& ruta) {
             // EL AVISO TIENE QUE DECIR COMO APAGARLO. El caso comun de lejos es el .obj/.fbx
             // del que se importo una malla: la geometria ya viaja horneada adentro, o sea que
             // ese renglon es SOLO procedencia y el aviso, sin salida, era ruido para siempre.
-            snprintf(b, sizeof(b), "Guardado, pero %d archivo(s) externo(s) NO estan (ver EXTERNOS.txt). "
-                     "Si es el original de una malla importada: Object > Set Origin > Clear Original File",
+            snprintf(b, sizeof(b), "Saved, but %d external reference(s) are MISSING (see EXTERNOS.txt). "
+                     "If it is the original from an imported mesh:Object > Set Origin > Clear Original File",
                      (int)nFaltan);
             Notificar(b, true);
         } else if (nExt > 0) {
-            snprintf(b, sizeof(b), "Proyecto guardado: %s (%d referencia(s) externa(s), ver EXTERNOS.txt)",
+            snprintf(b, sizeof(b), "Project saved:: %s (%d external reference(s), see EXTERNOS.txt)",
                      Base(ruta).c_str(), (int)nExt);
             Notificar(b, false);
         } else if (gNoCubiertos > 0) {
-            snprintf(b, sizeof(b), "Guardado (ojo: %d curva(s) sin archivo de origen no se guardan)",
+            snprintf(b, sizeof(b), "Saved (note: %d curve(s) without a source file are not saved)",
                      gNoCubiertos);
             Notificar(b, true);
         } else {
-            Notificar("Proyecto guardado: " + Base(ruta), false);
+            Notificar("Project saved:: " + Base(ruta), false);
         }
         w3dLogf("[W3D] guardado %s (contenedor v4 estilo ODF: mimetype + LEEME.txt + "
                 "proyecto.json + escenas/ + scripts/ + assets)", ruta.c_str());

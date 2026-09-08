@@ -381,7 +381,7 @@ void Camera::RenderObject() {
 // abajo tienen que ser BASE. Con la EFECTIVA, un constraint en el target, en el riel o en
 // cualquier ancestro de los dos mete la orientacion de la camara que dibujo ULTIMO adentro de
 // this->pos, asi que el .w3d guardado pasaba a depender de cual viewport se dibujo al final: con
-// dos vistas abiertas, el mismo proyecto guardado dos veces daba dos archivos distintos. Base ->
+// dos vistas abiertas, el mismo Project saved: dos veces daba dos archivos distintos. Base ->
 // el riel y el target valen lo mismo se mire desde donde se mire, y el horneado (que sigue) al
 // menos es DETERMINISTA.
 void Camera::UpdatePosition() {

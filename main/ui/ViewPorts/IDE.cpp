@@ -373,8 +373,8 @@ bool IDE::Guardar() {
     // ---------------------------------------------------------------------
     if (W3dEsNombreDeEntrada(archivo)) {
         if (!W3dContenedorEscribirEntrada(archivo, t.empty() ? "" : t.c_str(), t.size())) {
-            Notificar("IDE: no pude guardar " + IDENombreScript(archivo) +
-                      " adentro del proyecto", true);
+            Notificar("IDE: could not save " + IDENombreScript(archivo) +
+                      " within the project", true);
             return false;
         }
         sucio = false;
@@ -386,14 +386,14 @@ bool IDE::Guardar() {
     std::string tmp = archivo + ".w3dtmp";
     FILE* f = fopen(tmp.c_str(), "wb");
     if (!f) {
-        Notificar("IDE: no pude escribir " + IDENombreScript(archivo), true);
+        Notificar("IDE: I couldn't write. " + IDENombreScript(archivo), true);
         return false;
     }
     size_t esc = t.empty() ? 0 : fwrite(t.c_str(), 1, t.size(), f);
     bool ok = (fclose(f) == 0) && (esc == t.size());
     if (!ok) {
         remove(tmp.c_str());
-        Notificar("IDE: fallo el guardado de " + IDENombreScript(archivo), true);
+        Notificar("IDE: failed to save " + IDENombreScript(archivo), true);
         return false;
     }
 #if defined(_WIN32) || defined(W3D_SYMBIAN)
@@ -402,7 +402,7 @@ bool IDE::Guardar() {
 #endif
     if (rename(tmp.c_str(), archivo.c_str()) != 0) {
         remove(tmp.c_str());
-        Notificar("IDE: fallo el guardado de " + IDENombreScript(archivo), true);
+        Notificar("IDE: failed to save " + IDENombreScript(archivo), true);
         return false;
     }
     sucio = false;
@@ -442,7 +442,7 @@ void IDE::Refresh() {
         for (size_t i = 0; i < o->Childrens.size(); i++) pila.push_back(o->Childrens[i]);
     }
     for (size_t i = 0; i < usan.size(); i++) SimScriptsCambiados(usan[i]);
-    Notificar("Refresh: " + IdeNum((int)usan.size()) + " objeto(s) recargados en vivo", false);
+    Notificar("Refresh: " + IdeNum((int)usan.size()) + " live-reloaded object(s)", false);
     g_redraw = true;
 }
 
