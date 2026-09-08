@@ -2282,6 +2282,7 @@ void SnapCursorAlActivo() {
 #include "objects/Gamepad.h"
 #include "w3dlog.h"
 #include "objects/UI.h"
+#include "script/SimJuego.h"        // refrescar refs lua ya cargadas durante Play
 #include "W3dNombres.h"
 #include "W3dPaletas.h"            // paletas + colores de paleta (globales de proyecto)
 #include "objects/Materials.h"     // Materials (global de proyecto)
@@ -2367,6 +2368,19 @@ std::string W3dRenombrarObjeto(Object* o, const std::string& pedido, bool avisar
     for (size_t k = 0; k < aRenombrar.size(); k++)
         if (std::string* p = W3dDestResolver(aRenombrar[k])) *p = nuevo;
     if (esEscenaInicial) W3dEscenaSetInicial(nuevo);
+
+    // El .w3d ya conserva el nuevo nombre en W3dScriptEntrada::refs, pero si
+    // estamos jugando el lua_State tiene su propia tabla de Object*. Re-resolver
+    // los dueños tocados evita que un script previamente adjuntado siga con la
+    // referencia vieja hasta detener y volver a iniciar Play.
+    if (SimActiva()) {
+        std::set<Object*> scriptsARefrescar;
+        for (size_t k = 0; k < aRenombrar.size(); k++)
+            if (aRenombrar[k].tipo == W3dRenameDest::RefLua)
+                scriptsARefrescar.insert((Object*)aRenombrar[k].dueno);
+        for (std::set<Object*>::iterator it = scriptsARefrescar.begin(); it != scriptsARefrescar.end(); ++it)
+            SimReresolver(*it);
+    }
 
     if (avisar) {
         const std::string norm = W3dNombreNormalizar(pedido, "Objeto");

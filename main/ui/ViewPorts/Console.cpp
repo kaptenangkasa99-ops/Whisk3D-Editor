@@ -22,9 +22,22 @@ Console::Console() {
     lastMaxAncho = 0;
     lastBannerH = 0;
     BarCrear();
+    // La primera flecha sigue siendo el selector de tipo del viewport.
+    BarButtons.push_back(new Button("Clear", IconType::borrar, true));
 }
 
 Console::~Console() {}
+
+void Console::ClearLog() {
+    w3dLogRingClear();
+    lastCount = -1;
+    lastMaxAncho = 0;
+    lastBannerH = 0;
+    PosX = 0;
+    PosY = 0;
+    RecalcularScroll();
+    g_redraw = true;
+}
 
 // recalcula el rango del scrollbar con las metricas guardadas. AUTOSCROLL:
 // si estabamos pegados al final (PosY == MaxPosY), el final nuevo nos sigue;

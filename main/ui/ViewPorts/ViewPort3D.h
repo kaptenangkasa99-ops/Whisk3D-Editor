@@ -56,6 +56,8 @@ extern PopupMenu* MenuObject;
 extern PopupMenu* MenuAnimation; // el desplegable del boton "Animation"   // el desplegable del boton "Object"
 extern PopupMenu* MenuApply;    // submenu de "Object": Apply Location/Rotation/Scale/All (Ctrl A)
 extern PopupMenu* MenuView;     // el desplegable del boton "View" (antes de Select): submenu Viewpoint
+extern PopupMenu* MenuViewpoint; // submenu View > Viewpoint
+extern PopupMenu* MenuCameras;   // submenu View > Cameras
 extern PopupMenu* MenuMesh;     // edit mode: menu "Mesh" comun (Transform arriba, Snap, Delete abajo)
 extern PopupMenu* MenuOverlays; // el desplegable del boton "Overlays"
 extern PopupMenu* MenuRender;   // el desplegable del boton "Render" (modos)

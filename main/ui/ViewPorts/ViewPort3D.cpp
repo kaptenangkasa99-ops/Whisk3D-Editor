@@ -569,8 +569,10 @@ void Viewport3D::Zoom(float delta){
 CameraBase Viewport3D::VistaCam() const {
     CameraBase cam;
     if (ViewFromCameraActive && CameraActive) {
-        cam.pos = CameraActive->pos;
-        cam.rot = CameraActive->Rot();
+        // La vista del editor es de MUNDO: una camara emparentada necesita la
+        // transform acumulada, no sus campos locales.
+        cam.pos = CameraActive->GetGlobalPositionBase();
+        cam.rot = RotGlobalDe(CameraActive);
     } else {
         cam.pos = viewPos;
         cam.rot = viewRot;
@@ -3039,6 +3041,14 @@ void Viewport3D::SetViewFromCameraActive(bool value){
         zoom = LastZoom;*/
     }
     ViewFromCameraActive = value;
+    // Publicar/redibujar ya: al elegir Active Camera no debe esperar al proximo
+    // input ni conservar el frame de la orbita anterior.
+    if (value) {
+        viewPos = CameraActive->GetGlobalPositionBase();
+        viewRot = RotGlobalDe(CameraActive);
+    }
+    BindVista();
+    g_redraw = true;
 }
 
 #ifndef W3D_SYMBIAN

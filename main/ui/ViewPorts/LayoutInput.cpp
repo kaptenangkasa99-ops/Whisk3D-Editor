@@ -1500,7 +1500,6 @@ void LayoutAbrirMenuTipo(ViewportBase* aVp) {
         gMenuTipo->Agregar(T("2D Editor"), 5);
         gMenuTipo->Agregar("Console", 6);
         gMenuTipo->Agregar("IDE", 7);
-        gMenuTipo->Agregar("Welcome", 8);
         if (aVp != rootViewport) gMenuTipo->Agregar(T("Expand"), 20);
         // OJO nombres: dividir "en columnas" = 2 paneles LADO A LADO (ViewportRow);
         // "en filas" = APILADOS (ViewportColumn). Antes decia Fila/Columna al reves.
@@ -2407,6 +2406,9 @@ bool LayoutAbrirMenuDeBarra(ViewportBase* vp, int mx, int my) {
     } else if (MenuView && bView && bView->visible && bView->Contains(mx, my)) {
         objetivo = MenuView; boton = bView;   // "View" (antes de Select): submenu Viewpoint
         if (!MenuView->action) MenuView->action = LayoutAccionView;
+        // Los submenus ejecutan sus propias acciones; no heredan la del padre.
+        if (MenuViewpoint) MenuViewpoint->action = LayoutAccionView;
+        if (MenuCameras) MenuCameras->action = LayoutAccionView;
         // refrescar el tilde de "Lock Orbit" con el estado del viewport activo (el menu se arma 1 sola vez)
         extern MenuItem* MenuItemLockOrbit;
         if (MenuItemLockOrbit && Viewport3DActive) MenuItemLockOrbit->verde = Viewport3DActive->lockOrbit;
@@ -3864,6 +3866,10 @@ bool LayoutClickUI(int mx, int my) {
             LayoutClickBarra2D((Editor2D*)under, mx, my); // boton "Add" del editor 2D
         } else if (under->ViewportKind() == 8) {
             LayoutClickBarraIDE((IDE*)under, mx, my); // selector de script / Save / Refresh
+        } else if (under->ViewportKind() == 7) {
+            // Console: boton 0 = selector del tipo de viewport; boton 1 = Clear.
+            Console* c = (Console*)under;
+            if (c->BarButtons.size() > 1 && c->BarButtons[1]->Contains(mx, my)) c->ClearLog();
         } else {
             // transporte (Stop/Play) SOLO por click real; si no fue transporte, abrir el menu
             if (!LayoutTransporteBarra3D(under, mx, my)) LayoutAbrirMenuDeBarra(under, mx, my); // Select/Add/Object/Overlays

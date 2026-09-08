@@ -45,6 +45,8 @@ class Console : public ViewportBase, public WithBorder, public Scrollable {
         void Resize(int newW, int newH) W3D_OVERRIDE;
         void button_left() W3D_OVERRIDE;
         void event_mouse_motion(int mx, int my) W3D_OVERRIDE; // drag con boton = scroll del contenido
+        // Borra el historial visible, sin tocar el archivo de log del motor.
+        void ClearLog();
 #ifndef W3D_SYMBIAN
         void mouse_button_up(int boton) W3D_OVERRIDE;         // libera ViewPortClickDown (foco por hover)
         void event_mouse_wheel(float dy, int mx, int my) W3D_OVERRIDE;
