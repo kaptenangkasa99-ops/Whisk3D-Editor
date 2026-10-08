@@ -1430,6 +1430,16 @@ static bool gProyectoV4 = false;
 // v5 keeps proyecto.json as a regular file and assets beside it in folders.
 static bool gProyectoV5 = false;
 
+void W3dProyectoMarcarV5(const std::string& ruta) {
+    size_t separador = ruta.find_last_of("/\\");
+    gDirProyecto = separador == std::string::npos ? std::string(".")
+                                                   : ruta.substr(0, separador);
+    gProyectoV4 = false;
+    gProyectoV5 = true;
+    g_w3dRefsEntradas = false;
+    g_w3dDirProyecto = gDirProyecto;
+}
+
 // una ruta del json -> ruta real (LA unica resolucion de referencias del .w3d).
 //   "ext:..."   -> EXTERNA deliberada: se saca el prefijo y se resuelve contra la
 //                  carpeta del .w3d (absoluta queda tal cual). Queda ANOTADA para

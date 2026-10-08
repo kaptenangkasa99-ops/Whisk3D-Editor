@@ -73,10 +73,9 @@ extern bool g_w3dRefsEntradas;
 // relativas al PROYECTO, no al .w3dui). Vacia = se usa la base del archivo.
 extern std::string g_w3dDirProyecto;
 
-// AL GUARDAR en v4: mete el asset adentro del contenedor y devuelve lo que hay
-// que ESCRIBIR ("texturas/pausa.png" o "ext:..."). Reescribe 'ruta' con lo que
-// queda EN MEMORIA. NULL = guardado de siempre (rutas relativas al archivo).
-typedef std::string (*W3dRefEmitFn)(std::string& ruta);
+// AL GUARDAR: devuelve lo que hay que escribir ("texturas/pausa.png" o
+// "ext:..."). actualizarRuta distingue referencias vivas de sidecars temporales.
+typedef std::string (*W3dRefEmitFn)(std::string& ruta, bool actualizarRuta);
 extern W3dRefEmitFn g_w3dRefEmit;
 
 // AL CARGAR: avisa que esta ref venia con "ext:" en el archivo, para que el

@@ -66,6 +66,7 @@ class Properties;
 // el panel de propiedades con el que se INTERACTUO por ultima vez: las
 // acciones globales (menus de material/textura, rebind) operan sobre el
 extern Properties* PropsActivo;
+void W3dScriptPropiedadesInvalidar();
 // lleva el panel ACTIVO a la pestania "ARMATURE 2D" (tab 6, huesos 2D del mesh). La llama el editor
 // UV al ENTRAR a la edicion de huesos (Tab, menu Add > Armature 2D, selector de Modo): el dueno
 // reporto que "no veia" el panel del rig 2D porque vivia mezclado en la pestania de datos del mesh
@@ -297,7 +298,7 @@ class Properties : public ViewportBase, public WithBorder, public Scrollable {
         PropButtonRow* propRowScriptMove;    // Move Up | Move Down (oculta con < 2)
         enum { kMaxScriptCards = 8 };
         GroupPropertie* propScriptCards[kMaxScriptCards];
-        int scriptFirma;             // rebuild de las tarjetas al cambiar de script/objeto
+        std::string scriptFirma;     // firma exacta: objeto, rutas y refs de los scripts
         // tarjeta PALETAS (del PROYECTO, pestania 0): filas dinamicas
         // nombre+color por entrada; la gestion respeta los invariantes
         // (misma cantidad en todas; borrar corrige referencias)

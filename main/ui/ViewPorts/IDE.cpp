@@ -9,6 +9,7 @@
 #include "render/OpcionesRender.h"       // g_redraw (render event-driven)
 #include "script/W3dScript.h"            // W3dScriptDatos (rutas de scripts de los objetos)
 #include "ViewPorts/Notificaciones.h"    // toasts de guardado / refresh
+#include "ViewPorts/Properties.h"        // invalidar propiedades expuestas por scripts guardados
 #include "w3dFilesystem.h"               // ReadTextFile / ListDir (colector + abrir)
 #include "io/W3dContenedor.h"            // los .lua del proyecto v4 viven ADENTRO del .w3d
 #include "W3dLang.h"                     // T() para los textos de la barra
@@ -275,7 +276,7 @@ void IDE::NuevaClaseLua() {
         return;
     }
     if (W3dContenedorHayMontado()) {
-        Notificar("New Lua Class is available for v5 folder projects", true);
+        Notificar("New Lua Class: save the project as v5 before creating scripts", true);
         return;
     }
     std::string dir = IdeCarpetaProyecto() + "/scripts";
@@ -377,6 +378,7 @@ bool IDE::Guardar() {
                       " within the project", true);
             return false;
         }
+        W3dScriptPropiedadesInvalidar();
         sucio = false;
         Notificar(IDENombreScript(archivo) +
               " saved in the project buffer; press Project Save to write the .w3d", false);
@@ -405,6 +407,7 @@ bool IDE::Guardar() {
         Notificar("IDE: failed to save " + IDENombreScript(archivo), true);
         return false;
     }
+    W3dScriptPropiedadesInvalidar();
     sucio = false;
     Notificar(IDENombreScript(archivo) + " guardado", false);
     g_redraw = true;

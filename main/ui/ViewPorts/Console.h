@@ -10,6 +10,8 @@
 #include "ViewPorts/ViewPorts.h"
 #include "ViewPorts/WithBorder.h" // borde (verde si activo) como Outliner/Properties/UV
 #include "ViewPorts/ScrollBar.h"  // Scrollable: barras v/h + rueda + drag (mismo ruteo que Outliner)
+#include <string>
+#include <vector>
 
 // =====================================================================
 //  Console — viewport que muestra el LOG del motor y los ERRORES de lua.
@@ -27,6 +29,19 @@
 //  despega, y al volver al fondo se re-engancha.
 class Console : public ViewportBase, public WithBorder, public Scrollable {
     public:
+        enum BarRole {
+            BAR_CLEAR = 70,
+            BAR_INFO,
+            BAR_WARN,
+            BAR_ERROR,
+            BAR_GROUP
+        };
+        struct LogLine {
+            std::string text;
+            int level;
+            int repetitions;
+        };
+
         // 1=3D 2=outliner 3=props 4=UV 5=timeline 6=2D 7=console
         int ViewportKind() const { return 7; }
         // engancha el ruteo compartido de scrollbars (hover/agarre/arrastre/touch)
@@ -45,15 +60,29 @@ class Console : public ViewportBase, public WithBorder, public Scrollable {
         void Resize(int newW, int newH) W3D_OVERRIDE;
         void button_left() W3D_OVERRIDE;
         void event_mouse_motion(int mx, int my) W3D_OVERRIDE; // drag con boton = scroll del contenido
+        void event_key_down(int tecla, bool repeticion) W3D_OVERRIDE;
+        bool ClickBarButton(int mx, int my);
         // Borra el historial visible, sin tocar el archivo de log del motor.
         void ClearLog();
-#ifndef W3D_SYMBIAN
         void mouse_button_up(int boton) W3D_OVERRIDE;         // libera ViewPortClickDown (foco por hover)
+#ifndef W3D_SYMBIAN
         void event_mouse_wheel(float dy, int mx, int my) W3D_OVERRIDE;
 #endif
         bool event_finger_scroll(int px, int py, int dx, int dy) W3D_OVERRIDE; // touch: arrastrar = scroll v/h
 
     private:
+        std::vector<LogLine> visibleLines;
+        bool showInfo, showWarn, showError, groupRepeated;
+        bool selectionActive, selectionDragging;
+        int selectionAnchorRow, selectionAnchorCol;
+        int selectionFocusRow, selectionFocusCol;
+
+        void RebuildVisibleLines();
+        void SyncFilterButtons();
+        void SelectionPosition(int mx, int my, int& row, int& col) const;
+        void UpdateSelection(int mx, int my);
+        void CopySelection();
+        bool SelectionBoundsForRow(int row, int& begin, int& end) const;
         // recalcula el scrollbar con las metricas guardadas, manteniendo el
         // autoscroll: si estabas pegado al final, el final nuevo te sigue
         void RecalcularScroll();

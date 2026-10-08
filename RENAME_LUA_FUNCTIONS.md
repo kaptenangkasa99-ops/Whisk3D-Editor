@@ -15,7 +15,7 @@ All these functions need their `lua_setglobal()` second parameter changed:
 | Current Spanish Name | Target English Name | Line | Change |
 |---|---|---|---|
 | `tecla` | `key` | 1045 | `lua_setglobal(L, "tecla")` → `lua_setglobal(L, "key")` |
-| `teclaApretada` | `keyDown` | 1046 | `lua_setglobal(L, "teclaApretada")` → `lua_setglobal(L, "keyDown")` |
+| `teclaApretada` | `keyPressed` | 1075 | `lua_setglobal(L, "teclaApretada")` → `lua_setglobal(L, "keyPressed")` |
 | `botonApretado` | `buttonDown` | 1047 | `lua_setglobal(L, "botonApretado")` → `lua_setglobal(L, "buttonDown")` |
 | `azar` | `random` | 1048 | `lua_setglobal(L, "azar")` → `lua_setglobal(L, "random")` |
 | `objeto` | `object` | 1049 | `lua_setglobal(L, "objeto")` → `lua_setglobal(L, "object")` |

@@ -3867,9 +3867,7 @@ bool LayoutClickUI(int mx, int my) {
         } else if (under->ViewportKind() == 8) {
             LayoutClickBarraIDE((IDE*)under, mx, my); // selector de script / Save / Refresh
         } else if (under->ViewportKind() == 7) {
-            // Console: boton 0 = selector del tipo de viewport; boton 1 = Clear.
-            Console* c = (Console*)under;
-            if (c->BarButtons.size() > 1 && c->BarButtons[1]->Contains(mx, my)) c->ClearLog();
+            ((Console*)under)->ClickBarButton(mx, my);
         } else {
             // transporte (Stop/Play) SOLO por click real; si no fue transporte, abrir el menu
             if (!LayoutTransporteBarra3D(under, mx, my)) LayoutAbrirMenuDeBarra(under, mx, my); // Select/Add/Object/Overlays

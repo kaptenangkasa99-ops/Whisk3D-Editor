@@ -113,7 +113,8 @@ class FileBrowser : public PopUpBase, public Scrollable {
 
 void AbrirFileBrowser(const std::string& title, const std::string& accionLabel,
                       const std::string& filtro, void (*accept)(const std::string&),
-                      bool guardar = false); // guardar=true: elegir carpeta destino
+                      bool guardar = false, const std::string& startDir = std::string());
+                      // guardar=true: elegir carpeta destino
 
 // texto EXACTO del boton verde cuando no hay archivo seleccionado en modo guardar
 // (lo comparte el test del harness para no duplicar el literal)

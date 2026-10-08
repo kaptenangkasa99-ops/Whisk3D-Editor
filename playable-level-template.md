@@ -55,7 +55,7 @@ function update(dt)
         move = move + 1
     end
 
-    if keyDown("space") and y <= property("groundY") then
+    if keyPressed("space") and y <= property("groundY") then
         property("velY") = property("jumpForce")
         sound("sounds/jump.wav", 0.5, 1.0, false)
     end

@@ -2035,8 +2035,10 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             Notificar("Compile: could not write the .w3dui", true); return false;
         }
     }
-    // los scripts .lua (de TODAS las escenas) al lado, planos
+    // En 2D los scripts se cargan por basename desde la raiz del staging.
+    // En 3D el proyecto.json conserva las rutas originales y los assets se copian abajo.
     for (size_t i = 0; i < rutasLua.size(); i++) {
+        if (con3D) continue; // viajan por las referencias del proyecto.json
         if (W3dEsNombreDeEntrada(rutasLua[i])) continue;   // sale del contenedor (mas abajo)
         char cmd[1400];
         snprintf(cmd, sizeof(cmd), "cp \"%s\" \"%s/%s\"", rutasLua[i].c_str(), out.c_str(), Base(rutasLua[i]).c_str());
@@ -2106,9 +2108,8 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         w3dLogf("CompilarJuego: %d entrada(s) del .w3d volcadas al staging (UNA pasada)", volcados);
     } else {
         // ------------------------------------------------------------------
-        //  PROYECTO v3 (JSON plano con los assets SUELTOS al lado del .w3d): no
-        //  hay contenedor del que volcar, asi que sigue el camino de siempre.
-        //  Se abre y se MIGRA al primer guardado; hasta entonces compila igual.
+        //  PROYECTOS v3/v5 (JSON plano con assets sueltos): no hay contenedor
+        //  del que volcar, asi que se colectan y copian las referencias usadas.
         // ------------------------------------------------------------------
         // los .png de la carpeta del proyecto, planos (los .w3dui los referencian por nombre)
         { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.png \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (system(cmd)) {} }
@@ -2119,6 +2120,10 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         // y las rutas REALES que las escenas recien exportadas referencian (contenido/...)
         { char cmd[1400]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/contenido\"", out.c_str()); if (system(cmd)) {} }
         std::set<std::string> refs;
+        // La escena 3D vive en el JSON del proyecto, no en el .w3dui exportado.
+        // Sus mallas, scripts y demas assets tambien deben viajar al staging.
+        if (con3D && !w3dPath.empty())
+            GuardarVersionColectarDe(w3dPath, "", proy, &refs);
         if (multi)
             for (size_t i = 0; i < escenas.size(); i++)
                 GuardarVersionColectarDe(out + "/" + escenas[i].archivo, "", proy, &refs);

@@ -11,6 +11,10 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef _WIN32
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
     #include <direct.h>
     #define W3D_MKDIR(p) _mkdir(p)
 #else
@@ -517,6 +521,7 @@ void W3dContenedorEscritor::Iniciar(const std::string& rutaFinal, W3dZipLector* 
     contadorTmp = 0;
     pend.clear(); porNombre.clear(); porHuella.clear();
     yaResueltas.clear(); externos.clear(); olvidadas.clear();
+    rutasV5.clear();
 }
 
 std::string W3dContenedorEscritor::RutaTemporal(const char* etiqueta) {
@@ -527,6 +532,19 @@ std::string W3dContenedorEscritor::RutaTemporal(const char* etiqueta) {
 
 bool W3dContenedorEscritor::Tiene(const std::string& nombre) const {
     return porNombre.find(nombre) != porNombre.end();
+}
+
+void W3dContenedorEscritor::RegistrarRutaV5(std::string* ruta, const std::string& entrada) {
+    if (enCarpeta && ruta && W3dEsNombreDeEntrada(entrada))
+        rutasV5[ruta] = entrada;
+}
+
+void W3dContenedorEscritor::AplicarRutasV5() {
+    if (!enCarpeta) return;
+    for (std::map<std::string*, std::string>::iterator it = rutasV5.begin();
+         it != rutasV5.end(); ++it)
+        if (it->first)
+            *it->first = dirDestino + "/" + it->second;
 }
 
 // "texturas/pausa.png" libre, o "texturas/pausa-2.png" si ese nombre ya lo ocupa
@@ -1021,9 +1039,12 @@ bool W3dContenedorEscritor::Escribir(const std::string& rutaTmpZip) {
             bool ok = fclose(f) == 0 && escritos == datos.size();
             if (!ok) { remove(temporal.c_str()); return false; }
 #ifdef _WIN32
-            remove(destino.c_str());
+            bool renombrado = MoveFileExA(temporal.c_str(), destino.c_str(),
+                                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+            bool renombrado = rename(temporal.c_str(), destino.c_str()) == 0;
 #endif
-            if (rename(temporal.c_str(), destino.c_str()) != 0) {
+            if (!renombrado) {
                 remove(temporal.c_str()); return false;
             }
         }

@@ -67,6 +67,9 @@ void BuildScene(Node* root);
 // ('{' = JSON plano nuevo, 'PK' = zip v2 viejo, 'Whisk3D' = texto viejo) y
 // rutea. Nunca crashea: cualquier problema deja aviso en el log y defaults.
 void AbrirW3D(const std::string& ruta);
+// Actualiza el resolvedor activo cuando un archivo legado se migra al layout
+// v5 (JSON en disco con referencias a assets relativos a su carpeta).
+void W3dProyectoMarcarV5(const std::string& ruta);
 // compat: abre w3dPath (la global). Es AbrirW3D(w3dPath).
 void OpenW3D();
 

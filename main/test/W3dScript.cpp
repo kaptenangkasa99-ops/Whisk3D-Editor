@@ -28244,7 +28244,170 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         return true;
     }
 
+    if (cmd == "v5save") {
+        std::string pref; ss >> pref;
+        if (pref.empty()) pref = W3dDebugFile("v5save");
+        const std::string dir = pref + "_scenario";
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+        if (ec) { err = "v5save: no pude crear la carpeta de prueba"; return false; }
+
+        const std::string oldPath = dir + "/legacy.w3d";
+        const std::string legacyLua = "properties = { patrolSpeed = 4 }\nfunction update(dt) end\n";
+        const std::string legacyJson =
+            "{\n \"version\": 4,\n \"contenedor\": {\"formato\": 2},\n"
+            " \"escena\": {\"objetos\": [{\"tipo\":\"camara\","
+            "\"nombre\":\"LegacyCamera\",\"scripts\":[{\"archivo\":\"scripts/legacy.lua\"}]}]},"
+            " \"layout\":\"2d\"\n}\n";
+        bool ok = true;
+        {
+            W3dZipWriter writer;
+            writer.AgregarTexto("proyecto.json", legacyJson);
+            writer.AgregarTexto("scripts/legacy.lua", legacyLua);
+            if (!writer.Guardar(oldPath)) {
+                err = "v5save: no pude fabricar el proyecto ZIP legado";
+                std::filesystem::remove_all(dir, ec);
+                return false;
+            }
+        }
+
+        extern void AbrirProyectoAhora(const std::string&);
+        extern void ReiniciarEscena();
+        extern std::string w3dPath;
+        AbrirProyectoAhora(oldPath);
+        Camera* legacyCamera = NULL;
+        if (SceneCollection) for (size_t i = 0; i < SceneCollection->Childrens.size(); i++)
+            if (SceneCollection->Childrens[i]->name == "LegacyCamera" &&
+                SceneCollection->Childrens[i]->getType() == ObjectType::camera)
+                legacyCamera = (Camera*)SceneCollection->Childrens[i];
+        bool legacyOpened = legacyCamera && legacyCamera->scriptDatos &&
+                            legacyCamera->scriptDatos->scripts.size() == 1;
+        bool saved = legacyOpened && GuardarW3D(oldPath);
+        std::string json;
+        std::vector<unsigned char> bytes;
+        bool v5 = saved && !W3dContenedorHayMontado() && !W3dZipEs(oldPath) &&
+                  w3dFileSystem::ReadFileBytes(oldPath, bytes) && !bytes.empty();
+        if (v5) json.assign(bytes.begin(), bytes.end());
+        v5 = v5 && json.find("\"version\": 5") != std::string::npos;
+        bool runtimeAsset = legacyCamera && legacyCamera->scriptDatos &&
+            legacyCamera->scriptDatos->scripts[0].ruta == dir + "/scripts/legacy.lua" &&
+            w3dFileSystem::FileExists(legacyCamera->scriptDatos->scripts[0].ruta);
+
+        // Saving again without reopening exercises the same path used by the
+        // project Save button after a v4 -> v5 migration.
+        bool savedAgain = saved && GuardarW3D(oldPath);
+        std::vector<unsigned char> previous;
+        const bool hasPrevious = w3dFileSystem::ReadFileBytes(oldPath, previous);
+        g_w3dFallarEscritura = true;
+        const bool failedSave = !GuardarW3D(oldPath);
+        g_w3dFallarEscritura = false;
+        std::vector<unsigned char> afterFailure;
+        const bool preserved = hasPrevious && w3dFileSystem::ReadFileBytes(oldPath, afterFailure) &&
+                               previous == afterFailure &&
+                               !w3dFileSystem::FileExists(oldPath + ".w3dtmp");
+
+        AbrirProyectoAhora(oldPath);
+        bool reopened = false;
+        if (SceneCollection) for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
+            Object* o = SceneCollection->Childrens[i];
+            if (o->name == "LegacyCamera" && o->scriptDatos &&
+                o->scriptDatos->scripts.size() == 1 &&
+                w3dFileSystem::FileExists(o->scriptDatos->scripts[0].ruta))
+                reopened = true;
+        }
+        printf("      [v5save] v4 ZIP abre=%s | migra a JSON v5=%s | asset vivo=%s | "
+               "guardar dos veces=%s | fallo conserva archivo=%s | reabre=%s\n",
+               legacyOpened ? "OK" : "MAL", v5 ? "OK" : "MAL",
+               runtimeAsset ? "OK" : "MAL", savedAgain ? "OK" : "MAL",
+               failedSave && preserved ? "OK" : "MAL", reopened ? "OK" : "MAL");
+        ok = legacyOpened && v5 && runtimeAsset && savedAgain && failedSave &&
+             preserved && reopened;
+
+        // A same-length script replacement on a different object and a script
+        // edit at the same path must both rebuild the exposed-property rows.
+        const std::string alphaPath = dir + "/alpha.lua";
+        const std::string bravoPath = dir + "/bravo.lua";
+        const auto writeText = [](const std::string& path, const std::string& text) {
+            FILE* f = fopen(path.c_str(), "wb");
+            if (!f) return false;
+            const size_t n = text.empty() ? 0 : fwrite(text.data(), 1, text.size(), f);
+            return fclose(f) == 0 && n == text.size();
+        };
+        bool scriptsWritten = writeText(alphaPath, "properties = { alpha = 1 }\n") &&
+                              writeText(bravoPath, "properties = { bravo = 2 }\n");
+        const std::string inputApiPath = dir + "/input-api.lua";
+        std::vector<W3dScriptProp> inputApiProps;
+        const bool inputApiExact = writeText(inputApiPath,
+            "assert(keyPressed ~= nil and keyDown == nil)\n"
+            "properties = { keyPressedAvailable = keyPressed('space') }\n") &&
+            W3dScriptLeerPropiedades(inputApiPath, &inputApiProps) &&
+            !inputApiProps.empty() && inputApiProps[0].nombre == "keyPressedAvailable";
+        printf("      [v5save] Lua input API uses registered keyPressed name=%s\n",
+               inputApiExact ? "OK" : "MAL");
+        ReiniciarEscena();
+        w3dPath.clear();
+        Camera* first = SceneCollection ? new Camera(SceneCollection) : NULL;
+        Camera* second = SceneCollection ? new Camera(SceneCollection) : NULL;
+        if (first && second) {
+            first->scriptDatos = new W3dScriptDatos();
+            second->scriptDatos = new W3dScriptDatos();
+            W3dScriptEntrada firstScript; firstScript.ruta = alphaPath;
+            W3dScriptEntrada secondScript; secondScript.ruta = alphaPath;
+            first->scriptDatos->scripts.push_back(firstScript);
+            second->scriptDatos->scripts.push_back(secondScript);
+        }
+        Properties* panel = new Properties();
+        PropsActivo = panel;
+        const auto hasExposedProperty = [panel](const std::string& name) {
+            GroupPropertie* card = panel->propScriptCards[0];
+            for (size_t i = 0; card && i < card->properties.size(); i++)
+                if (card->properties[i] && card->properties[i]->name == name) return true;
+            return false;
+        };
+        bool initialRows = false, switchedObject = false, replacedScript = false, editedScript = false;
+        if (first && second && scriptsWritten) {
+            ObjActivo = first;
+            panel->RefreshTargetProperties();
+            initialRows = hasExposedProperty("alpha");
+            ObjActivo = second;
+            panel->RefreshTargetProperties();
+            switchedObject = hasExposedProperty("alpha");
+            first->scriptDatos->scripts[0].ruta = bravoPath;
+            ObjActivo = first;
+            panel->RefreshTargetProperties();
+            replacedScript = hasExposedProperty("bravo");
+            IDE ide;
+            if (ide.AbrirArchivo(bravoPath)) {
+                ide.SetTexto("properties = { charlie = 3 }\n");
+                editedScript = ide.Guardar();
+                panel->RefreshTargetProperties();
+                editedScript = editedScript && hasExposedProperty("charlie");
+            }
+        }
+        printf("      [v5save] Lua properties: initial=%s | new object=%s | reassigned script=%s | "
+               "IDE edit reload=%s\n",
+               initialRows ? "OK" : "MAL", switchedObject ? "OK" : "MAL",
+               replacedScript ? "OK" : "MAL", editedScript ? "OK" : "MAL");
+        ok = ok && scriptsWritten && inputApiExact && initialRows && switchedObject &&
+             replacedScript && editedScript;
+        ObjActivo = NULL;
+        delete panel;
+        PropsActivo = NULL;
+        ReiniciarEscena();
+        W3dContenedorDesmontar();
+        w3dPath.clear();
+        std::filesystem::remove_all(dir, ec);
+        if (!ok) err = "v5save: v5 migration/save or Lua property refresh regression";
+        return ok;
+    }
+
     if (cmd == "contenedor") {
+        std::string pref; ss >> pref;
+        return W3dRunCommand(pref.empty() ? "v5save" : "v5save " + pref, err);
+    }
+
+    if (cmd == "contenedor-zip-legacy") {
         std::string pref; ss >> pref;
         if (pref.empty()) pref = W3dDebugFile("contenedor");
         extern bool GuardarW3D(const std::string&);
@@ -28597,13 +28760,13 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
 
     // ========================================================================
     //  migrar <carpeta ui de Whisk3D-Examples> <scratch> : LOS 4 PROYECTOS DEL
-    //  DUENO abren, se guardan como contenedor y REABREN IGUALES.
+    //  DUENO abren, se guardan como v5 y REABREN IGUALES.
     //
     //  Sobre COPIAS (nunca se toca el repo). Por cada proyecto:
     //    - abrir el .w3d v3 y tomar una HUELLA del arbol en memoria (objetos con
     //      su transform + el arbol 2D de cada escena con sus texturas, fuentes y
     //      scripts)
-    //    - guardar (migra a contenedor), reabrir y exigir la MISMA huella
+    //    - guardar (migra a v5), reabrir y exigir la MISMA huella
     //    - re-guardar y exigir BYTES IDENTICOS
     //    - que no quede ningun archivo NUEVO suelto al lado
     // ========================================================================
@@ -28647,41 +28810,28 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             std::vector<unsigned char> g2;
             w3dFileSystem::ReadFileBytes(w3d, g2);
 
-            std::vector<W3dZipEntrada> z;
-            bool esZip = W3dZipLeer(w3d, &z);
+            const std::string json(g1.begin(), g1.end());
+            bool esV5 = !W3dZipEs(w3d) && !g1.empty() && g1[0] == '{' &&
+                        json.find("\"version\": 5") != std::string::npos;
             int despuesSueltos = 0;
             for (const auto& it : std::filesystem::directory_iterator(dir, ec))
                 if (it.is_regular_file()) despuesSueltos++;
             bool huellaOk = (h1 == h2) && !h1.empty();
             bool estable  = (g1 == g2) && !g1.empty();
-            // ESTILO ODF sobre los proyectos REALES del dueno: mimetype primero y
-            // con la firma en el offset 38 (es lo que mira el escritorio), LEEME
-            // adentro y ninguna entrada suelta en la raiz que no sea de servicio
-            bool ordenOdf = z.size() > 1 && z[0].nombre == "mimetype" &&
-                            z[1].nombre == "proyecto.json";
-            const std::string mt = kW3dMimetype;
-            bool firma = g2.size() >= 38 + mt.size() &&
-                         std::string((const char*)&g2[38], mt.size()) == mt;
-            bool hayLeeme = false; int raizAjena = 0;
-            for (size_t i = 0; i < z.size(); i++) {
-                if (z[i].nombre == "LEEME.txt") hayLeeme = true;
-                if (z[i].nombre.find('/') == std::string::npos &&
-                    !W3dEsEntradaDeServicio(z[i].nombre)) raizAjena++;
-            }
-            printf("      [migrar] %-12s zip=%s entradas=%2d | ODF mimetype+json=%s firma en el 38=%s "
-                   "LEEME=%s raiz ajena=%d | arbol identico tras reabrir=%s | "
+            bool assetsFolder = std::filesystem::is_directory(std::filesystem::path(dir) / "escenas") &&
+                                std::filesystem::is_directory(std::filesystem::path(dir) / "scripts");
+            printf("      [migrar] %-12s JSON v5=%s carpetas assets=%s | arbol identico tras reabrir=%s | "
                    "round-trip byte a byte=%s | archivos al lado %d->%d\n",
-                   proys[k], esZip?"si":"NO", (int)z.size(), ordenOdf?"OK":"MAL", firma?"OK":"MAL",
-                   hayLeeme?"OK":"MAL", raizAjena, huellaOk?"OK":"MAL",
+                   proys[k], esV5?"OK":"MAL", assetsFolder?"OK":"MAL", huellaOk?"OK":"MAL",
                    estable?"OK":"MAL", antesSueltos, despuesSueltos);
             if (!huellaOk) {
                 printf("      [migrar]   antes : %s\n      [migrar]   despues: %s\n", h1.c_str(), h2.c_str());
             }
-            if (!esZip || z.empty() || !huellaOk || !estable || despuesSueltos != antesSueltos ||
-                !ordenOdf || !firma || !hayLeeme || raizAjena) ok = false;
+            if (!esV5 || !assetsFolder || !huellaOk || !estable ||
+                despuesSueltos != antesSueltos) ok = false;
         }
         if (!ok) { err = "migrar: algun ejemplo no sobrevive la migracion (ver arriba)"; return false; }
-        printf("      [migrar] OK (los 4 proyectos del repo abren, migran a contenedor y reabren identicos)\n");
+        printf("      [migrar] OK (los 4 proyectos abren, migran a v5 y reabren identicos)\n");
         return true;
     }
 

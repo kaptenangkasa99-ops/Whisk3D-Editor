@@ -5,32 +5,14 @@
 // ============================================================================
 //  GuardarW3D — guarda el PROYECTO como .w3d.
 //
-//  FORMATO v4: EL .w3d ES UN ARCHIVO. Un ZIP estandar ESTILO OPENDOCUMENT (se
-//  abre con cualquier descompresor) con el proyecto ENTERO adentro:
+//  FORMATO v5: el .w3d es un JSON legible y los assets se guardan en carpetas
+//  vecinas al lado del archivo (escenas/, scripts/, texturas/, mallas/, etc.).
+//  Al guardar, el JSON se reemplaza atomicamente despues de escribir los assets.
+//  Los formatos anteriores (JSON plano, ZIP y texto Whisk3D{}) siguen abriendo
+//  y se migran al layout v5 en el siguiente guardado.
 //
-//      mimetype           PRIMERA entrada y SIN COMPRIMIR: los 36 bytes
-//                         "application/vnd.whisk3d.proyecto+zip". Como el local
-//                         header mide 30 bytes fijos, el contenido cae en el
-//                         offset 38, que es donde file(1) busca la firma
-//      LEEME.txt          le explica el arbol al humano que abra el zip. Se
-//                         REGENERA en cada guardado y NUNCA se lee
-//      proyecto.json      el MISMO JSON de siempre, legible y editable a mano
-//                         (lo unico que cambio es que ahora vive adentro del zip)
-//      escenas/           los .w3dui
-//      scripts/           los .lua internos
-//      texturas/  fuentes/  sonidos/  videos/
-//      mallas/            la geometria (.w3dm propio; .glb en los archivos viejos)
-//      animaciones/       los blobs de vertex anim
-//      modelos/  proyecto/  extra/
-//      EXTERNOS.txt       solo si hay alguna referencia "ext:"
-//
-//  Se acabaron los archivos sueltos: contenido/, modelos/*.glb, vtxanim/*.bin y
-//  los .w3dui hermanos ya no se escriben. Abrir y guardar tocan UN SOLO ARCHIVO.
-//  Los formatos viejos (JSON plano v3, zip v2 y el texto Whisk3D{}) se siguen
-//  ABRIENDO y se MIGRAN en el primer guardado; NUNCA se borra nada de lo viejo.
-//
-//  REFERENCIA INTERNA vs EXTERNA: interna = ruta pelada, que es un nombre de
-//  entrada del contenedor ("texturas/pausa.png"); externa = prefijo "ext:". Los
+//  REFERENCIA INTERNA vs EXTERNA: interna = ruta relativa ("texturas/pausa.png");
+//  externa = prefijo "ext:". Los
 //  externos NO se copian: se guarda la ruta, se listan en EXTERNOS.txt y si
 //  falta alguno se avisa CLARO. Una referencia rota se CONSERVA (un pendrive
 //  sacado no puede convertirse en perdida de configuracion).
@@ -58,27 +40,20 @@
 //  std::ifstream y no pasa por el VFS.
 // ============================================================================
 //
-//  ESCRITURA ATOMICA: el zip ENTERO se arma en "<destino>.w3dtmp", en la MISMA
-//  carpeta del destino, y recien al final se renombra encima (rename POSIX =
-//  atomico). UN SOLO RENAME = UN SOLO PUNTO DE FALLO. Si algo falla a mitad
-//  (disco lleno, ruta no escribible, export que no salio) se borra el temporal y
-//  la version ANTERIOR del proyecto queda intacta.
+//  ESCRITURA ATOMICA: cada asset se escribe a un temporal y se mueve a su ruta;
+//  el JSON se arma en "<destino>.w3dtmp" y se reemplaza atomicamente al final.
+//  Un error al escribir el JSON conserva la version anterior del proyecto.
 //
-//  VERIFICACION ANTES DE CERRAR: se exige que TODA referencia interna del JSON y
-//  de cada .w3dui tenga su entrada escrita. Si falta una sola, el guardado
+//  VERIFICACION ANTES DE COMMIT: se exige que TODA referencia interna del JSON y
+//  de cada .w3dui tenga su archivo escrito. Si falta uno, el guardado
 //  ABORTA sin renombrar. Sin esto el proyecto abriria "sin la textura" y no
 //  fallaria nada, que es el fallo mas caro que puede tener este diseno.
 //
-//  SALIDA REPRODUCIBLE: mimetype primero, proyecto.json segundo, el resto
-//  alfabetico, metodo STORE
-//  y fecha FIJA (W3dZip.cpp). Guardar dos veces sin cambios da el MISMO archivo
-//  byte a byte. Esa fecha fija parece un descuido y NO lo es: sin ella se rompen
-//  el diff en git, el dedup entre versiones y el round-trip de los tests.
+//  SALIDA REPRODUCIBLE: los nombres de assets y el JSON se emiten en orden
+//  determinista. Guardar dos veces sin cambios da el mismo contenido.
 //
-//  EL CICLO DEL ARCHIVO ABIERTO: el contenedor mantiene su FILE* abierto toda la
-//  sesion para leer por demanda. En POSIX el rename sobre un archivo abierto
-//  anda; en Windows falla. Por eso el guardado cierra el zip nuevo, DESMONTA,
-//  renombra y vuelve a montar. En Linux este bug no aparece nunca.
+//  EL CICLO DEL ARCHIVO ABIERTO: un proyecto v4 montado se desmonta antes de
+//  reemplazar su archivo y despues se conmuta el resolvedor al layout v5.
 // ============================================================================
 bool GuardarW3D(const std::string& ruta);
 

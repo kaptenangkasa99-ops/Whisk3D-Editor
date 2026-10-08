@@ -8,7 +8,9 @@
 class W3dZipLector;
 
 // ============================================================================
-//  W3dContenedor — el .w3d v4 ES UN ZIP y el proyecto entero vive adentro.
+//  W3dContenedor — compatibilidad con proyectos v4, cuyo .w3d era un ZIP.
+//  Los guardados actuales usan v5 (JSON mas carpetas vecinas); estas APIs siguen
+//  montando y editando los ZIP antiguos para que puedan migrarse al guardar.
 //
 //  ARBOL (nombres normativos, ver la spec del contenedor seccion 3):
 //     mimetype           PRIMERA entrada y SIN COMPRIMIR (estilo OpenDocument)
@@ -45,7 +47,7 @@ class W3dZipLector;
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-//  MONTAJE del proyecto abierto
+//  MONTAJE de un proyecto v4 abierto
 // ---------------------------------------------------------------------------
 // abre el .w3d como contenedor y lo monta (desmonta el anterior). false si no es
 // un zip legible o no trae proyecto.json.
@@ -118,10 +120,9 @@ bool W3dContenedorExtraer(const std::string& entrada, const std::string& rutaDis
 //  con la ruta de disco. Esa ref se escribe "ext:..." y NO se copia; queda
 //  listada en el EXTERNOS.txt y se avisa si falta.
 // ---------------------------------------------------------------------------
-// copia 'rutaDisco' adentro del contenedor montado y devuelve su nombre de
-// entrada. Deduplica por CONTENIDO: importar dos veces la misma imagen da UNA
-// entrada. Sin contenedor montado (proyecto v3) devuelve 'rutaDisco' tal cual, o
-// sea que el editor sigue funcionando igual con los proyectos viejos.
+// copia 'rutaDisco' adentro del contenedor v4 montado y devuelve su nombre de
+// entrada. Deduplica por CONTENIDO. Sin contenedor montado (proyecto v3/v5)
+// devuelve 'rutaDisco'; el guardado v5 copia y deduplica los assets al disco.
 // 'categoria' NULL = la que le toca por extension.
 std::string W3dImportarAsset(const std::string& rutaDisco, const char* categoria = 0);
 
@@ -246,6 +247,9 @@ public:
 
     // ¿ya hay una entrada con ese nombre?
     bool Tiene(const std::string& nombre) const;
+    bool EsCarpeta() const { return enCarpeta; }
+    void RegistrarRutaV5(std::string* ruta, const std::string& entrada);
+    void AplicarRutasV5();
 
     // VERIFICACION (spec seccion 9.1, punto 2): toda referencia interna del JSON y
     // de cada .w3dui tiene su entrada escrita. Sin esto el proyecto abre "sin la
@@ -306,6 +310,7 @@ private:
     // lo hace BuscarPorContenido comparando byte a byte, igual que W3dImportarAsset.
     std::map<std::string, std::vector<size_t> > porHuella;
     std::map<std::string, std::string> yaResueltas;  // ruta original -> lo que se escribio
+    std::map<std::string*, std::string> rutasV5;     // referencias vivas -> entrada escrita
     std::vector<W3dExterno>       externos;
     std::set<std::string>         olvidadas;   // solo el hook de test las llena
 };

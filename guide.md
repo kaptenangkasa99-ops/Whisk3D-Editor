@@ -10,6 +10,16 @@ This engine treats Lua like a component system: a `.lua` file can be attached to
 
 The runtime binds C++ functions into each script's Lua state. Lua names are case-sensitive; use the exact spelling shown in this guide. A script can use the standard Lua base, `math`, `string`, and `table` libraries, plus the Whisk3D functions below. The game/UI bindings are registered alongside the Core API in the editor and game runtime.
 
+Projects are saved in the v5 layout: the `.w3d` file is JSON and referenced assets
+live in neighboring folders such as `scripts/`, `texturas/`, and `escenas/`.
+Older project formats remain readable and are migrated to v5 the next time they
+are saved. Use the editor test runner with `main/test/scenarios/v5-save.w3dtest`
+to verify legacy migration, repeated saves, reopening, and Lua property refresh.
+
+The Console viewport has Info, Warn, and Error filters, an optional Group toggle
+for collapsing consecutive duplicate messages, and supports drag-selection with
+Ctrl+C to copy (Ctrl+A selects the visible log).
+
 ---
 
 ## 1) Script lifecycle
@@ -62,7 +72,7 @@ These are the actual global functions registered in the engine. They are not the
 object("ObjectName")
 option("optionName")
 property("propertyName")
-parameter("propertyName", default)
+parameter("propertyName" [, default])
 ```
 
 Purpose:
@@ -71,7 +81,9 @@ Purpose:
 - `object("Self")` returns the object the script is attached to.
 - `option()` reads a dropdown value chosen in the editor.
 - `property()` reads a custom numeric/bool/string value declared in `properties`.
-- `parameter()` is the numeric alias of `property()`.
+- `parameter()` is a legacy numeric helper. In the current implementation it
+  looks up `propiedad` rather than the registered `property`, so it returns its
+  fallback (zero by default). Use `property()` to read configured values.
 
 #### Example
 
@@ -208,7 +220,7 @@ config("key", "defaultValue")
 setConfig("key", "value")
 saveConfig()
 loadConfig()
-silence()
+silence(true)
 isMuted()
 info("message")
 logInfo("message")
@@ -627,12 +639,14 @@ end
 
 ---
 
-### `parameter(name: string, default: number) → number`
-Legacy numeric-property helper with a fallback value. In the current runtime implementation it falls back to `default` instead of reading the configured property, so use `property(name)` for a configured value.
+### `parameter(name: string [, default: number]) → number`
+Legacy numeric-property helper. In the current implementation it looks up
+`propiedad`, which is not a registered global, and therefore returns the fallback
+value (zero when omitted). Use `property(name)` to read configured values.
 
 **Parameters:**
 - `name`: Property key name
-- `default`: Default value if not set
+- `default`: Fallback value; optional, defaults to `0`
 
 **Returns:** Numeric property value
 
@@ -877,7 +891,9 @@ end
 ---
 
 ### `keyPressed(name: string) → bool`
-Checks if a key was just pressed (only true for one frame).
+Checks if a key was just pressed (only true for one frame). The registered
+function name is exactly `keyPressed`.
+Use this spelling in scripts; `keyDown` is not registered.
 
 **Parameters:**
 - `name`: Key name
@@ -1061,12 +1077,13 @@ local score = shared("score") or 0
 
 ---
 
-### `setShared(key: string, value: any)`
+### `setShared(key: string [, value: number | string | bool | nil])`
 Sets a global value accessible to all scripts.
 
 **Parameters:**
 - `key`: Key name
-- `value`: Value to store (number, string, bool, etc.)
+- `value`: Number, string, or boolean to store; nil or an omitted value removes
+  the key. Other Lua types are not supported.
 
 **Returns:** None
 
@@ -1077,12 +1094,12 @@ setShared("score", shared("score") + 10)
 
 ---
 
-### `config(key: string, default: string) → string`
+### `config(key: string [, default: string]) → string`
 Reads a persistent config value (saved to disk).
 
 **Parameters:**
 - `key`: Config key
-- `default`: Default value if not set
+- `default`: Fallback value if the key is not set; optional, defaults to `""`
 
 **Returns:** Config value
 
@@ -1093,12 +1110,12 @@ local musicVolume = config("musicVolume", "0.8")
 
 ---
 
-### `setConfig(key: string, value: string)`
-Sets a persistent config value.
+### `setConfig(key: string [, value: string | number])`
+Sets a config value in memory. Call `saveConfig()` to persist it.
 
 **Parameters:**
 - `key`: Config key
-- `value`: Value to store (stored as string)
+- `value`: Value to store as a string; optional, defaults to `""`
 
 **Returns:** None
 
@@ -1109,12 +1126,12 @@ setConfig("difficulty", "hard")
 
 ---
 
-### `saveConfig()`
-Saves all config changes to disk.
+### `saveConfig() → bool`
+Saves all config changes to the platform's persistent storage.
 
 **Parameters:** None
 
-**Returns:** None
+**Returns:** true if saving succeeded
 
 **Example:**
 ```lua
@@ -1124,12 +1141,12 @@ saveConfig()
 
 ---
 
-### `loadConfig()`
-Loads config from disk.
+### `loadConfig() → bool`
+Loads config from the platform's persistent storage.
 
 **Parameters:** None
 
-**Returns:** None
+**Returns:** true if saved configuration was loaded
 
 **Example:**
 ```lua
@@ -1139,16 +1156,17 @@ local level = config("lastLevel", "1")
 
 ---
 
-### `silence()`
-Globally mutes all sound.
+### `silence([muted: bool])`
+Enables or disables global mute. The parameter uses Lua truthiness; omit it or
+pass false to unmute.
 
-**Parameters:** None
+**Parameters:** `muted`: true to mute; false or omitted to unmute
 
 **Returns:** None
 
 **Example:**
 ```lua
-silence()
+silence(true)
 ```
 
 ---
@@ -2085,8 +2103,14 @@ rebotarDentro(ball, court)
 
 ### Logs
 
-- `logQuantity() → count`: number of buffered log lines (may be zero in production builds).
-- `logLine(index) → message, level`: returns the 1-based log line and its level (`"info"`, `"aviso"`, or `"error"`); out-of-range indices return empty strings.
+#### `logQuantity() → count`
+Returns the number of entries currently held in the engine log ring buffer. It
+returns zero in builds where the log ring is disabled.
+
+#### `logLine(index: integer) → message, level`
+Reads a 1-based index from the ring buffer, where 1 is the oldest currently
+buffered entry. The level is `"info"`, `"aviso"`, `"error"`, or `""` when no
+entry exists at that index. An out-of-range index returns two empty strings.
 
 ```lua
 for i = 1, logQuantity() do
@@ -2097,12 +2121,33 @@ end
 
 ### Visibility, collections, and scenes
 
-- `setSector(mesh, sector)`: selects a 1-based sector for a mesh's culling modifier; `0` selects the full mesh.
-- `visibilityCell(obj) → cell | nil`: reads an object's current visibility cell, or `nil` if it is not participating.
-- `setVisibilityAnchor(zone, obj)`: sets the object used to determine a visibility zone's active cell.
-- `setVisibilityCurve(zone, t [, rail])`: updates a curve-driven zone with a progress value and optional rail name/object.
-- `setCollection(collection, mode)`: changes a collection's static-batch mode (for example `"static"` or `"off"`).
-- `cambiarEscena(name [, restart])`: requests a switch to the named scene; optional `true` requests a restart.
+#### `setSector(mesh: Object [, sector: integer])`
+Selects a 1-based sector for a mesh's culling modifier. Sector `0` selects the
+whole mesh; an out-of-range sector also falls back to the whole mesh. The
+sector defaults to `0`. It does nothing if the object has no supported culling
+modifier or if the platform hook is unavailable.
+
+#### `visibilityCell(obj: Object) → integer | nil`
+Returns an object's active visibility cell, or `nil` if the object is not
+participating in the visibility system or its hook is unavailable.
+
+#### `setVisibilityAnchor(zone: Object, obj: Object)`
+Sets the object whose position determines the active cell for a visibility zone.
+The function has no return value.
+
+#### `setVisibilityCurve(zone: Object, t: number [, rail: Object | string])`
+Updates a curve-driven visibility zone with progress `t`. The optional rail
+identifies the curve by object or name. The hook defaults `t` to `0` if omitted.
+The function has no return value.
+
+#### `setCollection(collection: Object [, mode: string])`
+Changes a collection's static-batch mode. The mode defaults to `"off"`; use
+`"estatico"` to enable static batching, and `"off"` to disable it.
+The function has no return value.
+
+#### `cambiarEscena(name: string [, restart: boolean])`
+Requests a switch to the named scene. `restart` defaults to false; pass true to
+request a restart. The function has no return value.
 
 ```lua
 setVisibilityCurve(tunnelZone, railOf(camera) == "TunnelRail" and 0.5 or 0)

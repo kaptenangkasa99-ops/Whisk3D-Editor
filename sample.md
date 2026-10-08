@@ -134,7 +134,7 @@ function update(dt)
         setShared("playerGrounded", true)
         property("isGrounded") = true
 
-        if keyDown("space") then
+        if keyPressed("space") then
             property("velocityY") = property("jumpForce")
             property("isGrounded") = false
             sound("sounds/jump.wav", 0.5, 1.0, false)
@@ -249,11 +249,11 @@ function update(dt)
         vx = moveInput * property("speed") * property("airControl")
     end
 
-    if keyDown("space") then
+    if keyPressed("space") then
         setShared("playerJumpQueued", true)
     end
 
-    if grounded and (shared("playerJumpQueued") or keyDown("space")) then
+    if grounded and (shared("playerJumpQueued") or keyPressed("space")) then
         local jumpVel = property("jumpForce")
         setShared("playerJumpQueued", false)
         -- use a shared variable or property as vertical velocity
@@ -678,7 +678,7 @@ function update(dt)
         local dy = ey - y
         local dist = math.sqrt(dx * dx + dy * dy)
 
-        if dist < property("attackRange") and keyDown("f") then
+        if dist < property("attackRange") and keyPressed("f") then
             setPosition(enemy, ex, ey + 2, ez)
             setShared("enemyDefeated", true)
             sound("sounds/hit.wav", 0.8, 1.2, false)
@@ -828,7 +828,7 @@ function update(dt)
     if key("a") or key("left") then dx = dx - 1 end
     if key("d") or key("right") then dx = dx + 1 end
 
-    if keyDown("space") and y <= property("groundY") then
+    if keyPressed("space") and y <= property("groundY") then
         property("velY") = property("jumpForce")
         sound("sounds/jump.wav", 0.5, 1.0, false)
     end
@@ -1005,7 +1005,7 @@ function update(dt)
     if key("a") or key("left") then move = move - 1 end
     if key("d") or key("right") then move = move + 1 end
 
-    if keyDown("space") and y <= property("groundY") then
+    if keyPressed("space") and y <= property("groundY") then
         property("velY") = property("jumpForce")
     end
 
@@ -1037,7 +1037,7 @@ If you want the shortest possible answer:
 
 - make a `Player` object
 - attach a script with `properties`
-- read input with `key()` and `keyDown()`
+- read input with `key()` and `keyPressed()`
 - move with `setPosition()` or `move()`
 - use `start()` for setup and `update(dt)` for logic
 - use `object("Name")` to reference level objects

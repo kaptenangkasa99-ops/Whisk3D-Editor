@@ -1,0 +1,3 @@
+# Legacy ZIP -> v5 folder migration, repeated saves, atomic failure, reopen,
+# and automatic Lua exposed-property refresh.
+v5save

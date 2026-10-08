@@ -40,7 +40,7 @@ function update(dt)
         move = move + 1
     end
 
-    if keyDown("space") and y <= property("groundY") then
+    if keyPressed("space") and y <= property("groundY") then
         property("velY") = property("jumpForce")
     end
 
@@ -70,7 +70,7 @@ end
 - `start()` runs once when play begins.
 - `update(dt)` runs every frame.
 - `key()` checks held keys.
-- `keyDown()` checks a press only once.
+- `keyPressed()` checks a press only once.
 - `position()` gets the current position.
 - `setPosition()` moves the object.
 - the vertical velocity handles jumping and gravity.
@@ -217,7 +217,7 @@ The essential movement loop is:
 if key("d") then
     move = 1
 end
-if keyDown("space") and grounded then
+if keyPressed("space") and grounded then
     velY = jumpForce
 end
 velY = velY - gravity * dt

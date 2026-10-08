@@ -792,12 +792,12 @@ const char* const kUsarCarpetaActual = "Usar carpeta actual";
 
 void AbrirFileBrowser(const std::string& title, const std::string& accionLabel,
                       const std::string& filtro, void (*accept)(const std::string&),
-                      bool guardar) {
+                      bool guardar, const std::string& startDir) {
     if (PopUpActive) PopUpActive->Cerrar();
     FileBrowser* fb = new FileBrowser(title, accionLabel, filtro, accept);
     fb->modoGuardar = guardar;
     PopUpActive = fb;
-    fb->Abrir(w3dFileSystem::GetHomeDir());
+    fb->Abrir(startDir);
 }
 
 // ============================================================================

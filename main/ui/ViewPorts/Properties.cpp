@@ -59,6 +59,7 @@
 #include <cstdlib> // atof: el valor configurado (string) -> buffer del PropFloat (tarjetas de script)
 #include <ctime>   // time(): semilla del UID random del juego
 #include <string>
+#include <sstream>
 #include <set> // centro UV de la seleccion (posiciones UV unicas, tarjeta "Transform UV")
 #ifdef W3D_SYMBIAN
 extern int W3dPantallaAlto; // flip de Y (glesdraw.cpp)
@@ -2121,9 +2122,10 @@ static std::vector<std::string> gScriptObjNombres;
 static PopupMenu* MenuScriptRef = NULL;
 
 static void ScriptRefrescar(){
-    if (PropsActivo) { PropsActivo->target = NULL; PropsActivo->scriptFirma = -1; }
+    if (PropsActivo) { PropsActivo->target = NULL; PropsActivo->scriptFirma.clear(); }
     g_redraw = true;
 }
+void W3dScriptPropiedadesInvalidar() { ScriptRefrescar(); }
 // el file browser eligio un .lua: agregarlo o cambiar el del script elegido
 static void ScriptElegido(const std::string& rutaElegida) {
     if (!ObjActivo) return;
@@ -2145,7 +2147,8 @@ static void ScriptElegido(const std::string& rutaElegida) {
 static void AccionScriptAgregar() {
     if (!ObjActivo) return;
     g_scriptCambiarIdx = -1;
-    AbrirFileBrowser("Choose script", T("Open"), ".lua .luac", ScriptElegido);
+    AbrirFileBrowser("Choose script", T("Open"), ".lua .luac", ScriptElegido,
+                     false, W3dCarpetaBaseSalida());
 }
 // el script SELECCIONADO en la lista de la tarjeta Control (-1 = ninguno)
 static int ScriptActivoIdx() {
@@ -6641,9 +6644,17 @@ void Properties::RefreshTargetProperties(){
     // SCRIPT: reconstruir LAS TARJETAS (una por script) si cambio algo
     if (propControl){
         W3dScriptDatos* d = (ObjActivo && ObjActivo->scriptDatos) ? ObjActivo->scriptDatos : NULL;
-        int firma = (int)(((size_t)ObjActivo) & 0xffff) * 31;
-        if (d) for (size_t i = 0; i < d->scripts.size(); i++)
-            firma += (int)d->scripts[i].ruta.size() + (int)d->scripts[i].refs.size() * 1000 + (int)i * 7;
+        std::ostringstream firmaStream;
+        firmaStream << static_cast<const void*>(ObjActivo) << ';';
+        if (d) for (size_t i = 0; i < d->scripts.size(); i++) {
+            const W3dScriptEntrada& script = d->scripts[i];
+            firmaStream << script.ruta.size() << ':' << script.ruta << ';'
+                        << script.refs.size() << ';';
+            for (size_t r = 0; r < script.refs.size(); r++)
+                firmaStream << script.refs[r].first.size() << ':' << script.refs[r].first
+                            << script.refs[r].second.size() << ':' << script.refs[r].second << ';';
+        }
+        const std::string firma = firmaStream.str();
         if (firma != scriptFirma){
             gScriptPropsMulti.clear();
             ScriptValsLimpiar();   // las filas de valor viven lo que las tarjetas
@@ -7109,7 +7120,7 @@ Properties::Properties() : ViewportBase() {
     propHijosPadUni = NULL; propHijosPadTodos = NULL;
     propPaleta = NULL; paletaFilas = -1; propPaletaSel = NULL; propPaletaNombre = NULL;
     propPaletaObj = NULL; propPaletaObjSel = NULL;
-    propControl = NULL; scriptFirma = -1;
+    propControl = NULL; scriptFirma.clear();
     propListScripts = NULL; propRowScript = NULL; propRowScriptMove = NULL;
     for (int i = 0; i < kMaxScriptCards; i++) propScriptCards[i] = NULL;
     propJuego = NULL; propJuegoCompilar = NULL; propJuegoPlat = NULL; propJuegoModoVent = NULL;

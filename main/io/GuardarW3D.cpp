@@ -1,22 +1,15 @@
 // ============================================================================
 //  GuardarW3D.cpp — ver GuardarW3D.h.
 //
-//  FORMATO v4: el .w3d es un CONTENEDOR (zip) con TODO el proyecto adentro. El
-//  JSON no cambio: es el mismo esquema, la misma indentacion, los mismos nombres
-//  de campo y el mismo orden que el v3, con dos lineas nuevas ("version": 4 y el
-//  bloque "contenedor") y las rutas reescritas como NOMBRES DE ENTRADA. Un
-//  proyecto.json extraido del zip se edita con cualquier editor de texto, se
-//  vuelve a meter y abre: la propiedad que gano el dueno cuando pidio "que los
-//  w3d sean json standard" se conserva entera.
+//  FORMATO v5: el .w3d es JSON legible y los assets viven en carpetas vecinas.
+//  Los formatos anteriores siguen siendo legibles; guardar los migra al layout
+//  actual. Las rutas internas se escriben relativas a la carpeta del proyecto.
 //
 //  ARMADO EN DOS FASES:
 //    1) se camina la escena escribiendo el JSON, y cada ruta de asset pasa por
-//       W3dContenedorEscritor::Ingerir, que mete el archivo adentro y devuelve su
-//       nombre de entrada. Los .w3dui y los .glb salen a un TEMPORAL en la
-//       carpeta del destino (UI2DGuardar solo sabe escribir a un
-//       path) y de ahi entran al zip; el temporal se borra siempre.
-//    2) se verifica que toda referencia interna tenga entrada, se vuelca el zip
-//       al .w3dtmp en orden determinista y se hace UN rename.
+//       W3dContenedorEscritor::Ingerir, que copia cada archivo a su carpeta v5
+//       y devuelve su ruta relativa. Los .w3dui y blobs pasan por temporales.
+//    2) se verifican las referencias y el JSON se reemplaza atomicamente al final.
 //
 //  LA GEOMETRIA VA EN .w3dm (formato propio, libs/Whisk3DCore/io/W3dMalla.h) bajo mallas/. El GLB
 //  dejo de ser formato de GUARDADO: queda SOLO para importar y para el "Export to..." del usuario.
@@ -38,8 +31,7 @@
 #include "io/GuardarW3D.h"
 #include "io/JsonW3d.h"                // JsonNumTexto: floats con round-trip EXACTO
 #include "io/UI2DFormato.h"
-#include "io/W3dContenedor.h"          // FORMATO v4: el .w3d ES un zip y todo va adentro
-#include "io/W3dZip.h"                 // detectar si el destino existente es v4 ZIP
+#include "io/W3dContenedor.h"          // lectura legacy v4 y colector compartido de assets
 #include "W3dEscena.h"                // escenaInicial / modoEscenas (se guardan con el proyecto)
 #include "W3dPaletas.h"               // las paletas del PROYECTO (raiz "paletas" del .w3d)
 #include "objects/Objects.h"
@@ -88,12 +80,20 @@
 #include <sstream>     // el nombre del PRIMER frame de una vertex anim (base + 001 + .obj)
 #include <iomanip>     // std::setw/std::setfill: el mismo padding que VertexAnimation::LoadFrames
 #ifdef _WIN32
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#endif
+#ifdef _WIN32
     #include <direct.h>
     #define W3D_MKDIR(p) _mkdir(p)
 #else
     #include <sys/stat.h>
     #define W3D_MKDIR(p) mkdir(p, 0755)
 #endif
+
+    void W3dProyectoMarcarV5(const std::string& ruta);
 
 // ICONO del juego (tarjeta Juego): ruta al PNG, relativa al .w3d cuando se puede.
 // Va al escena.json como "icono" (ruta EXTERNA, no se mete al zip a proposito).
@@ -194,9 +194,12 @@ static const char* const kTmpSufijo = ".w3dtmp";
 // pisa, hay que sacar el destino antes (mismo patron que LuaCompilar).
 static bool RenombrarSobre(const std::string& tmp, const std::string& fin) {
 #ifdef _WIN32
-    remove(fin.c_str());
+    bool ok = MoveFileExA(tmp.c_str(), fin.c_str(),
+                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    bool ok = rename(tmp.c_str(), fin.c_str()) == 0;
 #endif
-    if (rename(tmp.c_str(), fin.c_str()) != 0) {
+    if (!ok) {
         w3dLogfE("GuardarW3D: no pude renombrar %s -> %s", tmp.c_str(), fin.c_str());
         return false;
     }
@@ -252,11 +255,11 @@ struct CtxGuardar {
 };
 
 // ---------------------------------------------------------------------------
-//  FORMATO v4: EL CONTENEDOR EN CURSO
+//  FORMATO v5: EL PROYECTO EN CURSO
 //
 //  Mientras dura un GuardarW3D, 'gEsc' apunta al escritor y TODA ruta de asset
-//  pasa por el: se mete el archivo adentro del zip y lo que se escribe en el
-//  JSON es su NOMBRE DE ENTRADA ("texturas/pausa.png"). 'gQuien' es solo para
+//  pasa por el: se copia al layout de carpetas y el JSON escribe su ruta
+//  relativa ("texturas/pausa.png"). 'gQuien' es solo para
 //  el EXTERNOS.txt (de quien es la referencia que quedo afuera).
 //
 //  El .w3dui llega por el HOOK g_w3dRefEmit (ver UI2DFormato.h): ese .cpp lo
@@ -266,15 +269,21 @@ struct CtxGuardar {
 //  DescartarPendientes / CommitPendientes (varios renames = varios puntos de
 //  falla, y el comentario de CommitPendientes ya admitia que "la mitad
 //  renombrada y la mitad en .tmp" era el mejor de los males), EscribirExterno,
-//  PodarHuerfanos (en un zip que se reconstruye entero no puede haber
+//  PodarHuerfanos (en un proyecto que se reconstruye entero no puede haber
 //  huerfanos), NombreSeguro aplicado a CARPETAS y los contadores glbN/vtxN como
 //  nombre de archivo.
 // ---------------------------------------------------------------------------
 static W3dContenedorEscritor* gEsc = NULL;
 static std::string gQuien;
 
-static std::string W3dRefEmitir(std::string& ruta) {
+static std::string W3dRefEmitir(std::string& ruta, bool actualizarRuta) {
     if (!gEsc) return ruta;
+    if (gEsc->EsCarpeta()) {
+        std::string fuente = ruta;
+        std::string emitida = gEsc->Ingerir(fuente, NULL, gQuien);
+        if (actualizarRuta) gEsc->RegistrarRutaV5(&ruta, emitida);
+        return emitida;
+    }
     if (!ruta.empty() && ruta[0] != '/' && !(ruta.size() > 2 && ruta[1] == ':')) {
         std::string base = g_w3dDirProyecto;
         if (!base.empty() && W3dEsNombreDeEntrada(ruta)) ruta = base + "/" + ruta;
@@ -289,6 +298,12 @@ static std::string W3dRefEmitir(std::string& ruta) {
 // (el nombre de entrada para los internos), que es lo que resuelve ReadFileBytes.
 static std::string Asset(CtxGuardar* cx, std::string& rutaDisco) {
     if (rutaDisco.empty()) return rutaDisco;
+    if (cx->esc->EsCarpeta()) {
+        std::string fuente = rutaDisco;
+        std::string emitida = cx->esc->Ingerir(fuente, NULL, gQuien);
+        cx->esc->RegistrarRutaV5(&rutaDisco, emitida);
+        return emitida;
+    }
     if (rutaDisco[0] != '/' && !(rutaDisco.size() > 2 && rutaDisco[1] == ':') &&
         !g_w3dDirProyecto.empty() && W3dEsNombreDeEntrada(rutaDisco))
         rutaDisco = g_w3dDirProyecto + "/" + rutaDisco;
@@ -385,9 +400,9 @@ static void IngerirSidecars(CtxGuardar* cx, Mesh* m) {
         Modifier* md = m->modificadores[k];
         if (!md || md->tipo != ModifierType::CullingTri) continue;
         if (!md->pvsArchivo.empty() && w3dFileSystem::FileExists(md->pvsArchivo))
-            md->pvsArchivo = cx->esc->Ingerir(md->pvsArchivo, NULL, gQuien);
+            Asset(cx, md->pvsArchivo);
         if (!md->visArchivo.empty() && w3dFileSystem::FileExists(md->visArchivo))
-            md->visArchivo = cx->esc->Ingerir(md->visArchivo, NULL, gQuien);
+            Asset(cx, md->visArchivo);
     }
     // 2) los DERIVADOS del origen (compatibilidad + re-importacion): se ingieren
     //    igual, pero solo RELLENAN el nombre del modificador si estaba vacio.
@@ -2032,12 +2047,9 @@ bool GuardarW3D(const std::string& ruta) {
     gNoCubiertos = 0;
     gMats.clear();   // los materiales se juntan durante el recorrido de la escena
 
-    // ------------------------------------------------------------------
-    //  FORMATO v4: TODO el proyecto adentro de UN archivo (un zip estandar).
-    //  Se escribe SIEMPRE asi; los formatos viejos (JSON plano v3, zip v2 y el
-    //  texto Whisk3D{}) se siguen ABRIENDO y se MIGRAN en este mismo guardado.
-    // ------------------------------------------------------------------
-    const bool v5Carpeta = !W3dZipEs(ruta);
+    // Saving always writes the v5 folder layout. Older JSON, ZIP, and text
+    // projects remain readable and migrate on their next save.
+    const bool v5Carpeta = true;
     W3dContenedorEscritor esc;
     esc.Iniciar(ruta, W3dContenedorLector(), v5Carpeta);
     gEsc = &esc;
@@ -2058,10 +2070,8 @@ bool GuardarW3D(const std::string& ruta) {
     // LAYOUT DE CARPETAS. Separados a proposito: un cambio de esquema no obliga a
     // mover archivos y al reves. PROHIBIDO meter aca fecha, usuario, hostname o
     // rutas de la maquina: cualquier campo volatil rompe el round-trip byte a byte.
-    s += v5Carpeta ? "  \"version\": 5,\n" : "  \"version\": 4,\n";
-    if (!v5Carpeta)
-        s += "  \"contenedor\": { \"formato\": 2, \"generador\": \"Whisk3D\" },\n";
-    // ICONO del juego: entra al contenedor bajo proyecto/ (el PNG en maxima
+    s += "  \"version\": 5,\n";
+    // ICONO del juego: entra bajo proyecto/ (el PNG en maxima
     // definicion; Compilar juego genera de ahi los tamanos chicos)
     if (!g_proyIcono.empty()) {
         gQuien = "icono del proyecto";
@@ -2075,7 +2085,14 @@ bool GuardarW3D(const std::string& ruta) {
         std::string baseIco    = BaseSinExt(g_proyIcono);
         bool eraDeDisco = !W3dEsNombreDeEntrada(g_proyIcono) &&
                           w3dFileSystem::FileExists(g_proyIcono);
-        std::string ref = esc.Ingerir(g_proyIcono, "proyecto", gQuien);
+        std::string ref;
+        if (v5Carpeta) {
+            std::string fuente = g_proyIcono;
+            ref = esc.Ingerir(fuente, "proyecto", gQuien);
+            esc.RegistrarRutaV5(&g_proyIcono, ref);
+        } else {
+            ref = esc.Ingerir(g_proyIcono, "proyecto", gQuien);
+        }
         if (eraDeDisco && ref.compare(0, 4, "ext:") != 0) {
             std::vector<w3dFileSystem::DirEntry> ents;
             if (!baseIco.empty() && w3dFileSystem::ListDir(carpetaIco, ents))
@@ -2186,25 +2203,21 @@ bool GuardarW3D(const std::string& ruta) {
     gEsc = NULL;
 
     // ==================================================================
-    //  ESCRITURA DEL CONTENEDOR v4: UN SOLO ARCHIVO, UN SOLO RENAME
+    //  ESCRITURA v5: assets primero; el JSON del proyecto se publica al final
     //
-    //  1. armar el zip ENTERO en "<destino>.w3dtmp", en la MISMA carpeta
+    //  1. escribir assets a archivos temporales y preparar el JSON en "<destino>.w3dtmp"
     //  2. VERIFICAR que toda referencia interna tenga su entrada. Si falta
     //     una sola: ABORTAR sin renombrar (sin esto el proyecto abre "sin
     //     la textura" y no falla nada, que es el fallo mas caro del diseno)
-    //  3. rename encima. Si algo falla, el archivo ANTERIOR queda INTACTO.
+    //  3. reemplazar el JSON atomicamente. Si falla, el archivo ANTERIOR queda INTACTO.
     //
-    //  EL CICLO DEL ARCHIVO ABIERTO: el contenedor mantiene su FILE* abierto
-    //  toda la sesion para leer por demanda. En POSIX el rename sobre un
-    //  archivo abierto anda; en Windows falla. Por eso el orden es
-    //  cerrar el zip nuevo -> DESMONTAR -> rename -> volver a montar.
+    //  Un proyecto v4 montado debe desmontarse antes de reemplazar su .w3d en Windows.
     // ==================================================================
     {
         std::string tmpZip = ruta + kTmpSufijo;
         bool ok = !cx.error;
         if (ok && !esc.AgregarBytes("proyecto.json", s)) ok = false;
-        // estilo OpenDocument: "mimetype" (que Escribir() manda primera) y el
-        // LEEME.txt que le explica el arbol al que abra el zip con un descompresor
+        // v5 es JSON normal con carpetas vecinas; no agrega cabeceras de ZIP.
         if (ok && !v5Carpeta) esc.EscribirCabeceraOdf();
         // lo que el editor no referencia y venia en el .w3d se preserva VERBATIM
         // (alguien pudo meter un notas.txt a mano con un descompresor)
@@ -2232,7 +2245,7 @@ bool GuardarW3D(const std::string& ruta) {
                 Notificar("Save: incomplete writing; NOT touched " + Base(ruta), true);
             return false;
         }
-        // el contenedor viejo tiene el archivo destino ABIERTO: soltarlo antes del rename
+        // el proyecto v4 viejo puede tener el archivo destino ABIERTO: soltarlo antes del rename
         bool estabaMontado = W3dContenedorHayMontado();
         W3dContenedorDesmontar();
         if (!RenombrarSobre(tmpZip, ruta)) {
@@ -2241,10 +2254,8 @@ bool GuardarW3D(const std::string& ruta) {
             Notificar("Save: could not replace " + Base(ruta) + " (old version remains)", true);
             return false;
         }
-        // y se monta el que acabamos de escribir: de aca en adelante las rutas en
-        // memoria son sus nombres de entrada y ReadFileBytes las resuelve
-        if (!W3dContenedorMontar(ruta))
-            w3dLogfE("[W3D] guarde %s pero no lo pude volver a montar", ruta.c_str());
+        esc.AplicarRutasV5();
+        W3dProyectoMarcarV5(ruta);
         size_t nExt = esc.CantidadExternos(), nFaltan = esc.CantidadExternosQueFaltan();
         char b[256];
         if (nFaltan > 0) {
@@ -2266,8 +2277,8 @@ bool GuardarW3D(const std::string& ruta) {
         } else {
             Notificar("Project saved:: " + Base(ruta), false);
         }
-        w3dLogf("[W3D] guardado %s (contenedor v4 estilo ODF: mimetype + LEEME.txt + "
-                "proyecto.json + escenas/ + scripts/ + assets)", ruta.c_str());
+        w3dLogf("[W3D] guardado %s (proyecto v5: proyecto JSON + carpetas de assets)",
+                ruta.c_str());
         return true;
     }
 }
@@ -2303,8 +2314,8 @@ static void GuardarPendienteAhora() {
 // escribia encima sin decir nada; Render y Export si preguntan).
 static void GuardarElegido(const std::string& elegido) {
     g_guardarPendiente = W3dRutaDeSalida(elegido, NombreProyectoSugerido(), ".w3d");
-    // v5 layout: a new project owns one directory. Existing file selections and
-    // v4 ZIP destinations keep their exact path and format.
+    // v5 layout: a new project owns one directory. Existing file selections
+    // keep their exact path, but are migrated to v5 when saved.
     if (!elegido.empty() && w3dFileSystem::IsDir(elegido) &&
         !w3dFileSystem::FileExists(g_guardarPendiente)) {
         std::string nombre = NombreProyectoSugerido();

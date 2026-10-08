@@ -66,10 +66,11 @@ bool W3dRutaBajoCarpeta(const std::string& ruta, const std::string& dir, std::st
     rel = ruta.substr(i);
     return true;
 }
-static std::string RutaParaGuardar(std::string& ruta, const std::string& base) {
+static std::string RutaParaGuardar(std::string& ruta, const std::string& base,
+                                   bool actualizarRuta = true) {
     // v4: el asset se mete ADENTRO del contenedor y lo que va al archivo es su
     // nombre de ENTRADA (o "ext:..." si el usuario lo quiso afuera / no existe)
-    if (g_w3dRefEmit) return g_w3dRefEmit(ruta);
+    if (g_w3dRefEmit) return g_w3dRefEmit(ruta, actualizarRuta);
     if (ruta.empty() || base.empty()) return ruta;
     std::string rel;
     if (W3dRutaBajoCarpeta(ruta, base, rel)) return rel;
@@ -277,7 +278,7 @@ static void EscribirElemento(FILE* f, Object* o, int ind, const std::string& bas
             std::string js = (pt != std::string::npos) ? t->fuenteBitmap.substr(0, pt) + ".json"
                                                        : std::string();
             CampoS(f, i2, "fuenteBitmap", RutaParaGuardar(t->fuenteBitmap, base));
-            if (!js.empty()) RutaParaGuardar(js, base);   // solo para INGERIRLO en el v4
+            if (!js.empty()) RutaParaGuardar(js, base, false); // solo se ingiere; no es una ruta viva
         }
         CampoI(f, i2, "tipoContenido", t->tipo);     // 0 string, 1 number, 2 float
         CampoF(f, i2, "decimales", t->decimales);
