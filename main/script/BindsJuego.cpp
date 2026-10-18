@@ -530,7 +530,7 @@ static int LChocan(lua_State* L) {
 //   con eje "x" son izquierda/derecha y con "y" arriba/abajo.
 //
 // 'eje' es "xy" (default), "x" o "y" -- la misma convencion de nombres de eje que ya usa
-// rebotarEn(obj, area, "arriba abajo") del Core. Antes esta funcion recortaba SOLO en Y: el
+// bounceWithin(obj, area, "arriba abajo") del Core. Antes esta funcion recortaba SOLO en Y: el
 // nombre y la doc eran genericos ("que su rect no se salga") pero la semantica era "clamp
 // vertical", heredada de la pala de un pong. Un objeto que se sale por un costado no tenia
 // como acotarse.
@@ -846,7 +846,7 @@ static bool FisicaTam2D(Object* o, float* ancho, float* alto) {
     return true;
 }
 // rect RESUELTO por el layout (lo mismo que cajaUI): la fisica lo usa para los objetos que hacen
-// de AREA (rebotarEn(obj, cancha)) y para los OBSTACULOS no autoritativos de rebotar(), que estan
+// de AREA (bounceWithin(obj, cancha)) y para los OBSTACULOS no autoritativos de bounce(), que estan
 // anclados/acomodados por el .w3dui y por eso no estan donde dice su pos cruda. false = no se
 // dibujo aun -> el Core cae a su caja normal.
 static bool FisicaCajaUI(Object* o, float* cx, float* cy, float* ancho, float* alto) {
@@ -854,7 +854,7 @@ static bool FisicaCajaUI(Object* o, float* cx, float* cy, float* ancho, float* a
 }
 // la pos cruda del objeto es autoritativa? La MISMA regla crudo-vs-resuelto de chocan
 // (PosCrudaAutoritativa): la fisica la usa para elegir la caja del OBSTACULO de
-// rebotar(obj, otro) -> una pala movida por el script ESTE frame colisiona en su pos
+// bounce(obj, otro) -> una pala movida por el script ESTE frame colisiona en su pos
 // nueva (sin lag), y un obstaculo puesto por el layout colisiona donde se dibuja.
 static bool FisicaPosCruda(Object* o) {
     return PosCrudaAutoritativa(o);

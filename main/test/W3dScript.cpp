@@ -76,7 +76,7 @@ bool LayoutAbrirMenuDeBarra(ViewportBase* vp, int mx, int my); // LayoutInput.cp
 #include "W3dEscena.h"          // migrar: la escena inicial es parte de la huella
 #include "objects/Contenedor2D.h" // chocantest: contenedor con layout en filas (flex)
 #include "script/BindsJuego.h"    // chocantest: los binds de juego REALES (chocan/cajaUI/limitar)
-#include "physics/W3dFisica.h"    // chocantest: rebotar() contra un obstaculo puesto por el layout
+#include "physics/W3dFisica.h"    // chocantest: bounce() contra un obstaculo puesto por el layout
 #include "render/UIOverlay.h"     // chocantest: resolver el layout con el dibujador real
 extern "C" {                      // chocantest: los binds se prueban sobre un lua_State propio
 #include "lua.h"
@@ -233,17 +233,17 @@ static bool TstBoolBind(lua_State* L, const char* fn, Object* a, Object* b) {
     lua_pop(L, 1);
     return r;
 }
-// cajaUI(o) -> c[0..3] = cx, cy, ancho, alto
+// getUIBox(o) -> c[0..3] = cx, cy, ancho, alto
 static void TstCajaUI(lua_State* L, Object* o, float* c) {
     c[0] = c[1] = c[2] = c[3] = 0.0f;
-    lua_getglobal(L, "cajaUI");
+    lua_getglobal(L, "getUIBox");
     lua_pushlightuserdata(L, o);
     if (lua_pcall(L, 1, 4, 0) != 0) { lua_pop(L, 1); return; }
     for (int i = 0; i < 4; i++) c[i] = (float)lua_tonumber(L, -4 + i);
     lua_pop(L, 4);
 }
-// llama <fn>(o, x, y) sin resultados (setPosPx / velocidad / limitar con bordes)
-// misma llamada pero con un CUARTO argumento de texto: el eje de limitar()
+// llama <fn>(o, x, y) sin resultados (setPosPx / velocity / clamp con bordes)
+// misma llamada pero con un CUARTO argumento de texto: el eje de clamp()
 static void TstXYEjeBind(lua_State* L, const char* fn, Object* o, float x, float y, const char* eje) {
     lua_getglobal(L, fn);
     lua_pushlightuserdata(L, o);
@@ -23433,9 +23433,9 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
     //           chocan usaba su pos cruda (basura) y no coincidia con lo visible;
     //        2) un objeto MOVIL (hijo directo de la raiz, ancla centro, layout libre) movido con
     //           setPosPx en el MISMO frame choca en su posicion NUEVA (sin 1 frame de lag);
-    //        3) la fisica: rebotar() contra un obstaculo del layout usa el rect resuelto, y
+    //        3) la fisica: bounce() contra un obstaculo del layout usa el rect resuelto, y
     //           contra una pala movida este mismo frame usa la pos cruda nueva (el pong);
-    //        4) limitar(): clampea al objeto anclado a un borde por su caja RESUELTA (delta
+    //        4) clamp(): clampea al objeto anclado a un borde por su caja RESUELTA (delta
     //           sobre su pos), y al movil autoritativo por su caja cruda, como siempre. ----
     if (cmd == "chocantest") {
         extern void ReiniciarEscena();
@@ -23480,64 +23480,64 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         TstCajaUI(L, h2, ch);
         bool cajaOk = fabsf(ch[0] - 160.0f) < 0.5f && fabsf(ch[1] - 75.0f) < 0.5f &&
                       fabsf(ch[2] - 200.0f) < 0.5f && fabsf(ch[3] - 150.0f) < 0.5f;
-        printf("      [chocantest] cajaUI(h2 en flex) = (%.1f, %.1f, %.1f x %.1f) esperado (160, 75, 200 x 150) %s\n",
+        printf("      [chocantest] getUIBox(h2 en flex) = (%.1f, %.1f, %.1f x %.1f) esperado (160, 75, 200 x 150) %s\n",
                ch[0], ch[1], ch[2], ch[3], cajaOk ? "OK" : "MAL");
         if (!cajaOk) ok = false;
-        bool c1 = TstBoolBind(L, "chocan", sonda, h2);   // solapa lo DIBUJADO -> true (antes: false)
+        bool c1 = TstBoolBind(L, "isColliding", sonda, h2);   // solapa lo DIBUJADO -> true (antes: false)
         bool esperado = fabsf(cs[0] - ch[0]) <= (cs[2] + ch[2]) * 0.5f &&
                         fabsf(cs[1] - ch[1]) <= (cs[3] + ch[3]) * 0.5f;
-        bool c2 = TstBoolBind(L, "chocan", marca, h2);   // solapa solo el rect CRUDO -> false (antes: true)
-        printf("      [chocantest] flex: chocan(sonda,h2)=%d (esperado 1, cajaUI dice %d) | chocan(marca,h2)=%d (esperado 0)\n",
+        bool c2 = TstBoolBind(L, "isColliding", marca, h2);   // solapa solo el rect CRUDO -> false (antes: true)
+        printf("      [chocantest] flex: isColliding(sonda,h2)=%d (esperado 1, getUIBox dice %d) | isColliding(marca,h2)=%d (esperado 0)\n",
                c1 ? 1 : 0, esperado ? 1 : 0, c2 ? 1 : 0);
         if (!c1 || !esperado || c2) ok = false;
 
-        // 2) MOVIL sin lag: setPosPx en el MISMO frame (sin re-render) ya cuenta para chocan
+        // 2) MOVIL sin lag: setPosPx en el MISMO frame (sin re-render) ya cuenta para isColliding
         TstXYBind(L, "setPosPx", pelota, 240.0f, 0.0f);
-        bool c3 = TstBoolBind(L, "chocan", pelota, pared);   // en la pos NUEVA -> true
-        bool c4 = TstBoolBind(L, "chocan", pelota, marca);   // ya NO esta en la vieja -> false
-        printf("      [chocantest] movil: tras setPosPx(pelota,240,0) chocan(pelota,pared)=%d (esperado 1) | chocan(pelota,marca)=%d (esperado 0: sin lag)\n",
+        bool c3 = TstBoolBind(L, "isColliding", pelota, pared);   // en la pos NUEVA -> true
+        bool c4 = TstBoolBind(L, "isColliding", pelota, marca);   // ya NO esta en la vieja -> false
+        printf("      [chocantest] movil: tras setPosPx(pelota,240,0) isColliding(pelota,pared)=%d (esperado 1) | isColliding(pelota,marca)=%d (esperado 0: sin lag)\n",
                c3 ? 1 : 0, c4 ? 1 : 0);
         if (!c3 || c4) ok = false;
 
         // 3) FISICA: obstaculo del layout -> caja resuelta; pala movida este frame -> caja cruda
         TstXYBind(L, "setPosPx", pelota, 240.0f, 75.0f);     // sobre el rect DIBUJADO de h2
-        TstXYBind(L, "velocidad", pelota, -60.0f, 0.0f);
-        bool r1 = TstBoolBind(L, "rebotar", pelota, h2);     // antes: false (usaba el crudo de h2)
+        TstXYBind(L, "velocity", pelota, -60.0f, 0.0f);
+        bool r1 = TstBoolBind(L, "bounce", pelota, h2);     // antes: false (usaba el crudo de h2)
         TstXYBind(L, "setPosPx", pelota, -100.0f, 0.0f);
-        TstXYBind(L, "velocidad", pelota, 60.0f, 0.0f);
+        TstXYBind(L, "velocity", pelota, 60.0f, 0.0f);
         TstXYBind(L, "setPosPx", pala, -95.0f, 0.0f);        // la pala se movio ESTE frame (pong)
-        bool r2 = TstBoolBind(L, "rebotar", pelota, pala);   // pega en la pos NUEVA (sin lag)
-        printf("      [chocantest] fisica: rebotar(pelota, h2 en flex)=%d (esperado 1) | rebotar(pelota, pala movida)=%d (esperado 1)\n",
+        bool r2 = TstBoolBind(L, "bounce", pelota, pala);   // pega en la pos NUEVA (sin lag)
+        printf("      [chocantest] fisica: bounce(pelota, h2 en flex)=%d (esperado 1) | bounce(pelota, pala movida)=%d (esperado 1)\n",
                r1 ? 1 : 0, r2 ? 1 : 0);
         if (!r1 || !r2) ok = false;
 
         // 4) LIMITAR: el anclado al borde clampea por su caja RESUELTA (dibujada en (0,-240),
         //    medio afuera del borde -240) -> baja 20px = pos.y += 20/480. El movil autoritativo
         //    clampea por su caja CRUDA, como siempre.
-        TstXYBind(L, "limitar", anc, -240.0f, 240.0f);
+        TstXYBind(L, "clamp", anc, -240.0f, 240.0f);
         float espAnc = 20.0f / 480.0f;
         bool l1 = fabsf(anc->pos.y - espAnc) < 1e-4f;
         TstXYBind(L, "setPosPx", pelota, 0.0f, 1000.0f);
-        TstXYBind(L, "limitar", pelota, -240.0f, 240.0f);
+        TstXYBind(L, "clamp", pelota, -240.0f, 240.0f);
         float espPel = 220.0f / 480.0f;
         bool l2 = fabsf(pelota->pos.y - espPel) < 1e-4f;
-        printf("      [chocantest] limitar: anclado pos.y=%.5f (esperado %.5f) %s | movil pos.y=%.5f (esperado %.5f) %s\n",
+        printf("      [chocantest] clamp: anclado pos.y=%.5f (esperado %.5f) %s | movil pos.y=%.5f (esperado %.5f) %s\n",
                anc->pos.y, espAnc, l1 ? "OK" : "MAL", pelota->pos.y, espPel, l2 ? "OK" : "MAL");
         if (!l1 || !l2) ok = false;
 
-        // 4b) LIMITAR EN X. limitar() recortaba SOLO en Y (era el clamp vertical de la
+        // 4b) CLAMP EN X. clamp() recortaba SOLO en Y (era el clamp vertical de la
         //     pala de un pong con nombre generico). Con el eje explicito, un objeto que
         //     se sale por un COSTADO tambien se puede acotar. El lienzo es 640x480, asi
         //     que el borde derecho a mitad de camino es 320 - hw.
         TstXYBind(L, "setPosPx", pelota, 1000.0f, 0.0f);
-        TstXYEjeBind(L, "limitar", pelota, -300.0f, 300.0f, "x");
+        TstXYEjeBind(L, "clamp", pelota, -300.0f, 300.0f, "x");
         float espX = (300.0f - 20.0f) / 640.0f;   // la pelota mide 40 px -> hw = 20
         bool l3 = fabsf(pelota->pos.x - espX) < 1e-4f;
-        // y con "y" el eje X no se toca: el clamp es del eje pedido y de ninguno mas
+        // y con "y" el eje X no se toca: clamp aplica solo al eje pedido.
         float antesX = pelota->pos.x;
-        TstXYEjeBind(L, "limitar", pelota, -240.0f, 240.0f, "y");
+        TstXYEjeBind(L, "clamp", pelota, -240.0f, 240.0f, "y");
         bool l4 = fabsf(pelota->pos.x - antesX) < 1e-6f;
-        printf("      [chocantest] limitar eje: en \"x\" pos.x=%.5f (esperado %.5f) %s | con \"y\" el eje X no se movio %s\n",
+        printf("      [chocantest] clamp axis: on \"x\" pos.x=%.5f (expected %.5f) %s | on \"y\" x remains unchanged %s\n",
                pelota->pos.x, espX, l3 ? "OK" : "MAL", l4 ? "OK" : "MAL");
         if (!l3 || !l4) ok = false;
 
@@ -28340,6 +28340,9 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         std::vector<W3dScriptProp> inputApiProps;
         const bool inputApiExact = writeText(inputApiPath,
             "assert(keyPressed ~= nil and keyDown == nil)\n"
+            "assert(velocity and accelerate and collisionBox and bounce and bounceWithin and bounceInside)\n"
+            "assert(velocidad == nil and acelerar == nil and caja == nil and rebotar == nil "
+            "and rebotarEn == nil and rebotarDentro == nil)\n"
             "properties = { keyPressedAvailable = keyPressed('space') }\n") &&
             W3dScriptLeerPropiedades(inputApiPath, &inputApiProps) &&
             !inputApiProps.empty() && inputApiProps[0].nombre == "keyPressedAvailable";

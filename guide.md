@@ -575,7 +575,7 @@ These are the Whisk3D globals registered for scripts. Names and capitalization a
 | Logging and sound | `print`, `info`, `logInfo`, `error`, `debug`, `esDebug`, `logQuantity`, `logLine`, `beep`, `sound`, `stopSound`, `silence`, `isMuted` |
 | Lighting and animation | `color`, `setColor`, `energy`, `setEnergy`, `animator`, `rotateTowards`, `instantiate` |
 | Vertex editing | `grupoVertices`, `verticePos`, `setVerticePos`, `setVerticeColor`, `setVertices` |
-| Physics | `velocidad`, `acelerar`, `caja`, `rebotar`, `rebotarEn`, `rebotarDentro` |
+| Physics | `velocity`, `accelerate`, `collisionBox`, `bounce`, `bounceWithin`, `bounceInside` |
 | Screen and UI | `screen`, `posPx`, `setPosPx`, `getScreenPx`, `setScreenPx`, `setText`, `setTextura`, `show`, `setOpacity`, `setFontScreenSize`, `isPressed`, `isColliding`, `clamp`, `isInside`, `getScale`, `getSafeArea`, `fade`, `getUIBox`, `screenOf`, `quot` |
 | Camera, visibility, and game | `setRail`, `setRailNode`, `setRailLookAt`, `railOf`, `lensOf`, `setLens`, `cameraXZ`, `target`, `controllers`, `controller`, `setSector`, `visibilityCell`, `setVisibilityAnchor`, `setVisibilityCurve`, `setCollection`, `emitter`, `cambiarEscena` |
 
@@ -2054,49 +2054,94 @@ setPos3(obj, 0, 5, 0)
 
 ## Physics
 
-These physics bindings keep their Spanish names in the current Lua API.
+Physics functions use English names in Lua; their previous Spanish global names
+are no longer registered.
 
-### `velocidad(obj) → vx, vy, vz` / `velocidad(obj, vx, vy [, vz])`
+### `velocity(obj) → vx, vy, vz` / `velocity(obj, vx, vy [, vz])`
 Reads an object's velocity, or sets it. Setting velocity makes the physics step move the object each frame. In 2D, coordinates are canvas pixels per second; in 3D, they are engine units per second.
 
 ```lua
-velocidad(ball, 180, 120) -- set X/Y velocity
-local vx, vy, vz = velocidad(ball)
+velocity(ball, 180, 120) -- set X/Y velocity
+local vx, vy, vz = velocity(ball)
 ```
 
-### `acelerar(obj, factor [, limit]) → speed`
+### `accelerate(obj, factor [, limit]) → speed`
 Multiplies an existing velocity by `factor`, preserving direction. An optional positive `limit` caps the resulting speed.
 
 ```lua
-local speed = acelerar(ball, 1.05, maxSpeed)
+local speed = accelerate(ball, 1.05, maxSpeed)
 ```
 
-### `caja(obj) → width, height, depth` / `caja(obj, width, height [, depth])`
+### `collisionBox(obj) → width, height, depth` / `collisionBox(obj, width, height [, depth])`
 Reads the active collision-box size or assigns a custom size.
 
 ```lua
-caja(ball, 24, 24) -- 2D collision box in canvas pixels
+collisionBox(ball, 24, 24) -- 2D collision box in canvas pixels
 ```
 
-### `rebotar(obj, other [, other2, ...]) → hit`
+### `bounce(obj, other [, other2, ...]) → hit`
 Checks for overlap with one or more objects (or a table of objects), separates the moving object, and reverses the collision-axis velocity. The first object must have velocity set.
 
 ```lua
-if rebotar(ball, {leftWall, rightWall}) then beep(440, 60, 0.4) end
+if bounce(ball, {leftWall, rightWall}) then beep(440, 60, 0.4) end
 ```
 
-### `rebotarEn(obj, area [, sides]) → hit`
-Keeps an object within an area's collision box. `sides` can name the closed boundaries; omitted sides remain open. It also accepts numeric bounds: `rebotarEn(obj, x0, y0, x1, y1 [, z0, z1])`; pass `nil` for an open boundary.
+### `bounceWithin(obj, area [, sides]) → hit`
+Keeps an object within an area's collision box. `sides` can name the closed boundaries; omitted sides remain open. It also accepts numeric bounds: `bounceWithin(obj, x0, y0, x1, y1 [, z0, z1])`; pass `nil` for an open boundary.
 
 ```lua
-rebotarEn(ball, court, "arriba abajo")
+bounceWithin(ball, court, "arriba abajo")
 ```
 
-### `rebotarDentro(obj, area) → hit`
+### `bounceInside(obj, area) → hit`
 Keeps an object inside all boundaries of the specified area.
 
 ```lua
-rebotarDentro(ball, court)
+bounceInside(ball, court)
+```
+
+### Lua example: velocity-based movement
+
+The physics step integrates velocity before each frame's `update(dt)`. Whisk3D
+does not apply gravity automatically, so a script can update vertical velocity
+itself and clamp the object at the floor:
+
+```lua
+properties = { speed = 6, jump = 12, gravity = 24 }
+
+local player
+local groundY = 0
+local jumping = false
+
+function start()
+    player = object("Player")
+    local _, y = Position(player)
+    groundY = y
+    velocity(player, 0, 0, 0)
+end
+
+function update(dt)
+    local vx, vy, vz = velocity(player)
+    local moveX = 0
+    if key("d") or key("right") then moveX = moveX + 1 end
+    if key("a") or key("left") then moveX = moveX - 1 end
+    vx = moveX * property("speed")
+
+    local _, y = Position(player)
+    if keyPressed("space") and not jumping and y <= groundY then
+        vy = property("jump")
+        jumping = true
+    end
+    if jumping then vy = vy - property("gravity") * dt end
+
+    velocity(player, vx, vy, vz)
+    local x, y, z = Position(player)
+    if y < groundY then
+        SetPosition(player, x, groundY, z)
+        velocity(player, vx, 0, vz)
+        jumping = false
+    end
+end
 ```
 
 ## Additional registered helpers

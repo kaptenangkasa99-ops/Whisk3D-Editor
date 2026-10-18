@@ -28,7 +28,7 @@
 //  LAYOUT: el .w3dui decide DONDE va cada cosa; el script no calcula posiciones,
 //  bordes ni centros. Por eso los binds que necesitan una zona toman el OBJETO
 //  que la representa (limitar(pala, cancha), dentro(cancha, x, y), y del lado del
-//  Core rebotarEn(pelota, cancha, "arriba abajo")) y leen su caja ya resuelta.
+//  Core bounceWithin(pelota, cancha, "arriba abajo")) y leen su caja ya resuelta.
 //
 //  El estado por-frame (punteros del dedo/mouse, mapeo ventana<->lienzo, rect
 //  seguro, posiciones resueltas por el layout) vive ACA y lo ALIMENTAN los dos
