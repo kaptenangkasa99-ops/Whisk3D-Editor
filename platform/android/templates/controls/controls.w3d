@@ -1,0 +1,28 @@
+Whisk3D {
+    version: 20251127
+    Escena {
+        background: "0.1, 0.12, 0.14, 1.0"
+        Camera {
+            name: "Camera"
+            y: -8.0
+            z: 2.0
+        }
+        Light {
+            name: "Light"
+            x: -2.0
+            y: -4.0
+            z: 5.0
+        }
+        Mesh {
+            name: "Player"
+            z: 0.8
+        }
+        Collection {
+            name: "GameScripts"
+            script: "controls.lua"
+        }
+        UI {
+            archivo: "touch.w3dui"
+        }
+    }
+}

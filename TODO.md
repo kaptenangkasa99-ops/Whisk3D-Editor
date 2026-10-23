@@ -1,3 +1,4 @@
+IMPORTANT FIX
 * [x] Always save projects in the v5 JSON-plus-folders layout; keep opening legacy formats.
 * [x] Migrate legacy projects to v5 on save.
 * [x] Fix repeated save/migration state so an opened legacy project remains usable after saving.
@@ -17,10 +18,12 @@
 * [x] Create `api.md` listing the exposed Lua functions and parameter descriptions.
 * [x] Create a sample game animation showcase demonstrating animator usage.
 * [x] Add a UI touchpad/joystick pattern and mapped keyboard-button sample; the virtual pad maps to WASD-style movement based on position.
+[x] Fix save and load features on android (reduce save-time mesh memory use; bundle app-private templates with shared-storage Save As)
+[x] bundle with template projects plus the UI and virtual user interface button for touch devices : animation usage, control usage, platformer game, audio usage
 
 
-
-[] Your Android support builds the editor APK on a development machine. The Compile Game → Android path can also generate a game APK, but it assumes the editor is running in a desktop checkout with a toolchain and source tree available. It is not currently an on-device APK builder.
+NOT IMPORTANT FIX (only do when required)
+[] Android support builds the editor APK on a development machine. The Compile Game → Android path can also generate a game APK, but it assumes the editor is running in a desktop checkout with a toolchain and source tree available. It is not currently an on-device APK builder.
 
 The key gaps are:
 

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "nombre": "AudioControls",
+  "ventana": {
+    "igualQueRender": true,
+    "ancho": 640,
+    "alto": 480,
+    "escalaGlobal": 1,
+    "color": [0, 0, 0, 0]
+  },
+  "paleta": "",
+  "paletas": [],
+  "hijos": [
+    {
+      "tipo": "boton",
+      "nombre": "PlayTone",
+      "visible": true,
+      "pos": [0.08, -0.08, 0],
+      "ancla": 7,
+      "rotacion": 0,
+      "opacidad": 1,
+      "peso": 1,
+      "ancho": 180,
+      "alto": 64,
+      "tamModo": 2,
+      "expandir": false,
+      "texto": "Play tone",
+      "tam": 24,
+      "pad": 12,
+      "colorFondo": [0.25, 0.12, 0.4, 0.95],
+      "colorTexto": [1, 1, 1, 1],
+      "colorBorde": [0.7, 0.4, 1, 1],
+      "hijos": []
+    }
+  ]
+}

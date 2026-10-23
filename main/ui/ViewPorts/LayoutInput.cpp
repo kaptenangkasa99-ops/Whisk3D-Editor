@@ -66,6 +66,10 @@
 #include "WhiskUI/theme/colores.h"     // ColorID
 #include "WhiskUI/widgets/PopupMenu.h"
 #include "w3dlog.h"         // las notificaciones tambien van al log
+#include <filesystem>
+#ifdef __ANDROID__
+    #include <SDL_system.h>
+#endif
 // (los tipos GL + el dibujo vienen del engine: w3dGraphics.h / w3dEngine, ya incluido arriba)
 
 // rename en curso (mesh part / material / hueso): Properties.cpp. Enter escribe el nombre uniquificado, Esc descarta.
@@ -81,10 +85,171 @@ void (*LayoutWarpMouse)(int x, int y) = NULL;
 void (*LayoutArbolCambiado)() = NULL;
 
 static PopupMenu* gMenuBienvenida = NULL;
+static PopupMenu* gMenuPlantillas = NULL;
+
+struct PlantillaProyecto {
+    const char* nombre;
+    const char* carpeta;
+    const char* proyecto;
+};
+
+static void BienvenidaProyectoVacio() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    if (!rootViewport || rootViewport->ViewportKind() != 9) return;
+    int w = rootViewport->width, h = rootViewport->height;
+    delete rootViewport;
+    Viewport3D* vp3d = NULL;
+    rootViewport = LayoutPorDefecto(w, h, &vp3d);
+    viewPortActive = vp3d;
+    g_redraw = true;
+}
+
+static const PlantillaProyecto kPlantillasProyecto[] = {
+    { "Animation usage", "animation", "animation.w3d" },
+    { "Control usage", "controls", "controls.w3d" },
+    { "Platformer game", "platformer", "platformer.w3d" },
+    { "Audio usage", "audio", "audio.w3d" }
+};
+
+static std::string CarpetaPlantillas() {
+#ifdef __ANDROID__
+    const char* internal = SDL_AndroidGetInternalStoragePath();
+    if (!internal || !*internal) return std::string();
+    return w3dFileSystem::JoinPath(internal, "Templates");
+#else
+    return "platform/android/templates";
+#endif
+}
+
+static void BienvenidaCrearDesdePlantilla(const std::string& destinoElegido, int indice) {
+    if (indice < 0 || indice >= (int)(sizeof(kPlantillasProyecto) / sizeof(kPlantillasProyecto[0]))) {
+        Notificar("Invalid project template", true);
+        return;
+    }
+    const PlantillaProyecto& plantilla = kPlantillasProyecto[indice];
+    const std::string raiz = CarpetaPlantillas();
+    if (raiz.empty()) {
+        Notificar("Project templates are not available", true);
+        return;
+    }
+    const std::string origen = w3dFileSystem::JoinPath(raiz, plantilla.carpeta);
+    if (!w3dFileSystem::IsDir(origen)) {
+        Notificar(std::string("Project template is missing: ") + plantilla.nombre, true);
+        return;
+    }
+    const std::string proyectoOrigen = w3dFileSystem::JoinPath(origen, plantilla.proyecto);
+    if (!w3dFileSystem::FileExists(proyectoOrigen)) {
+        Notificar(std::string("Project template has no project file: ") + plantilla.nombre, true);
+        return;
+    }
+
+    std::string carpetaPadre = destinoElegido;
+    if (!w3dFileSystem::IsDir(carpetaPadre))
+        carpetaPadre = w3dFileSystem::ParentPath(carpetaPadre);
+    if (carpetaPadre.empty() || !w3dFileSystem::IsDir(carpetaPadre)) {
+        Notificar("Choose a valid destination folder", true);
+        return;
+    }
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path destino;
+    for (int n = 1; ; n++) {
+        std::string nombre = plantilla.carpeta;
+        if (n > 1) nombre += "-" + std::to_string(n);
+        destino = fs::path(carpetaPadre) / nombre;
+        const bool existe = fs::exists(destino, ec);
+        if (ec) {
+            Notificar("Could not check the destination folder: " + ec.message(), true);
+            return;
+        }
+        if (!existe) break;
+    }
+    const fs::path temporal(destino.string() + ".creating");
+    const bool temporalExiste = fs::exists(temporal, ec);
+    if (ec) {
+        Notificar("Could not check the temporary project folder: " + ec.message(), true);
+        return;
+    }
+    if (temporalExiste) {
+        Notificar("Could not create the project: temporary folder already exists", true);
+        return;
+    }
+    if (!fs::create_directory(temporal, ec) || ec) {
+        Notificar("Could not create the project folder: " +
+                  (ec ? ec.message() : std::string("temporary folder already exists")), true);
+        return;
+    }
+
+    for (fs::directory_iterator it(fs::path(origen), ec), end; !ec && it != end; it.increment(ec)) {
+        fs::copy(it->path(), temporal / it->path().filename(),
+                 fs::copy_options::recursive, ec);
+        if (ec) break;
+    }
+    if (!ec) fs::rename(temporal, destino, ec);
+    if (ec) {
+        std::error_code cleanupError;
+        fs::remove_all(temporal, cleanupError);
+        if (cleanupError)
+            w3dLogfE("Template cleanup failed for %s: %s", temporal.string().c_str(),
+                     cleanupError.message().c_str());
+        Notificar("Could not copy the project template: " + ec.message(), true);
+        return;
+    }
+
+    const std::string proyecto = (destino / plantilla.proyecto).string();
+    if (!w3dFileSystem::FileExists(proyecto)) {
+        Notificar("The copied template is missing its project file", true);
+        return;
+    }
+    extern void AbrirProyectoDesde(const std::string&);
+    AbrirProyectoDesde(proyecto);
+}
+
+static void BienvenidaPlantillaAnimation() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    AbrirFileBrowser("Create project from template", "Create", std::string(),
+                     [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 0); },
+                     true, w3dFileSystem::GetDefaultOutputDir());
+}
+static void BienvenidaPlantillaControls() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    AbrirFileBrowser("Create project from template", "Create", std::string(),
+                     [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 1); },
+                     true, w3dFileSystem::GetDefaultOutputDir());
+}
+static void BienvenidaPlantillaPlatformer() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    AbrirFileBrowser("Create project from template", "Create", std::string(),
+                     [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 2); },
+                     true, w3dFileSystem::GetDefaultOutputDir());
+}
+static void BienvenidaPlantillaAudio() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    AbrirFileBrowser("Create project from template", "Create", std::string(),
+                     [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 3); },
+                     true, w3dFileSystem::GetDefaultOutputDir());
+}
+
+static void BienvenidaNuevoVacio() {
+    BienvenidaProyectoVacio();
+}
 
 static void BienvenidaNuevo() {
     if (gMenuBienvenida) gMenuBienvenida->Cerrar();
-    Notificar("New project", false);
+    if (!gMenuPlantillas) {
+        gMenuPlantillas = new PopupMenu();
+        gMenuPlantillas->titulo = "Choose a project template";
+        gMenuPlantillas->Agregar("Empty Project", 0, (int)IconType::mas)->accion = BienvenidaNuevoVacio;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[0].nombre, 1, (int)IconType::mas)->accion = BienvenidaPlantillaAnimation;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[1].nombre, 2, (int)IconType::mas)->accion = BienvenidaPlantillaControls;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[2].nombre, 3, (int)IconType::mas)->accion = BienvenidaPlantillaPlatformer;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[3].nombre, 4, (int)IconType::mas)->accion = BienvenidaPlantillaAudio;
+    }
+    gMenuPlantillas->Abrir(MenuPantallaW / 2 - gMenuPlantillas->width / 2,
+                           MenuPantallaH / 2 - gMenuPlantillas->height / 2,
+                           MenuPantallaW, MenuPantallaH);
+    MenuAbierto = gMenuPlantillas;
 }
 
 static void BienvenidaAbrirElegido(const std::string& ruta) {
@@ -138,13 +303,7 @@ static ViewportBase* LayoutCrearViewport(int aId) {
 }
 
 void LayoutBienvenidaNuevoProyecto() {
-    if (!rootViewport || rootViewport->ViewportKind() != 9) return;
-    int w = rootViewport->width, h = rootViewport->height;
-    delete rootViewport;
-    Viewport3D* vp3d = NULL;
-    rootViewport = LayoutPorDefecto(w, h, &vp3d);
-    viewPortActive = vp3d;
-    g_redraw = true;
+    BienvenidaNuevo();
 }
 
 void LayoutBienvenidaAbrirProyecto() {

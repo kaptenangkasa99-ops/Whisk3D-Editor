@@ -845,23 +845,28 @@ int W3dContenedorEscritor::AsegurarEstructura() {
     return agregadas;
 }
 
-bool W3dContenedorEscritor::AgregarTemporal(const std::string& nombre, const std::string& rutaTmp) {
+bool W3dContenedorEscritor::AgregarTemporal(const std::string& nombre, const std::string& rutaTmp,
+                                             bool dedup) {
     if (Tiene(nombre)) {
         w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
         return false;
     }
-    std::vector<unsigned char> datos;
-    if (!w3dFileSystem::ReadFileBytes(rutaTmp, datos)) {
-        w3dLogfE("[W3D] no pude releer el temporal %s", rutaTmp.c_str());
-        return false;
-    }
     W3dEntradaPend e;
     e.nombre = nombre; e.origen = 1; e.fuente = rutaTmp; e.temporal = true;
-    e.tam = (unsigned)datos.size();
-    e.crc = datos.empty() ? 0u : Crc32(&datos[0], datos.size());
+    if (dedup) {
+        std::vector<unsigned char> datos;
+        if (!w3dFileSystem::ReadFileBytes(rutaTmp, datos)) {
+            w3dLogfE("[W3D] no pude releer el temporal %s", rutaTmp.c_str());
+            return false;
+        }
+        e.tam = (unsigned)datos.size();
+        e.crc = datos.empty() ? 0u : Crc32(&datos[0], datos.size());
+    }
     porNombre[nombre] = pend.size();
-    char h[40]; snprintf(h, sizeof(h), "%08x:%u", e.crc, e.tam);
-    porHuella[h].push_back(pend.size());
+    if (dedup) {
+        char h[40]; snprintf(h, sizeof(h), "%08x:%u", e.crc, e.tam);
+        porHuella[h].push_back(pend.size());
+    }
     pend.push_back(e);
     return true;
 }

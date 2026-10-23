@@ -6,12 +6,54 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.util.Log;
 
 import org.libsdl.app.SDLActivity;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 // Actividad principal de Whisk3D. Extiende SDLActivity (SDL2). Antes de arrancar,
 // SDL carga las librerias nativas que devuelve getLibraries(): libSDL2.so + libmain.so.
 public class Whisk3DActivity extends SDLActivity {
+    private static final String TEMPLATE_ASSET_DIR = "templates";
+    private static final String TEMPLATE_INSTALL_DIR = "Templates";
+
+    private void installTemplates(String assetDir, File outputDir) throws IOException {
+        if (!outputDir.exists() && !outputDir.mkdirs()) {
+            throw new IOException("Could not create " + outputDir);
+        }
+        String[] children = getAssets().list(assetDir);
+        if (children == null || children.length == 0) return;
+        for (String child : children) {
+            String assetPath = assetDir + "/" + child;
+            File output = new File(outputDir, child);
+            String[] nested = getAssets().list(assetPath);
+            if (nested != null && nested.length > 0) {
+                installTemplates(assetPath, output);
+            } else if (!output.exists()) {
+                File temporary = new File(output.getPath() + ".tmp");
+                try {
+                    try (InputStream in = getAssets().open(assetPath);
+                         FileOutputStream out = new FileOutputStream(temporary)) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    }
+                    if (!temporary.renameTo(output)) {
+                        throw new IOException("Could not install " + output);
+                    }
+                } finally {
+                    if (temporary.exists() && !temporary.delete()) {
+                        Log.w("Whisk3D", "Could not remove temporary template file " + temporary);
+                    }
+                }
+            }
+        }
+    }
+
     private boolean storageReady() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
     }
@@ -122,6 +164,11 @@ public class Whisk3DActivity extends SDLActivity {
     // que reescribir el browser con SAF. Se pide una sola vez: si no esta otorgado, se abre la pantalla de Settings.
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        try {
+            installTemplates(TEMPLATE_ASSET_DIR, new File(getFilesDir(), TEMPLATE_INSTALL_DIR));
+        } catch (IOException e) {
+            Log.e("Whisk3D", "Could not install bundled project templates", e);
+        }
         super.onCreate(savedInstanceState);
         requestStorageAccess();
     }

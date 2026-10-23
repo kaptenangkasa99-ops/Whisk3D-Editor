@@ -184,7 +184,8 @@ extern bool g_w3dContOlvidarUna;
 //    1) el guardado camina la escena, arma el JSON y va INGIRIENDO cada asset:
 //       cada uno queda anotado con su ORIGEN (bytes en memoria, un archivo de
 //       disco, o una entrada del contenedor VIEJO que se reenvasa tal cual).
-//       No se levantan los bytes de todos: pico de RAM = la entrada mas grande.
+//       Las mallas generadas se aparcan en temporales para no retener toda la
+//       geometria del proyecto en RAM mientras se guarda.
 //    2) Escribir() vuelca el zip en orden DETERMINISTA (mimetype primero,
 //       proyecto.json segundo, el resto alfabetico) a un temporal, y el caller
 //       hace el rename.
@@ -239,8 +240,10 @@ public:
     // aliasaria a el y el JSON terminaria apuntando a "mimetype".
     bool AgregarBytes(const std::string& nombre, const std::string& texto, bool dedup = true);
     // idem, pero el contenido quedo en un TEMPORAL de disco (.w3dui, .glb, .bin):
-    // se anota la ruta y se borra al final del guardado
-    bool AgregarTemporal(const std::string& nombre, const std::string& rutaTmp);
+    // se anota la ruta y se borra al final del guardado. 'dedup' puede desactivarse
+    // para temporales grandes que nunca deben aliasarse (p. ej., una malla generada).
+    bool AgregarTemporal(const std::string& nombre, const std::string& rutaTmp,
+                         bool dedup = true);
 
     // un temporal unico en la carpeta del destino (para el .w3dui / el .glb)
     std::string RutaTemporal(const char* etiqueta);

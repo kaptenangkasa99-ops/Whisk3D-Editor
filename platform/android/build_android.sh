@@ -63,6 +63,12 @@ mkdir -p "$APROJECT_PATH/app/src/main/assets"   # assets/ is gitignored (not com
 rm -rf "$APROJECT_PATH/app/src/main/assets/res"
 cp -r res "$APROJECT_PATH/app/src/main/assets/res"
 
+# Bundle editable starter projects separately from the editor UI resources.
+echo "Copying Android game templates to APK assets..."
+mkdir -p "$APROJECT_PATH/app/src/main/assets"
+rm -rf "$APROJECT_PATH/app/src/main/assets/templates"
+cp -r "$APROJECT_PATH/templates" "$APROJECT_PATH/app/src/main/assets/templates"
+
 build_one() {
     local abi="$1"
 

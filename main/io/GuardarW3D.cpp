@@ -515,8 +515,14 @@ static std::string EscribirMallaW3dm(CtxGuardar* cx, Mesh* m, const std::string&
     if (!avisos.empty())
         W3dAvisof(true, "'%s': %s%s", W3dNombreCorto(nombreObj).c_str(), avisos[0].c_str(),
                   avisos.size() > 1 ? " (y mas: ver whisk3d.log)" : "");
-    if (!cx->esc->AgregarBytes(nom, txt, false)) {
-        w3dLogfE("GuardarW3D: no pude meter %s adentro del .w3d", nom.c_str());
+    // Las mallas pueden ser grandes. No guardamos todas sus serializaciones en
+    // memoria: se aparcan como temporales y el escritor las copia al destino una
+    // por una, manteniendo intacto el guardado atomico del proyecto.
+    std::string tmpMalla = cx->esc->RutaTemporal("m");
+    if (!w3dFileSystem::WriteTextFile(tmpMalla, txt) ||
+        !cx->esc->AgregarTemporal(nom, tmpMalla, false)) {
+        remove(tmpMalla.c_str());
+        w3dLogfE("GuardarW3D: no pude escribir %s como temporal", nom.c_str());
         cx->error = true;
     }
     return nom;
