@@ -10,6 +10,7 @@ class UI;
 //  (la UI + los scripts lua colgados de los objetos) en un JUEGO que corre SIN
 //  el editor, para la plataforma elegida:
 //     0 = Linux .deb    1 = Linux AppImage    2 = WebGL    3 = Android (APK)
+//     4 = Windows (.exe)  5 = Symbian (.sisx; not connected yet)
 //
 //  Como: exporta el .w3dui, copia los .lua, GENERA el codigo del runtime
 //  (un main.cpp que carga la UI + resuelve las referencias, y el CMake /

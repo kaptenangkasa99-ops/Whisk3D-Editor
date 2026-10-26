@@ -27,6 +27,14 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <fstream>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 #include <atomic>
 // hilos: en el editor web (emscripten sin -pthread) <thread>/<mutex> ni compilan; ahi el
 // "worker" corre sincrono (compilar juegos desde el editor web ya no andaba: sin system()).
@@ -34,6 +42,87 @@
 #include <thread>
 #include <mutex>
 #endif
+
+// The staging steps use small, portable POSIX file commands (cp/rm/mkdir).
+// Windows builds run those commands through Git for Windows' Bash. The script
+// file avoids nested quoting problems when project paths contain spaces.
+static std::string W3dBashExe() {
+#ifdef _WIN32
+    const char* overridePath = getenv("W3D_BASH_PATH");
+    if (overridePath && overridePath[0] &&
+        GetFileAttributesA(overridePath) != INVALID_FILE_ATTRIBUTES) return overridePath;
+    const char* roots[] = { getenv("ProgramFiles"), getenv("ProgramFiles(x86)"), NULL };
+    for (int i = 0; roots[i]; ++i) {
+        if (!roots[i] || !roots[i][0]) continue;
+        std::string candidate = std::string(roots[i]) + "\\Git\\bin\\bash.exe";
+        if (GetFileAttributesA(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) return candidate;
+    }
+    char found[MAX_PATH];
+    DWORD n = SearchPathA(NULL, "bash.exe", NULL, MAX_PATH, found, NULL);
+    if (n > 0 && n < MAX_PATH) return found;
+    return std::string();
+#else
+    return std::string("bash");
+#endif
+}
+
+static std::string W3dWriteShellScript(const std::string& command) {
+#ifdef _WIN32
+    char dir[MAX_PATH], path[MAX_PATH];
+    DWORD n = GetTempPathA(MAX_PATH, dir);
+    if (!n || n >= MAX_PATH || !GetTempFileNameA(dir, "w3d", 0, path)) return std::string();
+    std::ofstream script(path, std::ios::binary | std::ios::trunc);
+    if (!script) { DeleteFileA(path); return std::string(); }
+    std::string bashCommand;
+    for (size_t i = 0; i < command.size(); ++i) {
+        if (i + 2 < command.size() &&
+            ((command[i] >= 'A' && command[i] <= 'Z') || (command[i] >= 'a' && command[i] <= 'z')) &&
+            command[i + 1] == ':' && (command[i + 2] == '/' || command[i + 2] == '\\')) {
+            char drive = command[i];
+            if (drive >= 'A' && drive <= 'Z') drive = (char)(drive - 'A' + 'a');
+            bashCommand += '/'; bashCommand += drive; bashCommand += '/'; i += 2;
+        } else {
+            bashCommand += command[i] == '\\' ? '/' : command[i];
+        }
+    }
+    script << "#!/usr/bin/env bash\n" << bashCommand << "\n";
+    script.close();
+    if (!script) { DeleteFileA(path); return std::string(); }
+    return path;
+#else
+    (void)command;
+    return std::string();
+#endif
+}
+
+static int W3dSystem(const char* command) {
+#ifdef _WIN32
+    std::string script = W3dWriteShellScript(command ? command : "");
+    std::string bash = W3dBashExe();
+    int rc = -1;
+    if (!script.empty() && !bash.empty()) {
+        std::string commandLine = "\"" + bash + "\" \"" + script + "\"";
+        STARTUPINFOA startup; ZeroMemory(&startup, sizeof(startup));
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process; ZeroMemory(&process, sizeof(process));
+        if (CreateProcessA(bash.c_str(), &commandLine[0], NULL, NULL, TRUE,
+                           CREATE_NO_WINDOW, NULL, NULL, &startup, &process)) {
+            WaitForSingleObject(process.hProcess, INFINITE);
+            DWORD exitCode = 1;
+            if (GetExitCodeProcess(process.hProcess, &exitCode)) rc = (int)exitCode;
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+        }
+    }
+    if (rc != 0)
+        w3dLogfE("[Compile] Windows staging command failed (%d): %s (script: %s)", rc,
+                 command ? command : "<empty>", script.c_str());
+    if (!script.empty()) DeleteFileA(script.c_str());
+    return rc;
+#else
+    return system(command);
+#endif
+}
 // popen/lectura con timeout (el worker lee la salida de cmake/emcc/gradle EN VIVO)
 #ifdef _WIN32
 #define W3D_POPEN  _popen
@@ -161,9 +250,39 @@ static void BldLinea(const std::string& s, FILE* log, int modo, int pctIni, int 
 // (emcc/gradle no imprimen %) la barra igual avanza lento (~1 punto/seg, capada).
 // Devuelve el codigo de salida crudo (0 = ok) o -1 si no se pudo lanzar.
 static int BldCorrer(const std::string& cmd, FILE* log, int modo, int pctIni, int pctFin) {
+#ifdef _WIN32
+    std::string script = W3dWriteShellScript(cmd);
+    std::string bash = W3dBashExe();
+    if (script.empty() || bash.empty()) { if (!script.empty()) DeleteFileA(script.c_str()); return -1; }
+    SECURITY_ATTRIBUTES sa; ZeroMemory(&sa, sizeof(sa)); sa.nLength = sizeof(sa); sa.bInheritHandle = TRUE;
+    HANDLE readPipe = NULL, writePipe = NULL;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0) || !SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0)) {
+        if (readPipe) CloseHandle(readPipe);
+        if (writePipe) CloseHandle(writePipe);
+        DeleteFileA(script.c_str());
+        return -1;
+    }
+    STARTUPINFOA startup; ZeroMemory(&startup, sizeof(startup)); startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = writePipe; startup.hStdError = writePipe;
+    HANDLE nullInput = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    startup.hStdInput = (nullInput == INVALID_HANDLE_VALUE) ? NULL : nullInput;
+    PROCESS_INFORMATION process; ZeroMemory(&process, sizeof(process));
+    std::string commandLine = "\"" + bash + "\" \"" + script + "\"";
+    if (!CreateProcessA(bash.c_str(), &commandLine[0], NULL, NULL, TRUE, CREATE_NO_WINDOW,
+                        NULL, NULL, &startup, &process)) {
+        if (nullInput && nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
+        CloseHandle(readPipe); CloseHandle(writePipe); DeleteFileA(script.c_str());
+        return -1;
+    }
+    if (nullInput && nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
+    CloseHandle(writePipe);
+#else
     std::string sh = "(" + cmd + ") 2>&1";
     FILE* p = W3D_POPEN(sh.c_str(), "r");
     if (!p) return -1;
+#endif
     int cur0 = g_bldPct.load();
     if (pctIni > cur0) g_bldPct.store(pctIni);           // arranque de la franja
     int cap = (pctFin > pctIni) ? pctFin - 1 : pctIni;   // tope del creep (el final lo da el exito)
@@ -198,17 +317,29 @@ static int BldCorrer(const std::string& cmd, FILE* log, int modo, int pctIni, in
         }
     }
 #else
-    // Windows: sin select() sobre pipes -> lectura bloqueante linea a linea (el creep va
-    // por lineas; si el proceso calla la barra queda quieta, que es lo honesto sin datos)
-    char lbuf[1024];
-    while (fgets(lbuf, sizeof(lbuf), p)) {
-        std::string s(lbuf);
-        while (!s.empty() && (s[s.size()-1] == '\n' || s[s.size()-1] == '\r')) s.erase(s.size()-1);
-        BldLinea(s, log, modo, pctIni, pctFin, cap, &nCreep);
+    char buf[4096];
+    DWORD bytesRead = 0;
+    bool eof = false;
+    while (!eof) {
+        if (!ReadFile(readPipe, buf, sizeof(buf), &bytesRead, NULL) || bytesRead == 0) { eof = true; continue; }
+        for (DWORD i = 0; i < bytesRead; ++i) {
+            if (buf[i] == '\n') { BldLinea(linea, log, modo, pctIni, pctFin, cap, &nCreep); linea.clear(); }
+            else if (buf[i] != '\r') linea += buf[i];
+        }
     }
 #endif
     if (!linea.empty()) BldLinea(linea, log, modo, pctIni, pctFin, cap, &nCreep);
-    return W3D_PCLOSE(p);
+#ifdef _WIN32
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread); CloseHandle(process.hProcess); CloseHandle(readPipe);
+    DeleteFileA(script.c_str());
+    return (int)exitCode;
+#else
+    int rc = W3D_PCLOSE(p);
+    return rc;
+#endif
 }
 
 // ---- lo que el proyecto referencia: los objetos con script + sus refs -------
@@ -391,7 +522,7 @@ static bool GenerarIconos(const std::string& rutaPng, const std::string& out,
     if (!w3dEngine::DecodeImage(rutaPng.c_str(), &src, &sw, &sh) || !src || sw < 1 || sh < 1)
         return false;
     { char cmd[700]; snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/icons\"", out.c_str());
-      if (system(cmd)) {} }
+      if (W3dSystem(cmd)) {} }
     std::vector<unsigned char> buf;
     // hicolor (linux): solo hasta el tamano del original (no agrandar); si el
     // original es mas chico que 16 se genera igual el de 16 (que haya al menos uno)
@@ -423,7 +554,7 @@ static bool GenerarIconos(const std::string& rutaPng, const std::string& out,
         char cmd[2500];
         snprintf(cmd, sizeof(cmd), "cp \"%s/icons/%dx%d.png\" \"%s/icono.png\"",
                  out.c_str(), mayor, mayor, out.c_str());
-        if (system(cmd)) {}
+        if (W3dSystem(cmd)) {}
     }
     return mayor > 0;
 }
@@ -729,7 +860,7 @@ static void CopiarRefsRelativasDeLua(const std::string& out, const std::string& 
         char cmd[3000];
         snprintf(cmd, sizeof(cmd), "cp \"%s/%s\" \"%s/%s\"",
                  proy.c_str(), it->c_str(), out.c_str(), it->c_str());
-        if (system(cmd) == 0) nA++;
+      if (W3dSystem(cmd) == 0) nA++;
     }
     for (std::set<std::string>::iterator it = carpetas.begin(); it != carpetas.end(); ++it) {
         // -n (no-clobber): lo que YA esta en el staging manda (el volcado del
@@ -739,7 +870,7 @@ static void CopiarRefsRelativasDeLua(const std::string& out, const std::string& 
         char cmd[3000];
         snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/%s\" && cp -rn \"%s/%s/.\" \"%s/%s/\" 2>/dev/null || true",
                  out.c_str(), it->c_str(), proy.c_str(), it->c_str(), out.c_str(), it->c_str());
-        if (system(cmd) == 0) nC++;
+      if (W3dSystem(cmd) == 0) nC++;
     }
     if (nA || nC)
         w3dLogf("CompilarJuego: %d carpeta(s) y %d archivo(s) que el proyecto nombra por "
@@ -1213,9 +1344,11 @@ static bool EscribirMain(const std::string& ruta, const std::string& fontRel,
     // CAPTURA de verificacion: con W3D_CAPTURA=<png> el juego guarda ese frame y cierra.
     // Es lo que usa la prueba de regresion para comprobar POR PIXELES que el juego
     // compilado dibuja de verdad su escena. Sin la variable no cambia nada.
-    fputs("{const char* cap=getenv(\"W3D_CAPTURA\");\n", f);
-    fputs("if(cap&&*cap){const char* nf=getenv(\"W3D_CAPTURA_FRAME\");\n", f);
-    fputs("W3dGameCaptura(cap,nf?atoi(nf):30);}}\n", f);
+    if (con3D) {
+        fputs("{const char* cap=getenv(\"W3D_CAPTURA\");\n", f);
+        fputs("if(cap&&*cap){const char* nf=getenv(\"W3D_CAPTURA_FRAME\");\n", f);
+        fputs("W3dGameCaptura(cap,nf?atoi(nf):30);}}\n", f);
+    }
     if (con3D) {
         // LA ESCENA 3D del juego: el proyecto.json que quedo al lado del binario. Va
         // ANTES de las escenas de UI y de W3dGameInicio: los scripts (que en un juego 3D
@@ -1425,7 +1558,8 @@ static std::string AMk(const char* ruta) {
 
 static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
                           bool usarFisica, bool usarSonido, bool modoDebug,
-                          const std::vector<int>& iconos, bool empaquetar, bool con3D) {
+                          const std::vector<int>& iconos, bool empaquetar, bool con3D,
+                          bool windowsTarget) {
     FILE* f = fopen(ruta.c_str(), "w");
     if (!f) return false;
     fputs("# GENERADO por Whisk3D (Compilar juego). No hace falta editarlo.\n", f);
@@ -1443,7 +1577,14 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
           "  set(W3D_RUNTIME_SOURCE ${GAME}/w3drun.cpp)\nendif()\n"
           "get_filename_component(W3D_RUNTIME_SOURCE_DIR ${W3D_RUNTIME_SOURCE} DIRECTORY)\n", f);
     fputs("set(LUA ${W3DROOT}/thirdparty/lua/src)\n", f);
-    fputs("find_package(SDL2 REQUIRED)\nfind_package(OpenGL REQUIRED)\n", f);
+    if (windowsTarget) {
+        fputs("set(SDL_SHARED OFF CACHE BOOL \"\" FORCE)\nset(SDL_STATIC ON CACHE BOOL \"\" FORCE)\n"
+              "set(SDL_TEST OFF CACHE BOOL \"\" FORCE)\n"
+              "add_subdirectory(${W3DROOT}/thirdparty/SDL2 ${CMAKE_BINARY_DIR}/sdl2 EXCLUDE_FROM_ALL)\n"
+              "set(W3D_WINDOWS_TARGET ON)\n", f);
+    } else {
+        fputs("find_package(SDL2 REQUIRED)\nfind_package(OpenGL REQUIRED)\n", f);
+    }
     fputs("file(GLOB LUA_SRC ${LUA}/*.c)\nlist(REMOVE_ITEM LUA_SRC ${LUA}/lua.c ${LUA}/luac.c)\n", f);
     fprintf(f, "add_executable(%s\n", nombre.c_str());
     fputs("  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp\n  ${W3D_RUNTIME_SOURCE}\n", f);
@@ -1468,20 +1609,32 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
     // W3D_SIN_EDITOR: el lector de proyecto compartido deja afuera lo que solo existe
     // con editor (layout de viewports, sesion, icono de ventana). Ver import_w3d.cpp.
     fprintf(f, "target_compile_definitions(%s PRIVATE W3D_OPENGL W3D_GAME_RUNTIME W3D_GAME_NO_TEX "
-               "LUA_USE_POSIX W3D_STB_IMPL W3D_DEV_LOG=%d%s%s%s)\n", nombre.c_str(),
+               "%s W3D_STB_IMPL W3D_DEV_LOG=%d%s%s%s)\n", nombre.c_str(),
+            windowsTarget ? "" : "LUA_USE_POSIX",
             modoDebug ? 1 : 0,
             usarSonido ? " W3D_ENABLE_AUDIO" : "",
             usarFisica ? "" : " W3D_SIN_FISICA",
             con3D ? " W3D_SIN_EDITOR W3D_JUEGO_3D" : "");
-    fputs("if(W3D_CUSTOM_RUNTIME_SOURCE)\n", f);
+    fputs("if(W3D_CUSTOM_RUNTIME_SOURCE AND NOT MSVC)\n", f);
     fprintf(f, "  target_compile_options(%s PRIVATE -ffunction-sections -fdata-sections)\n", nombre.c_str());
     fprintf(f, "  target_link_options(%s PRIVATE -Wl,--gc-sections)\nendif()\n", nombre.c_str());
-    fprintf(f, "target_include_directories(%s PRIVATE\n  ${GAME}\n", nombre.c_str());
+    fprintf(f, "target_include_directories(%s PRIVATE\n", nombre.c_str());
+    if (!windowsTarget) fputs("  ${GAME}\n", f);
     for (int i = 0; kIncludesBase[i]; i++) fprintf(f, "  %s\n", kIncludesBase[i]);
     if (con3D)   // los headers del editor que el lector de proyecto compartido incluye
         for (int i = 0; kIncludes3D[i]; i++) fprintf(f, "  %s\n", kIncludes3D[i]);
     fputs("  ${LUA} ${W3D_RUNTIME_SOURCE_DIR})\n", f);
-    fprintf(f, "target_link_libraries(%s PRIVATE SDL2::SDL2 OpenGL::GL OpenGL::GLU)\n", nombre.c_str());
+    if (windowsTarget) {
+        fprintf(f, "target_link_libraries(%s PRIVATE SDL2-static opengl32 glu32)\n", nombre.c_str());
+        fprintf(f, "set_target_properties(%s PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)\n", nombre.c_str());
+        fputs("foreach(CFG Debug Release RelWithDebInfo MinSizeRel)\n"
+              "  string(TOUPPER ${CFG} CFG_UPPER)\n"
+              "  set_property(TARGET " , f);
+        fprintf(f, "%s PROPERTY RUNTIME_OUTPUT_DIRECTORY_${CFG_UPPER} ${CMAKE_BINARY_DIR}/runtime)\n", nombre.c_str());
+        fputs("endforeach()\n", f);
+    } else {
+        fprintf(f, "target_link_libraries(%s PRIVATE SDL2::SDL2 OpenGL::GL OpenGL::GLU)\n", nombre.c_str());
+    }
     if (!empaquetar) {
         // TODOS los assets del juego (multi-escena) al lado del binario y en el paquete: por glob
         // (no por nombre) -> sirve para 1 o N escenas + las texturas/fuente que sea.
@@ -1514,6 +1667,7 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
     // instalacion + paquete .deb (cpack -G DEB): binario (+ assets si van sueltos), con un
     // lanzador que hace cd a la carpeta de datos (el juego lee sus assets del directorio
     // actual; empaquetado lee del pak y el cd queda igual de inofensivo).
+    fputs("if(NOT W3D_WINDOWS_TARGET)\n", f);
     fprintf(f, "install(TARGETS %s DESTINATION lib/whisk3d-%s)\n", nombre.c_str(), nombre.c_str());
     if (!empaquetar)
         fprintf(f, "install(FILES ${GAME_ASSETS} DESTINATION lib/whisk3d-%s)\n", nombre.c_str());
@@ -1546,6 +1700,7 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
     // Antes cpack armaba whisk3d-<nombre>-1.0.0-Linux.deb.
     fprintf(f, "set(CPACK_PACKAGE_FILE_NAME \"%s-linux-${CMAKE_SYSTEM_PROCESSOR}\")\n", nombre.c_str());
     fputs("include(CPack)\n", f);
+    fputs("endif()\n", f);
     bool okCM = (ferror(f) == 0);
     if (fclose(f) != 0) okCM = false;     // idem: el CMakeLists generado no puede darse por bueno sin cerrar
     return okCM;
@@ -1827,7 +1982,7 @@ static void BldWorker(BldTrabajo t) {
     }
     // [4/4] SOLO filesystem: limpiar build/<plat> y copiar los artefactos finales
     BldPublicar("Copiando resultados", 95);
-    if (system(t.cmdCopia.c_str()) != 0) {
+    if (W3dSystem(t.cmdCopia.c_str()) != 0) {
         { BLD_LOCK(); g_bldFinal = "Compilar: no pude copiar el resultado a build/" + t.plat; }
         g_bldOk.store(false);
         g_bldTermino.store(true);
@@ -1912,15 +2067,8 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         Notificar("Compile: a compilation is already in progress.", true);
         return false;
     }
-    // Windows (4) y Symbian (5): el pipeline de build de estos targets todavia NO esta
-    // cableado a este boton (el flujo de abajo genera el runtime SDL/cmake de Linux/web/
-    // android). Se hace aparte para no romper este camino. Mensaje claro en vez de fallar raro.
     if (plataforma == 5) {
         Notificar("Compile: Symbian .sisx: the target is not yet connected to this button (coming soon).", true);
-        return false;
-    }
-    if (plataforma == 4) {
-        Notificar("Compile: Windows .exe: the target is not yet connected to this button (coming soon).", true);
         return false;
     }
     std::vector<ObjScript> objs;
@@ -1930,11 +2078,29 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         Notificar("Compile: the project has no scripts (add them to a Script object)", true);
         return false;
     }
+    const bool con3D = HayTres3D(SceneCollection);
     std::string repo = RepoRoot();
     if (repo.empty()) {
         Notificar("Compile: I can't find the Whisk3D repo (runtime sources). "
                   "Set the repo root in Settings (or compile from the code tree).", true);
         return false;
+    }
+    std::string windowsRuntimeSource;
+    if (plataforma == 4) {
+        if (W3dBashExe().empty()) {
+            Notificar("Compile: Windows builds require Git for Windows Bash. Set W3D_BASH_PATH to bash.exe.", true);
+            return false;
+        }
+        const char* runtimeEnv = getenv("W3D_RUNTIME_SOURCE");
+        windowsRuntimeSource = (runtimeEnv && runtimeEnv[0]) ? runtimeEnv
+                              : con3D ? repo + "/main/runtime/w3drun3d.cpp"
+                                      : repo + "/../Whisk3D-Examples/game/w3drun.cpp";
+        std::ifstream runtimeCheck(windowsRuntimeSource.c_str(), std::ios::binary);
+        if (!runtimeCheck) {
+            Notificar("Compile: Windows runtime source is missing. Provide Whisk3D-Examples/game/w3drun.cpp "
+                      "or set W3D_RUNTIME_SOURCE to w3drun.cpp.", true);
+            return false;
+        }
     }
     // la carpeta del JUEGO: la del .w3d abierto. Sin Project saved: queda la
     // heuristica de siempre (la carpeta del primer .lua) -- que con la
@@ -1953,7 +2119,8 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     //   build/<plat>/           SOLO los RESULTADOS: ejecutable+instaladores (linux),
     //                           .html/.js/.wasm (web), .apk (android). Se limpia y
     //                           rellena al final de cada compilacion.
-    const char* plat = (plataforma == 3) ? "android" : (plataforma == 2) ? "web" : "linux";
+    const char* plat = (plataforma == 4) ? "windows" : (plataforma == 3) ? "android" :
+                       (plataforma == 2) ? "web" : "linux";
     std::string out        = proy + "/platform-build/" + plat;
     std::string resultados = proy + "/build/" + plat;
     // nombre del JUEGO (proyecto CMake / binario / artefactos): el archivo .w3d ABIERTO
@@ -1965,7 +2132,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     if (!w3dPath.empty()) { std::string b = BaseSinExt(w3dPath); if (!b.empty()) nombre = Slug(b); }
     if (nombre.empty())   { std::string b = Base(proy); if (!b.empty() && b != ".") nombre = Slug(b); }
     if (nombre.empty()) nombre = "juego";
-    { char cmd[700]; snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", out.c_str()); if (system(cmd)) {} }
+    { char cmd[700]; snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", out.c_str()); if (W3dSystem(cmd)) {} }
     AsegurarGitignore(proy);   // platform-build/ y build/ fuera del repo del juego
 
     // ========================================================================
@@ -2001,7 +2168,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
                  "\"%s/out\"/*.deb \"%s/out\"/*.AppImage 2>/dev/null || true",
                  out.c_str(), out.c_str(), out.c_str(), out.c_str(),
                  out.c_str(), out.c_str(), out.c_str(), out.c_str());
-        if (system(cmd)) {}
+        if (W3dSystem(cmd)) {}
     }
 
     // MULTI-ESCENA vs UNA sola: las escenas son los UI raiz de la escena (tipo ui). Con 2+ el
@@ -2012,7 +2179,6 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     bool multi = (escenasUI.size() >= 2);
     // JUEGO 3D: hay algo que dibujar en 3D -> el binario lleva el pase 3D y la escena
     // viaja como proyecto.json al lado (ver EsObjeto3D / kFuentes3D). Ver mas abajo.
-    const bool con3D = HayTres3D(SceneCollection);
 
     // [1/4] exportar las escenas + copiar los scripts + las texturas + la tipografia
     // (fase SINCRONA y rapida en el hilo de UI: es lo unico que toca la escena. El
@@ -2056,7 +2222,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         if (W3dEsNombreDeEntrada(rutasLua[i])) continue;   // sale del contenedor (mas abajo)
         char cmd[1400];
         snprintf(cmd, sizeof(cmd), "cp \"%s\" \"%s/%s\"", rutasLua[i].c_str(), out.c_str(), Base(rutasLua[i]).c_str());
-        if (system(cmd)) {}
+        if (W3dSystem(cmd)) {}
     }
     // ==================================================================
     //  DE DONDE SACA SUS ARCHIVOS EL JUEGO COMPILADO: UNA SOLA PASADA.
@@ -2096,10 +2262,10 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         for (int c = 0; kCarpetasAssets[c]; c++) {
             char cmd[1400];
             snprintf(cmd, sizeof(cmd), "rm -rf \"%s/%s\"", out.c_str(), kCarpetasAssets[c]);
-            if (system(cmd)) {}
+            if (W3dSystem(cmd)) {}
         }
         // y la escenas/ que pudo haber dejado una compilacion anterior (ya no se vuelca)
-        if (!con3D) { char cmd[1400]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/escenas\"", out.c_str()); if (system(cmd)) {} }
+        if (!con3D) { char cmd[1400]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/escenas\"", out.c_str()); if (W3dSystem(cmd)) {} }
         int volcados = 0;
         for (size_t i = 0; i < ents.size(); i++) {
             // proyecto.json ES la ESCENA 3D del juego: en un juego 3D viaja como un asset
@@ -2113,7 +2279,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             if (!lec->Leer(ents[i], datos)) continue;
             std::string dst = out + "/" + ents[i];
             { char cmd[2000]; snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", Carpeta(dst).c_str());
-              if (system(cmd)) {} }
+              if (W3dSystem(cmd)) {} }
             FILE* fh = fopen(dst.c_str(), "wb");
             if (!fh) continue;
             if (!datos.empty()) fwrite(&datos[0], 1, datos.size(), fh);
@@ -2126,10 +2292,10 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         //  del que volcar, asi que se colectan y copian las referencias usadas.
         // ------------------------------------------------------------------
         // los .png de la carpeta del proyecto, planos (los .w3dui los referencian por nombre)
-        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.png \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (system(cmd)) {} }
+        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.png \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
         // Los .w3d de texto guardan tambien scripts planos en la raiz; el colector
         // basado en JSON no los detecta cuando el proyecto usa la sintaxis legacy.
-        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.lua \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (system(cmd)) {} }
+        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.lua \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
         // Los proyectos .w3d de texto anteriores al contenedor pueden referenciar
         // modelos desde la raiz con `filePath:`; el colector JSON no puede leer esa
         // sintaxis, asi que se llevan los formatos de modelo junto al proyecto.
@@ -2137,13 +2303,13 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             "cp \"%s\"/*.obj \"%s\"/*.wobj \"%s\"/*.mtl \"%s\"/*.glb "
             "\"%s\"/*.gltf \"%s\"/*.fbx \"%s\"/*.bin \"%s\"/ 2>/dev/null || true",
             proy.c_str(), proy.c_str(), proy.c_str(), proy.c_str(),
-            proy.c_str(), proy.c_str(), proy.c_str(), out.c_str()); if (system(cmd)) {} }
+            proy.c_str(), proy.c_str(), proy.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
         // la subcarpeta assets/ entera, CON su carpeta ("assets/xxx.png")
         { char cmd[2600]; snprintf(cmd, sizeof(cmd),
             "rm -rf \"%s/assets\" && if [ -d \"%s/assets\" ]; then cp -r \"%s/assets\" \"%s/\"; fi",
-            out.c_str(), proy.c_str(), proy.c_str(), out.c_str()); if (system(cmd)) {} }
+            out.c_str(), proy.c_str(), proy.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
         // y las rutas REALES que las escenas recien exportadas referencian (contenido/...)
-        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/contenido\"", out.c_str()); if (system(cmd)) {} }
+        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/contenido\"", out.c_str()); if (W3dSystem(cmd)) {} }
         std::set<std::string> refs;
         // La escena 3D vive en el JSON del proyecto, no en el .w3dui exportado.
         // Sus mallas, scripts y demas assets tambien deben viajar al staging.
@@ -2159,7 +2325,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/%s\" && cp \"%s/%s\" \"%s/%s\"",
                      out.c_str(), Carpeta(*it).c_str(), proy.c_str(), it->c_str(),
                      out.c_str(), it->c_str());
-            if (system(cmd)) {}
+            if (W3dSystem(cmd)) {}
         }
     }
     // ------------------------------------------------------------------
@@ -2185,14 +2351,14 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
                  rel.find("..") != std::string::npos)) continue;
             char cmd[1400];
             snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", Carpeta(out + "/" + rel).c_str());
-            if (system(cmd)) {}
+            if (W3dSystem(cmd)) {}
             UI2DGuardar(e, out + "/" + rel, proy);
         }
         // y el PROYECTO.JSON de un .w3d v3 (json plano, sin contenedor): es el .w3d mismo
         if (!desdeContenedor && !w3dPath.empty()) {
             char cmd[1400];
             snprintf(cmd, sizeof(cmd), "cp \"%s\" \"%s/proyecto.json\"", w3dPath.c_str(), out.c_str());
-            if (system(cmd)) {}
+            if (W3dSystem(cmd)) {}
         }
     }
     // ------------------------------------------------------------------
@@ -2216,7 +2382,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             char cmd[3000];
             snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/%s\" && cp \"%s\" \"%s/%s\"",
                      out.c_str(), Carpeta(rel).c_str(), ext[i].c_str(), out.c_str(), rel.c_str());
-            if (system(cmd) == 0) copiadas++;
+            if (W3dSystem(cmd) == 0) copiadas++;
         }
         if (!ext.empty())
             w3dLogf("CompilarJuego: %d referencia(s) externa(s) copiadas al staging (%d afuera "
@@ -2225,7 +2391,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             Notificar("Compile: there are external references outside the project folder; "
                       "They aren't traveling with the team.", true);
     }
-    { char cmd[1200]; snprintf(cmd, sizeof(cmd), "cp \"%s/res/Skins/Whisk3D/font.png\" \"%s/font.png\"", repo.c_str(), out.c_str()); if (system(cmd)) {} }
+    { char cmd[1200]; snprintf(cmd, sizeof(cmd), "cp \"%s/res/Skins/Whisk3D/font.png\" \"%s/font.png\"", repo.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
     // ...y lo que SOLO nombra el lua por ruta relativa (sonidos/, musica/): ver
     // CopiarRefsRelativasDeLua. Va DESPUES de todo lo demas (no pisa nada de lo que
     // ya viajo) y ANTES de descubrir las carpetas y de hornear el bytecode -- con
@@ -2257,7 +2423,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     std::vector<int> iconosLinux;
     bool conIcono = false;
     { char cmd[1500]; snprintf(cmd, sizeof(cmd), "rm -rf \"%s/icons\" \"%s/icono.png\"",
-                               out.c_str(), out.c_str()); if (system(cmd)) {} }
+                               out.c_str(), out.c_str()); if (W3dSystem(cmd)) {} }
     if (!g_proyIcono.empty()) {
         std::string abs = g_proyIcono;
         // v4: el icono es una ENTRADA del contenedor ("proyecto/icono.png") y se lee
@@ -2317,7 +2483,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     // CMakeLists para PC (Linux): GENERADO (copia/instala TODAS las escenas + scripts + texturas
     // cuando van sueltos; empaquetado compila pak.cpp y no copia/instala nada del juego)
     if (!EscribirCMake(out + "/CMakeLists.txt", nombre, usarFisica, usarSonido, modoDebug,
-                       iconosLinux, empaquetarAssets, con3D)) {
+                       iconosLinux, empaquetarAssets, con3D, plataforma == 4)) {
         Notificar("Compile: could not generate CMakeLists.txt", true); return false;
     }
 
@@ -2325,7 +2491,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     // NADA toca la escena. El hilo de UI solo ARMA los comandos (strings propios)
     // y lanza el worker, que los corre + copia los resultados publicando etapa y
     // porcentaje para la barra (overlay) que dibuja el hilo principal cada frame.
-    const char* nomPlat = (plataforma == 3) ? "Android" : (plataforma == 2) ? "WebGL"
+    const char* nomPlat = (plataforma == 4) ? "Windows .exe" : (plataforma == 3) ? "Android" : (plataforma == 2) ? "WebGL"
                         : (plataforma == 1) ? "Linux AppImage" : "Linux .deb";
     w3dLogf("CompilarJuego [3/4]: compilando (%s) en segundo plano", nomPlat);
     BldTrabajo t;
@@ -2428,8 +2594,18 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             incW.c_str(), embeds, nombre.c_str());
         // (ya no redirige a build.log el mismo: el worker captura stdout+stderr y
         // escribe el MISMO build.log de siempre, leyendolo en vivo para la barra)
-        { char mk[700]; snprintf(mk, sizeof(mk), "mkdir -p \"%s/out\"", out.c_str()); if (system(mk)) {} }
+        { char mk[700]; snprintf(mk, sizeof(mk), "mkdir -p \"%s/out\"", out.c_str()); if (W3dSystem(mk)) {} }
         t.cmdBuild = cmd;
+    } else if (plataforma == 4) {
+        char cfg[1800], bld[1000];
+        snprintf(cfg, sizeof(cfg),
+                 "cmake -S \"%s\" -B \"%s/out\" -A x64 -DW3DROOT=\"%s\" "
+                 "-DW3D_RUNTIME_SOURCE=\"%s\"",
+                 out.c_str(), out.c_str(), repo.c_str(), windowsRuntimeSource.c_str());
+        snprintf(bld, sizeof(bld), "cmake --build \"%s/out\" --config Release --parallel %d",
+                 out.c_str(), W3dCompilarJobs());
+        t.cmdCfg = cfg;
+        t.cmdBuild = bld;
     } else {
         // PC (Linux): cmake (configurar) + cmake --build; luego cpack -G DEB (plataforma 0).
         // Van como comandos SEPARADOS: el worker parsea el "[ NN%]" del --build para la barra.
@@ -2463,7 +2639,12 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         // holgado a proposito: la copia de Linux lleva UN cp por carpeta de assets
         // (kCarpetasAssets) y cada uno nombra dos rutas absolutas
         char cmd[9000];
-        if (plataforma == 3) {
+        if (plataforma == 4) {
+            snprintf(cmd, sizeof(cmd),
+                "rm -rf \"%s\" && mkdir -p \"%s\" && "
+                "cp -r \"%s/out/runtime/.\" \"%s/\"",
+                resultados.c_str(), resultados.c_str(), out.c_str(), resultados.c_str());
+        } else if (plataforma == 3) {
             // ANDROID: el .apk (assembleDebug) como <juego>-android.apk (fat: sin
             // arch unica en el nombre), coherente con <juego>-linux-<arch>.deb.
             // El nombre y la ruta ESTANDAR los garantiza EscribirBuildAndroid (sed
@@ -2516,7 +2697,8 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         }
         t.cmdCopia = cmd;
     }
-    std::string donde = (plataforma == 3) ? (nombre + " -> build/android/" + nombre + "-android.apk")
+    std::string donde = (plataforma == 4) ? (nombre + " -> build/windows/" + nombre + ".exe")
+                      : (plataforma == 3) ? (nombre + " -> build/android/" + nombre + "-android.apk")
                       : (plataforma == 2) ? (nombre + " -> build/web/" + nombre + ".html")
                                           : (nombre + " -> build/linux/");
     t.msgOk = "Juego compilado: " + donde;

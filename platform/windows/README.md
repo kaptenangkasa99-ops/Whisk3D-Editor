@@ -71,3 +71,21 @@ platform\windows\build\Release\whisk3d.exe --verbose --open "C:\path\to\project.
 The normal editor log is written whether or not `--verbose` is used. The flag
 adds checkpoints around project reset, parsing, layout setup, and property
 synchronization.
+
+## Compile a Windows game from the editor
+
+The **Compile game** target `Windows .exe` builds into the project's
+`platform-build/windows` staging folder and copies the runnable output to
+`build/windows/<project>.exe`. It requires:
+
+- CMake and the Visual Studio C++ workload used to build the editor.
+- Git for Windows, including `bash.exe` (set `W3D_BASH_PATH` if Bash is not on
+  `PATH` or installed under the standard Git directory).
+- For 2D projects, `Whisk3D-Examples/game/w3drun.cpp` in the sibling examples
+  checkout. For 3D projects, the editor uses its bundled runtime at
+  `main/runtime/w3drun3d.cpp`. A custom runtime can be selected with
+  `W3D_RUNTIME_SOURCE`; its companion `w3drun.h` must be in the same directory.
+
+The SDL2 source is built from this repository's `thirdparty/SDL2`; OpenGL and
+GLU come from Windows. Build output and compiler diagnostics are retained in
+`platform-build/windows/build.log`.
