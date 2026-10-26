@@ -1,0 +1,66 @@
+{
+  "version": 5,
+  "compilar": {
+    "modoVentana": "pantallaCompleta",
+    "orientacion": "todas",
+    "fisica": true,
+    "sonido": true,
+    "volumen": 100,
+    "debug": false,
+    "assets": "sueltos",
+    "plataforma": "linux-deb",
+    "uid": "0x00000000"
+  },
+  "fps": 30,
+  "fullscreen": true,
+  "reproduciendo": false,
+  "escena": {
+    "objetos": [
+      {
+        "tipo": "camara",
+        "nombre": "Camara",
+        "pos": [0, 2, -8],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "fov": 45,
+        "orto": false,
+        "near": 0.01,
+        "far": 1000
+      },
+      {
+        "tipo": "malla",
+        "nombre": "MallaOrden",
+        "pos": [0, 0, 0],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "geometria": "mallas/mallaorden.w3dm",
+        "origen": "ext:vis-dos.obj",
+        "modificadores": [
+          { "tipo": "cullingtri", "nombre": "Culling", "metodo": "celdas", "sector": 1, "vis": "extra/vis-dos.w3dvis" }
+        ]
+      }
+    ]
+  },
+  "materiales": [
+    { "nombre": "solido",
+      "difuso": [0.8, 0.8, 0.8, 1],
+      "especular": [0.3, 0.3, 0.3, 1],
+      "emision": [0, 0, 0, 1],
+      "ambiente": [0.3, 0.3, 0.3, 1],
+      "brillo": 12, "interpolacion": 0, "reflejoModo": 0,
+      "flags": { "textura": true, "filtrado": true, "repetir": true, "transparente": false, "luz": true, "colorVertice": false, "culling": true, "profundidad": true, "escribeProfundidad": true, "reflejo": false, "normalMap": false, "uv8bit": false } },
+    { "nombre": "vidrio",
+      "difuso": [0.4, 0.6, 1, 0.5],
+      "especular": [0.3, 0.3, 0.3, 1],
+      "emision": [0, 0, 0, 1],
+      "ambiente": [0.3, 0.3, 0.3, 1],
+      "brillo": 12, "interpolacion": 0, "reflejoModo": 0,
+      "flags": { "textura": true, "filtrado": true, "repetir": true, "transparente": true, "luz": true, "colorVertice": false, "culling": true, "profundidad": true, "escribeProfundidad": true, "reflejo": false, "normalMap": false, "uv8bit": false } }
+  ],
+  "sesion": {
+    "frame": 1,
+    "activo": "",
+    "seleccion": []
+  },
+  "layout": "Layout {\n  ViewportRow {\n    ViewportColumn {\n      Viewport3D {\n        posX: 0\n        posY: 0\n        posZ: 0\n        orbitDistance: 10\n        rotQX: -0.25362316\n        rotQY: -0.19257462\n        rotQZ: -0.051600214\n        rotQW: 0.9465345\n      }\n      Timeline {\n        modo: dope\n        zoomFrame: 14\n        frameIzq: -2\n      }\n      Split: 0.88\n    }\n    ViewportColumn {\n      Outliner\n      Properties\n      Split: 0.4\n    }\n    Split: 0.72\n  }\n}"
+}

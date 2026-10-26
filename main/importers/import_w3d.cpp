@@ -3670,6 +3670,9 @@ void ReiniciarEscena() {
 // la apertura REAL (destruye la escena y arma el layout nuevo). Solo debe correr
 // con el stack limpio: desde el inicio del frame (main) o desde el modo --script.
 void AbrirProyectoAhora(const std::string& ruta) {
+    extern bool g_verboseDiagnostics;
+    if (g_verboseDiagnostics)
+        w3dLogf("[project-open] begin: %s", ruta.c_str());
     // BARRA DE PROGRESO: abrir un .w3d bloquea el frame (montar el contenedor, descomprimir,
     // parsear el JSON y construir los objetos). En el N95 eso tarda MUCHO y la pantalla queda
     // congelada -> parece trabado. La barra bombea el render (swap) desde adentro, como el
@@ -3677,15 +3680,18 @@ void AbrirProyectoAhora(const std::string& ruta) {
     extern void ProgresoIniciar(const std::string&); extern void ProgresoFin();
     ProgresoIniciar("Abriendo proyecto...");
     ReiniciarEscena();
+    if (g_verboseDiagnostics) w3dLog("[project-open] previous scene reset");
     // OJO: rootViewport se reemplaza por el layout del proyecto; el viejo queda
     // (los viewports globales del editor se reusan). El layout nuevo pisa el puntero.
     rootViewport = NULL;
     AbrirW3D(ruta);
+    if (g_verboseDiagnostics) w3dLog("[project-open] project data and layout parsed");
     // el layout nuevo nunca paso por Resize: darle el tamano ACTUAL de la ventana
     // (sin esto los viewports quedan en 0x0 y el editor parece TRABADO)
     extern int MenuPantallaW, MenuPantallaH;
     if (rootViewport && MenuPantallaW > 0 && MenuPantallaH > 0)
         rootViewport->Resize(MenuPantallaW, MenuPantallaH);
+    if (g_verboseDiagnostics) w3dLog("[project-open] viewport layout resized");
     // el arbol es NUEVO: (1) limpiar el estado "maximizado" (el g_rootGuardado viejo apunta a un arbol huerfano;
     // sino el menu pide Minimizar y minimizar instala el arbol muerto) y (2) reenganchar gRoot/paneles del layout
     // (sino en Symbian la rotacion redimensiona el arbol viejo huerfano y no re-acomoda nada).
@@ -3693,11 +3699,13 @@ void AbrirProyectoAhora(const std::string& ruta) {
       extern void (*LayoutArbolCambiado)(); if (LayoutArbolCambiado) LayoutArbolCambiado(); }
     extern void ProyectoSincronizarCampos();
     ProyectoSincronizarCampos();
+    if (g_verboseDiagnostics) w3dLog("[project-open] project properties synchronized");
     // MODO JUEGO (.sisx bundleado): full-screen del 3D -> el juego se ve solo, sin el chrome
     // del editor. El auto-play (game mode + Play) ya lo hizo AbrirW3D si el proyecto tiene scripts.
     { extern bool g_modoJuego;   // definido mas abajo en este archivo
       if (g_modoJuego) { extern void LayoutMaximizar3DParaJuego(); LayoutMaximizar3DParaJuego(); } }
     ProgresoFin();
+    if (g_verboseDiagnostics) w3dLog("[project-open] complete");
     g_redraw = true;
 }
 

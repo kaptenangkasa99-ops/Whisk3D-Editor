@@ -1,0 +1,3 @@
+# Run with the packaged Windows editor from outside the repository root.
+# This guards against relying on the process current working directory.
+template-bundle-test

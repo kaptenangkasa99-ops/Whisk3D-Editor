@@ -21,10 +21,12 @@ setsector MallaOrden 9
 visinfo MallaOrden 3 9 4 0
 setsector MallaOrden 1
 visinfo MallaOrden 3 1 4 1
-# round-trip v4: el `.w3dvis` viaja y el orden sobrevive la recarga
-guardarw3d prueba_visorden_v4.w3d
-zipentrada prueba_visorden_v4.w3d extra/vis-dos.w3dvis
-abrirw3d prueba_visorden_v4.w3d
+runtime-packet-image-test
+runtime-systems-bench 240
+# round-trip v5: el `.w3dvis` viaja como sidecar en el layout de carpetas
+# y el orden sobrevive la recarga. `zipentrada` solo aplica a contenedores v4.
+guardarw3d prueba_visorden_v5.w3d
+abrirw3d prueba_visorden_v5.w3d
 visinfo MallaOrden 3 1 4 1
 # render real: los runs salen por el camino de indices client sobre el VBO
 bench 2 noswap

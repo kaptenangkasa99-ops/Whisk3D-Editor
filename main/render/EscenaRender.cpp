@@ -143,14 +143,12 @@ void W3dEscena3DPasada() {
     w3dLoteStamp++;              // sello del pase: las Collection con lote marcan a sus horneadas
 #ifdef W3D_GAME_RUNTIME
     W3dRuntimeTransformsScope runtimeTransforms(SceneCollection);
+#endif
     const bool packetized = W3dRuntimeRenderPacketsEnabled() &&
                             !w3dRenderLuces && !w3dRenderWireframe;
     if (packetized) W3dRuntimeRenderPacketsBegin();
-#endif
     SceneCollection->Render();
-#ifdef W3D_GAME_RUNTIME
     if (packetized) W3dRuntimeRenderPacketsFlush();
-#endif
     // CALCOMANIAS (sombras) y LUCES ADITIVAS (chispas/halos): no escriben z, asi que
     // van DESPUES de toda la escena opaca o cualquier opaco posterior las borra.
     W3dDecalesDibujarPendientes();

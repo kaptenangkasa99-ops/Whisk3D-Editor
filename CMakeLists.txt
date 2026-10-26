@@ -221,6 +221,18 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E remove_directory $<TARGET_FILE_DIR:whisk3d>/res/installer
 )
 
+# Welcome -> New Project templates must travel with portable/editor builds.
+# Copy only each template's direct files: the platformer source tree may contain
+# generated platform-build directories which are never runtime template assets.
+add_custom_command(
+    TARGET whisk3d POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        "-DW3D_TEMPLATE_SOURCE=${CMAKE_SOURCE_DIR}/templates"
+        "-DW3D_TEMPLATE_DEST=$<TARGET_FILE_DIR:whisk3d>/templates"
+        -P "${CMAKE_SOURCE_DIR}/cmake/CopyProjectTemplates.cmake"
+    COMMENT "Copying project templates beside whisk3d"
+)
+
 # ---------------------------------------------------
 # INSTALACION LINUX
 # ---------------------------------------------------
@@ -238,6 +250,12 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
         PATTERN "*.ini"
         PATTERN "Skins/*"
     )
+    foreach(W3D_TEMPLATE animation controls platformer audio)
+        install(DIRECTORY "${CMAKE_SOURCE_DIR}/templates/${W3D_TEMPLATE}/"
+            DESTINATION "share/Whisk3d/templates/${W3D_TEMPLATE}"
+            PATTERN "platform-build" EXCLUDE
+        )
+    endforeach()
 
     install(FILES ${CMAKE_SOURCE_DIR}/platform/linux/whisk3d.desktop
         DESTINATION share/applications
@@ -356,6 +374,12 @@ if(WIN32)
         PATTERN "*.ini"
         PATTERN "Skins/*"
     )
+    foreach(W3D_TEMPLATE animation controls platformer audio)
+        install(DIRECTORY "${CMAKE_SOURCE_DIR}/templates/${W3D_TEMPLATE}/"
+            DESTINATION "templates/${W3D_TEMPLATE}"
+            PATTERN "platform-build" EXCLUDE
+        )
+    endforeach()
 
     # runtime de Visual C++ adentro del instalador (que no falte msvcp/vcruntime)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ".")

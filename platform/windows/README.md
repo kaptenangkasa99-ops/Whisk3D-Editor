@@ -18,14 +18,25 @@ Doble click en `platform\windows\build_windows.bat`, o desde una consola:
 platform\windows\build_windows.bat
 ```
 
-Baja los submódulos, configura y compila en **Release**. El ejecutable queda en `platform\windows\build\Release\whisk3d.exe` (con la carpeta `res\` al lado). Para Debug: `build_windows.bat Debug`.
+The script initializes only submodules that are missing. It preserves an
+already initialized checkout on its current branch and keeps local changes
+intact; it does not force the parent repository's pinned Core gitlink over a
+developer's work branch.
+
+Inicializa los submódulos que faltan, configura y compila en **Release**. Los submódulos ya inicializados se conservan en su rama/commit actual, incluidos los cambios locales. El ejecutable queda en `platform\windows\build\Release\whisk3d.exe` (con la carpeta `res\` al lado). Para Debug: `build_windows.bat Debug`.
+
+The build stages the four New Project templates beside the executable, and the
+installer includes them. Template lookup is based on the executable/resource
+directory, so launching from a Start Menu shortcut or another working directory
+still finds them.
 
 ## A mano (es lo que hace el script)
 
 Desde la **raíz del repo**:
 
 ```bat
-git submodule update --init --recursive
+REM Inicializar una ruta solo cuando aun no esta clonada:
+git submodule update --init --recursive <ruta-del-submodulo>
 cmake -S . -B platform\windows\build
 cmake --build platform\windows\build --config Release
 ```
@@ -49,3 +60,14 @@ platform\windows\build\Release\whisk3d.exe
 ```
 
 Busca `res\` **al lado del .exe** (el build ya la copia ahí).
+
+To open a project from a terminal and record extra English checkpoints in
+`whisk3d.log` beside the current working directory, run:
+
+```bat
+platform\windows\build\Release\whisk3d.exe --verbose --open "C:\path\to\project.w3d"
+```
+
+The normal editor log is written whether or not `--verbose` is used. The flag
+adds checkpoints around project reset, parsing, layout setup, and property
+synchronization.

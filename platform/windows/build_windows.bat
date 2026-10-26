@@ -22,8 +22,19 @@ where git   >nul 2>nul || (echo ERROR: git is not in PATH. && goto :fail)
 set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=Release"
 
-echo == Updating submodules (SDL2, Whisk3DCore, WhiskUI)...
-git submodule update --init --recursive || goto :fail
+REM Initialize only missing submodules. A normal `submodule update` checks out
+REM the gitlink recorded in this superproject and can move a developer's active
+REM feature branch (or fail when that checkout has local Core changes).
+echo == Checking submodules (initialized checkouts and branches are preserved)...
+for %%S in (thirdparty/SDL2 libs/Whisk3DCore libs/WhiskUI) do (
+  git submodule status %%S | findstr /r /c:"^-" >nul
+  if not errorlevel 1 (
+    echo    Initializing missing submodule %%S...
+    git submodule update --init --recursive %%S || goto :fail
+  ) else (
+    echo    Keeping initialized checkout %%S
+  )
+)
 
 echo == Configuring (platform\windows\build)... (cmake detects the installed Visual Studio; x64 by default)
 cmake -S . -B platform\windows\build || goto :fail

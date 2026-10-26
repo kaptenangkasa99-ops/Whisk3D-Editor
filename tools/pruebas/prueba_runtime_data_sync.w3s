@@ -1,0 +1,3 @@
+# Runtime snapshot mutation coverage. Run from tools/pruebas with:
+#   ../../build/Release/whisk3d.exe --script prueba_runtime_data_sync.w3s
+runtime-sync-test

@@ -49,6 +49,11 @@ Mesh* LeerWOBJ(std::istream& file, const std::string& filename, Object* parent, 
     size_t _lineas = 0;   // pump de la barra DENTRO de una malla grande (ver g_progObjIni/Fin en import_w3d)
 
     while (std::getline(file, line)) {
+        // std::getline removes LF but leaves CR from Windows text assets. Strip
+        // it before matching `usemtl`, so the mesh binds the same name that the
+        // sibling MTL's `newmtl` configures.
+        if (!line.empty() && line[line.size() - 1] == '\r')
+            line.erase(line.size() - 1);
         startPos = file.tellg();
 
         // BARRA: interpola el tramo de ESTA malla ([g_progObjIni,g_progObjFin]) por bytes leidos, cada

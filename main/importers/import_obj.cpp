@@ -704,6 +704,8 @@ bool LeerOBJ(const std::vector<const char*>& lines,
         }
         else if (LineaEmpieza(line, "usemtl ")) {
             std::string matName(line + 7);
+            if (!matName.empty() && matName[matName.size() - 1] == '\r')
+                matName.erase(matName.size() - 1);
             Material* materialPuntero = BuscarMaterialPorNombre(matName);
             if (!materialPuntero) materialPuntero = new Material(matName, false, TieneVertexColor);
             MaterialGroup mg;
@@ -762,6 +764,7 @@ bool LeerOBJ(const std::vector<const char*>& lines,
 }
 
 bool LeerMTL(const std::string& filepath, int objetosCargados) {
+    (void)objetosCargados;
     // POR LA ABSTRACCION DEL CORE (ReadTextFile), no con ifstream: un .mtl puede
     // venir del pak embebido o de ADENTRO DEL APK, donde no es un archivo real y
     // el ifstream falla siempre. En Android eso dejaba sin materiales a todos los
@@ -781,6 +784,10 @@ bool LeerMTL(const std::string& filepath, int objetosCargados) {
     bool HaytexturasQueCargar = false;
 
     while (std::getline(file, line)) {
+        // MTL files commonly use CRLF on Windows. std::getline removes only LF,
+        // so trim the remaining CR before parsing names and directives (otherwise
+        // `newmtl vidrio\r` does not match `usemtl vidrio`).
+        if (!line.empty() && line[line.size() - 1] == '\r') line.erase(line.size() - 1);
         if (line.rfind("newmtl ", 0) == 0) {
             std::string matName = line.substr(7);
             mat = BuscarMaterialPorNombre(matName);
@@ -1291,7 +1298,6 @@ bool ImportOBJ(const std::string& filepath, bool NoMerge = false) {
 
     // Archivo .mtl asociado
     std::string mtlFile = filepath.substr(0, filepath.size() - 4) + ".mtl";
-    // la EXISTENCIA tambien por el Core (pak / APK / contenedor), no con ifstream
     bool mtlExiste = w3dFileSystem::FileExists(mtlFile);
     w3dLogf("ImportOBJ: mtl '%s' existe=%d", mtlFile.c_str(), (int)mtlExiste);
     if (mtlExiste) {

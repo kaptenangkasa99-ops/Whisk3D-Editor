@@ -10,6 +10,9 @@
 #include <thread>              // compjobs: hardware_concurrency (la cota del -j del build)
 #include "objects/Objects.h"   // ObjActivo, g_editMesh, EditSelectMode, Sel*, DeseleccionarTodo
 #include "objects/RuntimeTransforms.h"
+#include "objects/RuntimeRenderPackets.h"
+#include "objects/Materials.h"
+#include "objects/CameraBase.h"
 #include "objects/Mesh.h"      // NewMesh, MeshType, Mesh
 #include "objects/MallaDatos.h" // mallacache/meminfo: geometria compartida (A/B + medicion)
 #include "io/W3dRecursos.h"     // meminfo: el almacen de recursos (descriptores por tipo)
@@ -1362,31 +1365,692 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         return true;
     }
 
+    // ---- template-bundle-test: the packaged template lookup must work even
+    //      when the process current directory is outside the source tree. ----
+    if (cmd == "template-bundle-test") {
+        const std::string root = LayoutCarpetaPlantillas();
+        static const char* folders[] = { "animation", "controls", "platformer", "audio" };
+        static const char* projects[] = {
+            "animation.w3d", "controls.w3d", "platformer.w3d", "audio.w3d"
+        };
+        for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); ++i) {
+            const std::string project = w3dFileSystem::JoinPath(
+                w3dFileSystem::JoinPath(root, folders[i]), projects[i]);
+            if (!w3dFileSystem::FileExists(project)) {
+                err = "template-bundle-test: missing " + project;
+                return false;
+            }
+            std::string openError;
+            if (!W3dRunCommand("abrirw3d " + project, openError)) {
+                err = "template-bundle-test: could not parse " + project +
+                      (openError.empty() ? std::string() : ": " + openError);
+                return false;
+            }
+        }
+        printf("      [template-bundle-test] all four templates resolve and parse from %s\n",
+               root.c_str());
+        return true;
+    }
+
+    // ---- runtime-sync-test: full rebuild after mutation, reparent, deletion,
+    //      and replacement. The object tree remains authoritative. ----
+    if (cmd == "runtime-sync-test") {
+        Object* root = new Object(NULL, "RuntimeSyncRoot", Vector3(1, 0, 0));
+        Object* left = new Object(root, "RuntimeSyncLeft", Vector3(2, 0, 0));
+        Object* right = new Object(root, "RuntimeSyncRight", Vector3(5, 0, 0));
+        Mesh* subject = new Mesh(left, Vector3(3, 0, 0));
+        Material materialBefore("RuntimeSyncMaterialBefore");
+        Material materialAfter("RuntimeSyncMaterialAfter");
+        MaterialGroup subjectGroup;
+        subjectGroup.start = 0; subjectGroup.startDrawn = 0;
+        subjectGroup.count = 1; subjectGroup.indicesDrawnCount = 3;
+        subjectGroup.material = &materialBefore;
+        subject->materialsGroup.push_back(subjectGroup);
+        bool ok = true;
+        const char* reason = NULL;
+        Matrix4 world;
+        const auto matchesFallback = [](Object* object) -> bool {
+            if (!object) return false;
+            Matrix4 packed, recursive;
+            object->GetWorldMatrix(packed);
+            W3dRuntimeTransformsActivate(false);
+            object->GetWorldMatrix(recursive);
+            W3dRuntimeTransformsActivate(true);
+            for (int i = 0; i < 16; ++i)
+                if (fabsf(packed.m[i] - recursive.m[i]) > 1e-4f) return false;
+            return true;
+        };
+
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        subject->GetWorldMatrix(world);
+        if (W3dRuntimeTransformsCount() != 4 ||
+            fabsf(world.m[12] - 6.0f) > 1e-4f ||
+            W3dRuntimeTransformParent(subject) != left->runtimeTransformHandle) {
+            ok = false; reason = "initial hierarchy snapshot is incorrect";
+        }
+        W3dRuntimeRenderPacketsBegin();
+        if (!W3dRuntimeRenderPacketsCapture(subject)) {
+            ok = false; reason = "initial render resource was not captured";
+        }
+        W3dRuntimeRenderPacketsSort();
+        size_t packetCount = 0;
+        const W3dRuntimeRenderPacketInfo* packets =
+            W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (!packets || packetCount != 1 ||
+                   packets[0].mesh != subject ||
+                   packets[0].material != &materialBefore)) {
+            ok = false; reason = "initial packet resource references are incorrect";
+        }
+
+        left->pos.x = 20.0f;
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        subject->GetWorldMatrix(world);
+        if (ok && fabsf(world.m[12] - 24.0f) > 1e-4f) {
+            ok = false; reason = "transform mutation was not synchronized";
+        }
+        if (ok && !matchesFallback(subject)) {
+            ok = false; reason = "rebuilt transform differs from recursive reference";
+        }
+        subject->materialsGroup[0].material = &materialAfter;
+        W3dRuntimeRenderPacketsBegin();
+        W3dRuntimeRenderPacketsCapture(subject);
+        W3dRuntimeRenderPacketsSort();
+        packets = W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (!packets || packetCount != 1 ||
+                   packets[0].material != &materialAfter ||
+                   fabsf(packets[0].world.m[12] - 24.0f) > 1e-4f)) {
+            ok = false; reason = "resource replacement or rebuilt packet transform was stale";
+        }
+
+        for (size_t i = 0; i < left->Childrens.size(); ++i) {
+            if (left->Childrens[i] == subject) {
+                left->Childrens.erase(left->Childrens.begin() + i);
+                break;
+            }
+        }
+        subject->Parent = right;
+        subject->pos.x = 4.0f;
+        right->Childrens.push_back(subject);
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        subject->GetWorldMatrix(world);
+        if (ok && (W3dRuntimeTransformParent(subject) != right->runtimeTransformHandle ||
+                   fabsf(world.m[12] - 10.0f) > 1e-4f)) {
+            ok = false; reason = "reparenting was not synchronized";
+        }
+        if (ok && !matchesFallback(subject)) {
+            ok = false; reason = "reparented transform differs from recursive reference";
+        }
+        W3dRuntimeRenderPacketsBegin();
+        W3dRuntimeRenderPacketsCapture(subject);
+        W3dRuntimeRenderPacketsSort();
+        packets = W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (!packets || packetCount != 1 ||
+                   packets[0].material != &materialAfter ||
+                   fabsf(packets[0].world.m[12] - 10.0f) > 1e-4f)) {
+            ok = false; reason = "reparented packet retained stale render data";
+        }
+
+        // Simulate repeated script/animation writes between frames. Each frame
+        // must rebuild to the same matrix as the recursive source-of-truth path.
+        for (int frame = 0; ok && frame < 4; ++frame) {
+            subject->pos.x += 0.25f;
+            W3dRuntimeTransformsBuild(root);
+            W3dRuntimeTransformsActivate(true);
+            subject->GetWorldMatrix(world);
+            W3dRuntimeRenderPacketsBegin();
+            W3dRuntimeRenderPacketsCapture(subject);
+            W3dRuntimeRenderPacketsSort();
+            packets = W3dRuntimeRenderPacketsLast(&packetCount);
+            if (!matchesFallback(subject) || !packets || packetCount != 1 ||
+                packets[0].material != &materialAfter ||
+                fabsf(packets[0].world.m[12] - world.m[12]) > 1e-4f) {
+                ok = false; reason = "repeated frame mutation diverged from full rebuild";
+            }
+        }
+
+        subject->visible = false;
+        W3dRuntimeRenderPacketsBegin();
+        const bool hiddenCaptured = W3dRuntimeRenderPacketsCapture(subject);
+        W3dRuntimeRenderPacketsSort();
+        W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (hiddenCaptured || packetCount != 0)) {
+            ok = false; reason = "hidden mesh remained in the render packet list";
+        }
+        subject->visible = true;
+
+        for (size_t i = 0; i < right->Childrens.size(); ++i) {
+            if (right->Childrens[i] == subject) {
+                right->Childrens.erase(right->Childrens.begin() + i);
+                break;
+            }
+        }
+        subject->Parent = NULL;
+        W3dRuntimeRenderPacketsBegin();
+        W3dLiberarSubarbol(subject);
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (W3dRuntimeTransformsCount() != 3 || packetCount != 0)) {
+            ok = false; reason = "deleted object remained in the rebuilt data";
+        }
+
+        Mesh* replacement = new Mesh(right, Vector3(6, 0, 0));
+        MaterialGroup replacementGroup = subjectGroup;
+        replacementGroup.material = &materialAfter;
+        replacement->materialsGroup.push_back(replacementGroup);
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        replacement->GetWorldMatrix(world);
+        if (ok && (W3dRuntimeTransformsCount() != 4 ||
+                   W3dRuntimeTransformParent(replacement) != right->runtimeTransformHandle ||
+                   fabsf(world.m[12] - 12.0f) > 1e-4f)) {
+            ok = false; reason = "replacement object retained stale snapshot data";
+        }
+        W3dRuntimeRenderPacketsBegin();
+        W3dRuntimeRenderPacketsCapture(replacement);
+        W3dRuntimeRenderPacketsSort();
+        packets = W3dRuntimeRenderPacketsLast(&packetCount);
+        if (ok && (!packets || packetCount != 1 || packets[0].mesh != replacement ||
+                   packets[0].material != &materialAfter ||
+                   fabsf(packets[0].world.m[12] - 12.0f) > 1e-4f)) {
+            ok = false; reason = "replacement packet retained stale object or material references";
+        }
+
+        W3dRuntimeTransformsActivate(false);
+        W3dRuntimeRenderPacketsBegin();
+        W3dRuntimeTransformsBuild(NULL);
+        W3dLiberarSubarbol(root);
+        if (!ok) {
+            err = std::string("runtime-sync-test: ") + reason;
+            return false;
+        }
+        printf("      [runtime-sync-test] edits, reparent, delete, and replacement rebuild cleanly OK\n");
+        return true;
+    }
+
+    // ---- runtime-packet-image-test: opt into the runtime packet path for one
+    //      editor viewport frame and compare its pixels to legacy traversal. ----
+    if (cmd == "runtime-packet-image-test") {
+        namespace gfx = w3dEngine;
+        extern Viewport3D* Viewport3DActive;
+        extern int W3dPantallaAlto;
+        if (!rootViewport) {
+            err = "runtime-packet-image-test: no viewport layout";
+            return false;
+        }
+        { extern void CargarTexturasPendientes(); CargarTexturasPendientes(); }
+        rootViewport->Render();
+        Viewport3D* viewport = Viewport3DActive;
+        if (!viewport) {
+            err = "runtime-packet-image-test: no active 3D viewport";
+            return false;
+        }
+        const int glY = W3dPantallaAlto - viewport->y - viewport->height;
+        const size_t pixelBytes = (size_t)viewport->width * viewport->height * 4;
+        std::vector<unsigned char> legacyPixels(pixelBytes);
+        std::vector<unsigned char> packetPixels(pixelBytes);
+        const bool packetsWereEnabled = W3dRuntimeRenderPacketsSetEnabled(false);
+        rootViewport->Render();
+        viewport->Render();
+        gfx::Finish();
+        gfx::ReadPixelsRGBA(viewport->x, glY, viewport->width, viewport->height,
+                            &legacyPixels[0]);
+
+        W3dRuntimeRenderPacketsSetEnabled(true);
+        rootViewport->Render();
+        viewport = Viewport3DActive;
+        if (!viewport) {
+            W3dRuntimeRenderPacketsSetEnabled(packetsWereEnabled);
+            err = "runtime-packet-image-test: active viewport disappeared";
+            return false;
+        }
+        const int packetGlY = W3dPantallaAlto - viewport->y - viewport->height;
+        viewport->Render();
+        gfx::Finish();
+        gfx::ReadPixelsRGBA(viewport->x, packetGlY, viewport->width, viewport->height,
+                            &packetPixels[0]);
+        size_t packetCount = 0;
+        W3dRuntimeRenderPacketsLast(&packetCount);
+        W3dRuntimeRenderPacketsSetEnabled(packetsWereEnabled);
+        const bool imageMatch = legacyPixels == packetPixels;
+        if (!imageMatch)
+            printf("      [runtime-packet-image-test] legacy and packet viewport pixels differ\n");
+        if (packetCount == 0)
+            printf("      [runtime-packet-image-test] no packets were extracted\n");
+        if (!imageMatch || packetCount == 0) {
+            err = "runtime-packet-image-test: packet frame differs from legacy or extracted no packets";
+            return false;
+        }
+        printf("      [runtime-packet-image-test] %d x %d viewport image parity, packets=%d OK\n",
+               viewport->width, viewport->height, (int)packetCount);
+        return true;
+    }
+
+    // ---- runtime-live-sync-image-test: mutate one mesh between viewport
+    //      frames and compare legacy traversal to the packet renderer. ----
+    if (cmd == "runtime-live-sync-image-test") {
+        namespace gfx = w3dEngine;
+        extern Viewport3D* Viewport3DActive;
+        extern int W3dPantallaAlto;
+        std::string objectName; ss >> objectName;
+        if (objectName.empty()) objectName = "PisoA";
+        Object* found = FindObjectByName(SceneCollection, objectName);
+        if (!found || found->getType() != ObjectType::mesh) {
+            err = "runtime-live-sync-image-test: mesh not found: " + objectName;
+            return false;
+        }
+        Mesh* mesh = (Mesh*)found;
+        if (mesh->materialsGroup.empty()) {
+            err = "runtime-live-sync-image-test: mesh has no material group";
+            return false;
+        }
+        if (!rootViewport) {
+            err = "runtime-live-sync-image-test: no viewport layout";
+            return false;
+        }
+
+        const Vector3 oldPos = mesh->pos;
+        const bool oldVisible = mesh->visible;
+        Material* oldMaterial = mesh->materialsGroup[0].material;
+        Material replacement("RuntimeLiveSyncReplacement");
+        if (oldMaterial) {
+            memcpy(replacement.diffuse, oldMaterial->diffuse, sizeof(replacement.diffuse));
+            memcpy(replacement.ambient, oldMaterial->ambient, sizeof(replacement.ambient));
+            memcpy(replacement.specular, oldMaterial->specular, sizeof(replacement.specular));
+            memcpy(replacement.emission, oldMaterial->emission, sizeof(replacement.emission));
+            replacement.lighting = oldMaterial->lighting;
+            replacement.transparent = oldMaterial->transparent;
+            replacement.depth_test = oldMaterial->depth_test;
+            replacement.depth_write = oldMaterial->depth_write;
+            replacement.depth_bias = oldMaterial->depth_bias;
+            replacement.orden_pasada = oldMaterial->orden_pasada;
+            replacement.mezcla = oldMaterial->mezcla;
+            replacement.texture = oldMaterial->texture;
+            replacement.textureOn = oldMaterial->textureOn;
+            replacement.culling = oldMaterial->culling;
+        }
+        bool ok = true;
+        const char* reason = NULL;
+        bool packetEnabledBefore = W3dRuntimeRenderPacketsSetEnabled(false);
+        int imageW = 0, imageH = 0;
+        std::vector<unsigned char> legacyPixels, packetPixels;
+
+        const auto renderAndRead = [&](bool packetMode,
+                                       std::vector<unsigned char>& pixels,
+                                       size_t* packetCount) -> bool {
+            W3dRuntimeRenderPacketsSetEnabled(packetMode);
+            rootViewport->Render();
+            Viewport3D* vp = Viewport3DActive;
+            if (!vp) return false;
+            vp->Render();
+            gfx::Finish();
+            if (imageW == 0) { imageW = vp->width; imageH = vp->height; }
+            if (vp->width != imageW || vp->height != imageH) return false;
+            pixels.resize((size_t)imageW * imageH * 4);
+            const int glY = W3dPantallaAlto - vp->y - vp->height;
+            gfx::ReadPixelsRGBA(vp->x, glY, imageW, imageH, &pixels[0]);
+            W3dRuntimeRenderPacketsLast(packetCount);
+            return true;
+        };
+        const auto compareFrame = [&](bool expectVisible, Material* expectMaterial,
+                                      float expectWorldX) -> bool {
+            size_t ignoredCount = 0, packetCount = 0;
+            if (!renderAndRead(false, legacyPixels, &ignoredCount) ||
+                !renderAndRead(true, packetPixels, &packetCount)) return false;
+            if (legacyPixels != packetPixels) {
+                printf("      [runtime-live-sync-image-test] legacy/packet pixels differ at this mutation\n");
+                return false;
+            }
+            bool foundMeshPacket = false;
+            size_t count = 0;
+            const W3dRuntimeRenderPacketInfo* packets =
+                W3dRuntimeRenderPacketsLast(&count);
+            for (size_t i = 0; packets && i < count; ++i) {
+                if (packets[i].mesh != mesh) continue;
+                foundMeshPacket = true;
+                if (expectMaterial && packets[i].material != expectMaterial) {
+                    printf("      [runtime-live-sync-image-test] packet kept the previous material pointer\n");
+                    return false;
+                }
+                if (fabsf(packets[i].world.m[12] - expectWorldX) > 1e-4f) {
+                    printf("      [runtime-live-sync-image-test] packet kept the previous world transform\n");
+                    return false;
+                }
+            }
+            if (foundMeshPacket != expectVisible)
+                printf("      [runtime-live-sync-image-test] packet visibility does not match object visibility\n");
+            return foundMeshPacket == expectVisible;
+        };
+
+        Matrix4 originalWorld; mesh->GetWorldMatrix(originalWorld);
+        const float originalWorldX = originalWorld.m[12];
+        if (!compareFrame(oldVisible, oldMaterial, originalWorldX)) {
+            ok = false; reason = "baseline packet image or data differs from legacy";
+        }
+        // Move into free screen space before replacing the material so the
+        // parity check is not affected by another coplanar test station.
+        mesh->pos.x -= 2.0f;
+        mesh->pos.y += 3.0f;
+        Matrix4 movedWorld; mesh->GetWorldMatrix(movedWorld);
+        if (ok && !compareFrame(oldVisible, oldMaterial, movedWorld.m[12])) {
+            ok = false; reason = "transform mutation was stale on the next frame";
+        }
+        mesh->materialsGroup[0].material = &replacement;
+        if (ok && !compareFrame(oldVisible, &replacement, movedWorld.m[12])) {
+            ok = false; reason = "material replacement was stale on the next frame";
+        }
+        mesh->visible = false;
+        if (ok && !compareFrame(false, &replacement, movedWorld.m[12])) {
+            ok = false; reason = "visibility mutation left a stale packet or image";
+        }
+
+        mesh->pos = oldPos;
+        mesh->visible = oldVisible;
+        mesh->materialsGroup[0].material = oldMaterial;
+        W3dRuntimeRenderPacketsSetCapture(false);
+        W3dRuntimeRenderPacketsSetEnabled(packetEnabledBefore);
+        rootViewport->Render();
+        for (size_t i = 0; i < Materials.size(); ++i) {
+            if (Materials[i] == &replacement) {
+                Materials.erase(Materials.begin() + i);
+                break;
+            }
+        }
+        if (!ok) {
+            err = std::string("runtime-live-sync-image-test: ") + reason;
+            return false;
+        }
+        printf("      [runtime-live-sync-image-test] transform, material, and visibility mutations match legacy across frames OK\n");
+        return true;
+    }
+
+    // ---- runtime-systems-bench: compare the current packed transform and
+    //      packet systems with their legacy reference paths on this scene. ----
+    if (cmd == "runtime-systems-bench") {
+        int frames = 120; ss >> frames;
+        if (frames < 1) frames = 1;
+        namespace gfx = w3dEngine;
+        extern Viewport3D* Viewport3DActive;
+        double W3dNowMs();
+        if (!SceneCollection || !rootViewport) {
+            err = "runtime-systems-bench: no scene or viewport";
+            return false;
+        }
+
+        std::vector<Object*> objects;
+        std::vector<Object*> pending(1, SceneCollection);
+        while (!pending.empty()) {
+            Object* object = pending.back(); pending.pop_back();
+            if (!object) continue;
+            objects.push_back(object);
+            for (size_t i = 0; i < object->Childrens.size(); ++i)
+                pending.push_back(object->Childrens[i]);
+        }
+        std::vector<Matrix4> reference(objects.size());
+        W3dRuntimeTransformsActivate(false);
+        for (size_t i = 0; i < objects.size(); ++i)
+            objects[i]->GetWorldMatrix(reference[i]);
+        for (int i = 0; i < 3; ++i) {
+            W3dRuntimeTransformsBuild(SceneCollection);
+            for (size_t j = 0; j < objects.size(); ++j)
+                objects[j]->GetWorldMatrix(reference[j]);
+        }
+
+        volatile float checksum = 0.0f;
+        double t0 = W3dNowMs();
+        for (int frame = 0; frame < frames; ++frame) {
+            for (size_t i = 0; i < objects.size(); ++i) {
+                Matrix4 world; objects[i]->GetWorldMatrix(world);
+                checksum += world.m[12];
+            }
+        }
+        const double recursiveMs = W3dNowMs() - t0;
+        t0 = W3dNowMs();
+        for (int frame = 0; frame < frames; ++frame)
+            W3dRuntimeTransformsBuild(SceneCollection);
+        const double snapshotMs = W3dNowMs() - t0;
+
+        bool transformsMatch = true;
+        W3dRuntimeTransformsActivate(true);
+        for (size_t i = 0; i < objects.size(); ++i) {
+            const Matrix4* world = W3dRuntimeTransformWorld(objects[i]);
+            if (!world) { transformsMatch = false; break; }
+            for (int component = 0; component < 16; ++component) {
+                if (fabsf(world->m[component] - reference[i].m[component]) > 1e-4f) {
+                    transformsMatch = false; break;
+                }
+            }
+            if (!transformsMatch) break;
+        }
+        W3dRuntimeTransformsActivate(false);
+        if (!transformsMatch) {
+            W3dRuntimeTransformsBuild(NULL);
+            err = "runtime-systems-bench: packed transform differs from recursive reference";
+            return false;
+        }
+
+        rootViewport->Render();
+        Viewport3D* viewport = Viewport3DActive;
+        if (!viewport) {
+            W3dRuntimeTransformsBuild(NULL);
+            err = "runtime-systems-bench: no 3D viewport";
+            return false;
+        }
+        const bool cameraBefore = viewport->ViewFromCameraActive;
+        if (CameraActive) viewport->ViewFromCameraActive = true;
+        const bool packetsBefore = W3dRuntimeRenderPacketsSetEnabled(false);
+        SDL_GL_SetSwapInterval(0);
+        const auto measureRender = [&](bool packetsEnabled) -> double {
+            W3dRuntimeRenderPacketsSetEnabled(packetsEnabled);
+            for (int i = 0; i < 5; ++i) { viewport->Render(); gfx::Finish(); }
+            const double start = W3dNowMs();
+            for (int i = 0; i < frames; ++i) { viewport->Render(); gfx::Finish(); }
+            return (W3dNowMs() - start) / frames;
+        };
+        const double legacyFrameMs = measureRender(false);
+        const double packetFrameMs = measureRender(true);
+        size_t packetCount = 0;
+        W3dRuntimeRenderPacketsLast(&packetCount);
+        const size_t transformBytes = W3dRuntimeTransformsMemoryBytes();
+        const size_t packetBytes = W3dRuntimeRenderPacketsMemoryBytes();
+        W3dRuntimeRenderPacketsSetEnabled(packetsBefore);
+        SDL_GL_SetSwapInterval(1);
+        viewport->ViewFromCameraActive = cameraBefore;
+        W3dRuntimeTransformsBuild(NULL);
+
+        printf("      [runtime-systems-bench] %d frames, %d objects: recursive world queries %.3f ms/frame; packed full rebuild %.3f ms/frame; parity=OK; transform arrays=%lu bytes\n",
+               frames, (int)objects.size(), recursiveMs / frames,
+               snapshotMs / frames, (unsigned long)transformBytes);
+        printf("      [runtime-systems-bench] render legacy %.3f ms/frame; packets %.3f ms/frame; packets=%lu; packet array=%lu bytes; checksum=%.1f\n",
+               legacyFrameMs, packetFrameMs, (unsigned long)packetCount,
+               (unsigned long)packetBytes, (double)checksum);
+        return true;
+    }
+
+    // ---- runtime-packet-test: extraction, compatible opaque grouping,
+    //      deterministic sort keys, transparency depth order, and ordered PVS. ----
+    if (cmd == "runtime-packet-test") {
+        Material opaque("RuntimePacketOpaque");
+        Material transparent("RuntimePacketTransparent");
+        transparent.transparent = true;
+        transparent.depth_write = false;
+        transparent.orden_pasada = 2;
+
+        Object* root = new Object(NULL, "RuntimePacketTestRoot");
+        Mesh* opaqueNear = new Mesh(root, Vector3(0, 0, -4));
+        Mesh* opaqueFar = new Mesh(root, Vector3(0, 0, -8));
+        Mesh* transparentNear = new Mesh(root, Vector3(0, 0, -2));
+        Mesh* transparentFar = new Mesh(root, Vector3(0, 0, -12));
+        opaqueNear->scale.x = -1.0f;
+        opaqueNear->vboIdx = opaqueFar->vboIdx = 77;
+        transparentNear->vboIdx = transparentFar->vboIdx = 88;
+
+        Mesh* meshes[4] = { opaqueNear, opaqueFar, transparentNear, transparentFar };
+        Material* materials[4] = { &opaque, &opaque, &transparent, &transparent };
+        for (int i = 0; i < 4; ++i) {
+            MaterialGroup group;
+            group.start = i * 3;
+            group.count = 1;
+            group.startDrawn = i * 3;
+            group.indicesDrawnCount = 3;
+            group.material = materials[i];
+            meshes[i]->materialsGroup.push_back(group);
+        }
+
+        const Vector3 oldCameraPos = g_renderCamPos;
+        const Vector3 oldCameraForward = g_renderCamForward;
+        g_renderCamPos = Vector3(0, 0, 0);
+        g_renderCamForward = Vector3(0, 0, -1);
+
+        bool ok = true;
+        const char* reason = NULL;
+        std::vector<Mesh*> firstOrder;
+        std::vector<unsigned long long> firstKeys;
+        {
+            W3dRuntimeTransformsScope transforms(root);
+            W3dRuntimeRenderPacketsBegin();
+            for (int i = 0; i < 4; ++i)
+                if (!W3dRuntimeRenderPacketsCapture(meshes[i])) ok = false;
+            W3dRuntimeRenderPacketsSort();
+
+            size_t count = 0;
+            const W3dRuntimeRenderPacketInfo* packets =
+                W3dRuntimeRenderPacketsLast(&count);
+            if (!packets || count != 4) {
+                ok = false; reason = "expected four extracted mesh packets";
+            } else {
+                for (size_t i = 0; i < count; ++i) {
+                    firstOrder.push_back(packets[i].mesh);
+                    firstKeys.push_back(packets[i].sortKey);
+                    if (i > 0 && packets[i - 1].sortKey > packets[i].sortKey) {
+                        ok = false; reason = "packet keys are not sorted";
+                    }
+                }
+                if (ok && (packets[0].mesh != opaqueNear ||
+                           packets[1].mesh != opaqueFar ||
+                           packets[0].material != &opaque ||
+                           packets[1].material != &opaque ||
+                           packets[0].translucent || packets[1].translucent ||
+                           packets[0].world.m[0] >= 0.0f ||
+                           packets[0].indexStart != 0 || packets[0].indexCount != 3 ||
+                           packets[1].indexStart != 3 || packets[1].indexCount != 3 ||
+                           (packets[0].sortKey >> 23) != (packets[1].sortKey >> 23))) {
+                    ok = false; reason = "opaque state grouping or packet data is incorrect";
+                }
+                if (ok && (packets[2].mesh != transparentFar ||
+                           packets[3].mesh != transparentNear ||
+                           packets[2].material != &transparent ||
+                           packets[3].material != &transparent ||
+                           !packets[2].translucent || !packets[3].translucent ||
+                           !(packets[2].depth > packets[3].depth))) {
+                    ok = false; reason = "transparent packets are not back-to-front";
+                }
+                if (ok) {
+                    for (size_t i = 0; i < count; ++i) {
+                        Matrix4 expected;
+                        packets[i].mesh->GetWorldMatrix(expected);
+                        if (fabsf(expected.m[12] - packets[i].world.m[12]) > 1e-4f ||
+                            fabsf(expected.m[13] - packets[i].world.m[13]) > 1e-4f ||
+                            fabsf(expected.m[14] - packets[i].world.m[14]) > 1e-4f) {
+                            ok = false; reason = "packet transform differs from scene transform";
+                            break;
+                        }
+                    }
+                }
+            }
+
+            W3dRuntimeRenderPacketsBegin();
+            for (int i = 3; i >= 0; --i)
+                W3dRuntimeRenderPacketsCapture(meshes[i]);
+            W3dRuntimeRenderPacketsSort();
+            packets = W3dRuntimeRenderPacketsLast(&count);
+            if (ok && (!packets || count != firstOrder.size())) {
+                ok = false; reason = "repeat extraction changed the packet count";
+            }
+            for (size_t i = 0; ok && i < count; ++i) {
+                if (packets[i].mesh != firstOrder[i] ||
+                    packets[i].sortKey != firstKeys[i]) {
+                    ok = false; reason = "packet order or keys are not repeatable";
+                }
+            }
+
+            opaqueNear->pvsFaces = new MeshIndex[3];
+            opaqueNear->pvsFaces[0] = opaqueNear->pvsFaces[1] = opaqueNear->pvsFaces[2] = 0;
+            opaqueNear->pvsFacesSize = 3;
+            opaqueNear->pvsOrdenado = true;
+            MaterialGroup pvsTransparentGroup;
+            pvsTransparentGroup.start = 3;
+            pvsTransparentGroup.count = 1;
+            pvsTransparentGroup.startDrawn = 3;
+            pvsTransparentGroup.indicesDrawnCount = 3;
+            pvsTransparentGroup.material = &transparent;
+            opaqueNear->materialsGroup.push_back(pvsTransparentGroup);
+            W3dRuntimeRenderPacketsBegin();
+            W3dRuntimeRenderPacketsCapture(opaqueNear);
+            W3dRuntimeRenderPacketsSort();
+            packets = W3dRuntimeRenderPacketsLast(&count);
+            if (ok && (!packets || count != 1 ||
+                       packets[0].mesh != opaqueNear ||
+                       packets[0].materialGroup != (size_t)-1 ||
+                       packets[0].indexStart != 0 || packets[0].indexCount != 3 ||
+                       !packets[0].translucent)) {
+                ok = false; reason = "ordered PVS was not preserved as one transparent packet";
+            }
+            opaqueNear->materialsGroup.pop_back();
+        }
+
+        W3dRuntimeRenderPacketsBegin();
+        W3dRuntimeTransformsBuild(NULL);
+        for (int i = 0; i < 4; ++i) meshes[i]->vboIdx = 0;
+        W3dLiberarSubarbol(root);
+        g_renderCamPos = oldCameraPos;
+        g_renderCamForward = oldCameraForward;
+        if (!ok) {
+            err = std::string("runtime-packet-test: ") +
+                  (reason ? reason : "packet capture failed");
+            return false;
+        }
+        printf("      [runtime-packet-test] extraction, opaque grouping, stable keys, transparency, and ordered PVS OK\n");
+        return true;
+    }
+
     // ---- platformer-touch-test: run the shared template against simulated multi-touch input. ----
     if (cmd == "platformer-touch-test") {
         lua_State* L = luaL_newstate();
         if (!L) { err = "platformer-touch-test: could not create Lua state"; return false; }
         luaL_openlibs(L);
         const char* test = R"lua(
-            local player = {x = 0, y = 0, z = 0.8}
+            local player = {x = 0, y = 0.8, z = 0}
             local boxes = {
                 LeftButton = {-100, -180, 80, 60},
                 RightButton = {0, -180, 80, 60},
                 JumpButton = {120, -180, 100, 60}
             }
             local touches = {}
+            local buttonWasDown = {}
             function object(name)
                 if name == "Player" then return player end
                 return name
             end
-            function getUIBox(name)
+            function isDown(name)
                 local box = boxes[name]
-                return box[1], box[2], box[3], box[4]
+                if not box then return false end
+                for _, point in pairs(touches) do
+                    if point.active and math.abs(point.x - box[1]) <= box[3] * 0.5 and
+                       math.abs(point.y - box[2]) <= box[4] * 0.5 then
+                        return true
+                    end
+                end
+                return false
             end
-            function finger(index)
-                local point = touches[index]
-                if not point then return 0, 0, false end
-                return point.x, point.y, point.active
+            function isPressed(name)
+                local down = isDown(name)
+                local wasDown = buttonWasDown[name] or false
+                buttonWasDown[name] = down
+                return down and not wasDown
             end
             function setFinger(index, x, y, active)
                 touches[index] = {x = x, y = y, active = active}
@@ -1409,17 +2073,19 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
 
             setFinger(2, 120, -180, true)
             update(0.1)
-            assert(player.z > 0.8, "jump touch did not make the player jump")
+            assert(player.y > 0.8 and math.abs(player.z) < 0.001,
+                   "jump touch did not raise the player on Y without changing depth Z")
 
             for _ = 1, 20 do update(0.1) end
-            assert(math.abs(player.z - 0.7) < 0.001,
+            assert(math.abs(player.y - 0.7) < 0.001 and math.abs(player.z) < 0.001,
                    "holding jump caused an unwanted repeated jump after landing")
 
             setFinger(2, 120, -180, false)
             update(0.1)
             setFinger(2, 120, -180, true)
             update(0.1)
-            assert(player.z > 0.7, "a new jump touch after release was ignored")
+            assert(player.y > 0.7 and math.abs(player.z) < 0.001,
+                   "a new jump touch after release was ignored or changed depth Z")
         )lua";
         const int status = luaL_dostring(L, test);
         if (status != 0) {

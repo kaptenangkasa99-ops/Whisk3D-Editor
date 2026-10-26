@@ -53,6 +53,7 @@
 #include "objects/Instance.h"
 #include "objects/Collection.h"
 #include "objects/ObjectMode.h"
+#include "w3dFilesystem.h"
 #include "edit/Modifier.h" // ModifierType::Mirror + target (regen de mirrors al mover objetos)
 #include "edit/BoneEdit.h" // Edit Mode de ARMATURE (Fase 3): ops de huesos + menu contexto + prep al salir
 #include "objects/Primitivas.h"
@@ -84,8 +85,8 @@ void (*LayoutImportGlb)() = NULL;  // "Add > Imports > GLB": explorador filtrado
 void (*LayoutWarpMouse)(int x, int y) = NULL;
 void (*LayoutArbolCambiado)() = NULL;
 
-static PopupMenu* gMenuBienvenida = NULL;
 static PopupMenu* gMenuPlantillas = NULL;
+static PopupMenu* gMenuBienvenida = NULL;
 
 struct PlantillaProyecto {
     const char* nombre;
@@ -95,12 +96,13 @@ struct PlantillaProyecto {
 
 static void BienvenidaProyectoVacio() {
     if (gMenuPlantillas) gMenuPlantillas->Cerrar();
-    if (!rootViewport || rootViewport->ViewportKind() != 9) return;
-    int w = rootViewport->width, h = rootViewport->height;
-    delete rootViewport;
-    Viewport3D* vp3d = NULL;
-    rootViewport = LayoutPorDefecto(w, h, &vp3d);
-    viewPortActive = vp3d;
+    if (rootViewport && rootViewport->ViewportKind() == 9) {
+        int w = rootViewport->width, h = rootViewport->height;
+        delete rootViewport;
+        Viewport3D* vp3d = NULL;
+        rootViewport = LayoutPorDefecto(w, h, &vp3d);
+        viewPortActive = vp3d;
+    }
     g_redraw = true;
 }
 
@@ -111,13 +113,22 @@ static const PlantillaProyecto kPlantillasProyecto[] = {
     { "Audio usage", "audio", "audio.w3d" }
 };
 
-static std::string CarpetaPlantillas() {
+std::string LayoutCarpetaPlantillas() {
 #ifdef __ANDROID__
     const char* internal = SDL_AndroidGetInternalStoragePath();
     if (!internal || !*internal) return std::string();
     return w3dFileSystem::JoinPath(internal, "Templates");
 #else
-    return "templates";
+    // Installed/portable builds keep templates beside res/ and therefore beside
+    // the executable. Do not depend on the process working directory: Windows
+    // shortcuts and file associations commonly start in another folder.
+    const std::string exeTemplates = w3dFileSystem::JoinPath(
+        w3dFileSystem::ParentPath(w3dFileSystem::GetResDir()), "templates");
+    if (w3dFileSystem::IsDir(exeTemplates)) return exeTemplates;
+
+    // Source-tree development fallback (running from the repository root).
+    if (w3dFileSystem::IsDir("templates")) return "templates";
+    return exeTemplates;
 #endif
 }
 
@@ -127,7 +138,7 @@ static void BienvenidaCrearDesdePlantilla(const std::string& destinoElegido, int
         return;
     }
     const PlantillaProyecto& plantilla = kPlantillasProyecto[indice];
-    const std::string raiz = CarpetaPlantillas();
+    const std::string raiz = LayoutCarpetaPlantillas();
     if (raiz.empty()) {
         Notificar("Project templates are not available", true);
         return;
@@ -274,12 +285,18 @@ void LayoutMostrarBienvenida() {
                            MenuPantallaH / 2 - gMenuBienvenida->height / 2,
                            MenuPantallaW, MenuPantallaH);
     MenuAbierto = gMenuBienvenida;
+    // Desktop rendering is event-driven; force the initial overlay frame.
+    g_redraw = true;
 }
 
 void LayoutBienvenidaReubicar() {
     if (gMenuBienvenida && gMenuBienvenida->abierto)
         gMenuBienvenida->Abrir(MenuPantallaW / 2 - gMenuBienvenida->width / 2,
                                MenuPantallaH / 2 - gMenuBienvenida->height / 2,
+                               MenuPantallaW, MenuPantallaH);
+    if (gMenuPlantillas && gMenuPlantillas->abierto)
+        gMenuPlantillas->Abrir(MenuPantallaW / 2 - gMenuPlantillas->width / 2,
+                               MenuPantallaH / 2 - gMenuPlantillas->height / 2,
                                MenuPantallaW, MenuPantallaH);
 }
 

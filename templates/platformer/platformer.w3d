@@ -1,33 +1,99 @@
-Whisk3D {
-    version: 20251127
-    Escena {
-        background: "0.12, 0.16, 0.22, 1.0"
-        Camera {
-            name: "Camera"
-            target: "Player"
-            y: -10.0
-            z: 3.0
-        }
-        Light {
-            name: "Light"
-            x: -2.0
-            y: -4.0
-            z: 6.0
-        }
-        Wavefront {
-            name: "Ground"
-            filePath: ground.obj
-        }
-        Mesh {
-            name: "Player"
-            z: 0.8
-        }
-        Collection {
-            name: "GameScripts"
-            script: "platformer.lua"
-        }
-        UI {
-            archivo: "touch.w3dui"
-        }
-    }
+{
+  "version": 5,
+  "compilar": {
+    "modoVentana": "pantallaCompleta",
+    "orientacion": "todas",
+    "fisica": true,
+    "sonido": true,
+    "volumen": 100,
+    "debug": false,
+    "assets": "sueltos",
+    "plataforma": "linux-deb",
+    "uid": "0x00000000"
+  },
+  "paletas": [
+    { "nombre": "Whisk3D", "colores": [
+      { "nombre": "Fondo", "color": [0.05, 0.05, 0.05, 1] },
+      { "nombre": "Blanco", "color": [1, 1, 1, 1] },
+      { "nombre": "Accent", "color": [0, 1, 0, 1] },
+      { "nombre": "Accent oscuro", "color": [0.4, 0.55, 0, 1] },
+      { "nombre": "Negro", "color": [0, 0, 0, 1] },
+      { "nombre": "Gris", "color": [0.12, 0.12, 0.12, 1] },
+      { "nombre": "Gris UI", "color": [0.75, 0.75, 0.75, 1] },
+      { "nombre": "Gris linea", "color": [0.286, 0.286, 0.286, 1] }
+    ] }
+  ],
+  "fps": 30,
+  "fullscreen": true,
+  "reproduciendo": false,
+  "escena": {
+    "objetos": [
+      {
+        "tipo": "camara",
+        "nombre": "Camera",
+        "pos": [-5.367255, 0.026420008, 4.2770367],
+        "rot": [-0.4353494, -57.063114, -0.36537775],
+        "escala": [1, 1, 1],
+        "fov": 45,
+        "orto": false,
+        "near": 0.01,
+        "far": 1000,
+        "target": "Player"
+      },
+      {
+        "tipo": "luz",
+        "nombre": "Light",
+        "pos": [-2, 4.3746834, 6],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "color": [1, 1, 1]
+      },
+      {
+        "tipo": "malla",
+        "nombre": "Ground",
+        "pos": [0, 0, 0],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "geometria": "mallas/ground.w3dm",
+        "origen": "ext:C:/Users/User/Documents/w3dprojects/myseconds\\platformer\\ground.obj"
+      },
+      {
+        "tipo": "malla",
+        "nombre": "Player",
+        "pos": [0, 0, 0.8],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "geometria": "mallas/player.w3dm"
+      },
+      {
+        "tipo": "coleccion",
+        "nombre": "GameScripts",
+        "pos": [0, 0, 0],
+        "rot": [0, 0, 0],
+        "escala": [1, 1, 1],
+        "scripts": [
+          { "archivo": "scripts/platformer.lua" }
+        ]
+      },
+      {
+        "tipo": "ui",
+        "archivo": "escenas/touch.w3dui"
+      }
+    ]
+  },
+  "materiales": [
+    { "nombre": "Default",
+      "difuso": [1, 1, 1, 1],
+      "especular": [0.3, 0.3, 0.3, 1],
+      "emision": [0, 0, 0, 1],
+      "ambiente": [0.3, 0.3, 0.3, 1],
+      "brillo": 12, "interpolacion": 0, "reflejoModo": 0,
+      "flags": { "textura": true, "filtrado": true, "repetir": true, "transparente": false, "luz": true, "colorVertice": false, "culling": true, "profundidad": true, "escribeProfundidad": true, "reflejo": false, "normalMap": false, "uv8bit": false } }
+  ],
+  "sesion": {
+    "frame": 1,
+    "activo": "Light",
+    "seleccion": ["Light"]
+  },
+  "layout": "Layout {\n  ViewportRow {\n    ViewportColumn {\n      Viewport3D {\n        posX: 0\n        posY: 0\n        posZ: 0\n        orbitDistance: 29.44679\n        rotQX: -0.0018147648\n        rotQY: -0.47764745\n        rotQZ: -0.0009866467\n        rotQW: 0.8785492\n      }\n      Timeline {\n        modo: dope\n        zoomFrame: 14\n        frameIzq: -2\n      }\n      Split: 0.88\n    }\n    ViewportColumn {\n      Outliner\n      Properties\n      Split: 0.4\n    }\n    Split: 0.72\n  }\n}"
 }

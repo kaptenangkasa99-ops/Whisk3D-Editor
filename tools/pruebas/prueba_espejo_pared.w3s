@@ -24,6 +24,8 @@
 # ===========================================================================
 abrirw3d prueba_espejo_pared.w3d
 loadtex
+deselectall
+runtime-packet-image-test
 espejopx EspejoPared info
 
 # --- EL REFLEJO SE VE, y en el plano correcto -------------------------------

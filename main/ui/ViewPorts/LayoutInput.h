@@ -67,6 +67,7 @@ void LayoutBienvenidaAbrirProyecto();
 // muestra la pantalla inicial de bienvenida en un arranque sin proyecto
 void LayoutMostrarBienvenida();
 void LayoutBienvenidaReubicar();
+std::string LayoutCarpetaPlantillas();
 
 // click en la barra del UV editor, por ROL (BarRolUV). Publica para que el comando de test
 // 'uvbar' (W3dScript) ejercite el MISMO camino que el click real.

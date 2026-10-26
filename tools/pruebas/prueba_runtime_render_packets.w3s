@@ -1,0 +1,3 @@
+# Runtime render-packet extraction and sorting regression.
+# Run with: ../../build/Release/whisk3d.exe --script prueba_runtime_render_packets.w3s
+runtime-packet-test

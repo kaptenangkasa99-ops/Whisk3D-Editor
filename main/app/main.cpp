@@ -816,10 +816,21 @@ static void MainLoopFrame() {
 
 namespace w3dEngine { bool W3dAudioInit(int); }  // audio/W3dAudio.h (evita meter el dir al include path)
 
+// Enabled by --verbose; project loading uses this to emit English checkpoints
+// to whisk3d.log so a crash can be narrowed to a specific open phase.
+bool g_verboseDiagnostics = false;
+
 int main(int argc, char* argv[]) {
 #ifndef __EMSCRIPTEN__
     w3dRedirigirCoutAlLog();   // cout/cerr -> whisk3d.log (no la consola blanca de Windows). Impl comun en w3dlog.cpp.
 #endif
+    for (int ai = 1; ai < argc; ++ai) {
+        if (std::string(argv[ai]) == "--verbose") {
+            g_verboseDiagnostics = true;
+            w3dLog("Verbose diagnostics enabled. Log file: whisk3d.log");
+            break;
+        }
+    }
 #ifdef __EMSCRIPTEN__
     SDL_SetMainReady(); // web: no arrancamos por el main de SDL
     // touch -> mouse SIEMPRE sintetizado por SDL (which = SDL_TOUCH_MOUSEID): el ruteo tactil de
@@ -1002,6 +1013,12 @@ int main(int argc, char* argv[]) {
     loadColors(skinPath);
 
     // Constructor de Whisk3D universal (Android, PC)
+    // La bienvenida abre un PopupMenu durante la construccion del layout. Dale
+    // el tamano real de ventana antes de que ese menu calcule su posicion;
+    // MenuPantallaW/H arrancan con el sentinel 100000 de WhiskUI.
+    W3dPantallaAlto = winH;
+    MenuPantallaW = winW;
+    MenuPantallaH = winH;
     ConstructUniversal(argc, argv);
 
     // "Add > import Wavefront" del menu + Load Texture + warp/swap: hooks de ESCRITORIO (Windows + Linux). En Android
@@ -1042,11 +1059,10 @@ int main(int argc, char* argv[]) {
 
     running = true;
     // arbol en coordenadas ARRIBA-izquierda (unificado con Symbian);
-    // el flip a GL pasa solo en glViewport/glScissor con este alto
-    W3dPantallaAlto = winH;
-    MenuPantallaW = winW;
-    MenuPantallaH = winH;
+    // el flip a GL pasa solo en glViewport/glScissor con este alto. Los tamaños
+    // ya se fijaron antes de ConstructUniversal para centrar la bienvenida.
     rootViewport->Resize(winW, winH);
+    LayoutBienvenidaReubicar(); // aplicar el tamaño final de la ventana en el primer frame
 
 #if !defined(__ANDROID__)
     // MODO TEST: "whisk3d --script <ruta>" corre un script de comandos (sin GUI) y

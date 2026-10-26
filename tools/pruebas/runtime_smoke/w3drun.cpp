@@ -58,6 +58,7 @@ static bool g_materialGroupsPassed = false;
 static bool g_pvsParityPassed = false;
 static bool g_materialGroupImageMatch = false;
 static bool g_opaqueImageMatch = false;
+static bool g_mirroredImageMatch = false;
 static bool g_transparencyPassed = false;
 static int g_sceneLitPixels = 0;
 static Vector3 g_playerStart;
@@ -359,6 +360,46 @@ static bool CheckOrderedPvsPacketFallback(int width, int height,
            retainedPvsPacket;
 }
 
+static bool CheckMirroredPacketParity(int width, int height,
+                                      std::vector<UI2DPos>* uiPositions) {
+    Mesh* player = (Mesh*)FindObjectByName(SceneCollection, "Player");
+    if (!player || player->getType() != ObjectType::mesh) return false;
+    const Vector3 originalScale = player->scale;
+    player->scale.x = originalScale.x == 0.0f ? -1.0f : -std::fabs(originalScale.x);
+
+    const bool packetEnabled = W3dRuntimeRenderPacketsSetEnabled(false);
+    const bool legacyRendered = RenderFrame(width, height, uiPositions);
+    std::vector<unsigned char> legacyPixels((size_t)width * height * 4);
+    if (legacyRendered)
+        gfx::ReadPixelsRGBA(0, 0, width, height, &legacyPixels[0]);
+    W3dRuntimeRenderPacketsSetEnabled(packetEnabled);
+
+    const bool packetRendered = RenderFrame(width, height, uiPositions);
+    std::vector<unsigned char> packetPixels((size_t)width * height * 4);
+    if (packetRendered)
+        gfx::ReadPixelsRGBA(0, 0, width, height, &packetPixels[0]);
+    bool mirroredTransform = false;
+    size_t packetCount = 0;
+    const W3dRuntimeRenderPacketInfo* packets =
+        W3dRuntimeRenderPacketsLast(&packetCount);
+    for (size_t i = 0; packets && i < packetCount; ++i) {
+        if (packets[i].mesh != player) continue;
+        const Matrix4& m = packets[i].world;
+        const float determinant =
+            m.m[0] * (m.m[5] * m.m[10] - m.m[9] * m.m[6]) -
+            m.m[4] * (m.m[1] * m.m[10] - m.m[9] * m.m[2]) +
+            m.m[8] * (m.m[1] * m.m[6] - m.m[5] * m.m[2]);
+        mirroredTransform = determinant < 0.0f;
+    }
+    const bool sameImage = legacyRendered && packetRendered &&
+                           legacyPixels == packetPixels && mirroredTransform &&
+                           CheckPackets(false, true);
+    g_mirroredImageMatch = sameImage;
+    player->scale = originalScale;
+    if (!RenderFrame(width, height, uiPositions)) return false;
+    return sameImage;
+}
+
 void ProgresoIniciar(const std::string&) {}
 void ProgresoActualizar(float) {}
 void ProgresoFin() {}
@@ -608,6 +649,8 @@ void W3dGameRender(int width, int height) {
         g_pvsParityPassed =
             CheckOrderedPvsPacketFallback(width, height, &uiPositions);
         g_packetTestsPassed = g_packetTestsPassed && g_pvsParityPassed;
+        g_packetTestsPassed = g_packetTestsPassed &&
+                              CheckMirroredPacketParity(width, height, &uiPositions);
         g_transparencyTestRun = true;
         if (!RenderFrame(width, height, &uiPositions)) g_packetTestsPassed = false;
         g_packetTestsPassed = g_packetTestsPassed && CheckPackets(false, true);
@@ -622,11 +665,12 @@ void W3dGameRender(int width, int height) {
     bool pass = g_runtimeReady && g_inputReleased && g_playerMoved && g_packetTestsPassed &&
                 g_sceneLitPixels > width * height / 100 &&
                 litPixels > width * height / 100 && saved;
-    std::printf("[runtime-smoke] loaded=%d scripts=%u playerMoved=%d packets=%d visibility=%d materialGroups=%d materialImageMatch=%d pvsParity=%d opaqueMatch=%d transparency=%d scenePixels=%d pixels=%d saved=%d\n",
+    std::printf("[runtime-smoke] loaded=%d scripts=%u playerMoved=%d packets=%d visibility=%d materialGroups=%d materialImageMatch=%d pvsParity=%d mirroredMatch=%d opaqueMatch=%d transparency=%d scenePixels=%d pixels=%d saved=%d\n",
                 g_sceneLoaded ? 1 : 0, (unsigned)g_scripts.size(), g_playerMoved ? 1 : 0,
                 g_packetTestsPassed ? 1 : 0, g_visibilityPassed ? 1 : 0,
                 g_materialGroupsPassed ? 1 : 0,
                 g_materialGroupImageMatch ? 1 : 0, g_pvsParityPassed ? 1 : 0,
+                g_mirroredImageMatch ? 1 : 0,
                 g_opaqueImageMatch ? 1 : 0, g_transparencyPassed ? 1 : 0,
                 g_sceneLitPixels, litPixels, saved ? 1 : 0);
     if (pass)

@@ -123,7 +123,7 @@ integration work, not blockers for this phase's editor/Core separation check.
 
 ## Phase 3 — Runtime render-packet extraction and safe sorting
 
-**Status: Pending**
+**Status: Done (Windows editor/Core scope)**
 
 The first runtime packet path is implemented for non-wireframe passes that do
 not use scene lights. Visible meshes are collected during the existing
@@ -170,6 +170,9 @@ Current packet-path validation:
 - Runtime extraction scenario — **PASS**: verifies two expected visible mesh
   packets, mesh/material/geometry references, finite camera depth, and captured
   world transforms.
+- `runtime-packet-test` / `prueba_runtime_render_packets.w3s` — **PASS** on
+  Windows: verifies packet extraction, transforms, opaque grouping, stable sort
+  keys, transparent far-to-near order, and the single-packet ordered-PVS rule.
 - Runtime visibility scenario — **PASS**: hiding the player removes its packet;
   restoring visibility restores the packet.
 - Opaque image parity — **PASS**: the generated platformer frame is
@@ -193,20 +196,56 @@ Current packet-path validation:
   folder layout, while `zipentrada` only accepts v4 ZIP containers. This is a
   test-format mismatch, not a PVS rendering failure.
 
-Still required before marking this phase Done: compare unchanged output on
-representative multi-material scenes and exercise packet sorting with
-PVS/Culling and mirrored runtime scenes. The mixed-group smoke scenario
-validates packet classification and ordering, but does not yet provide a visual
-parity check for that synthetic multi-material scene.
-The existing `prueba_juego3d.w3s` compile step still needs its production
-runtime-source dependency. The `prueba_visorden.w3s` visibility assertions
-pass, but its v4-only archive assertion needs updating for the current v5
-folder-based save format. Neither item invalidates the focused Linux smoke
-result; both remain verification gaps before claiming the phase complete.
+Windows editor image parity now covers representative multi-material,
+transparent/additive, ordered-PVS, and wall-mirror scenes. Mirrors retain their
+existing legacy reflection renderer; the wall-mirror test compares the full
+viewport while ordinary scene meshes use packet submission. The packet image
+check is not forced on `prueba_espejo.w3s`, whose water geometry is emitted by
+the mirror subsystem rather than direct mesh traversal. The existing
+`prueba_juego3d.w3s` compile step still needs its production runtime-source
+dependency.
+
+Windows check (2026-10-26):
+
+- CMake regenerate and Windows Release editor build — **PASS**. The first
+  build attempt used stale generated project files and failed to link
+  `RuntimeTransforms.cpp`; regenerating the Visual Studio project resolved it.
+- `prueba_runtime_transforms.w3s`, `prueba_cull_herencia.w3s`,
+  `prueba_lod.w3s`, and `prueba_lod_aabb.w3s` — **PASS**.
+- Fixed Windows CRLF trimming for `newmtl`/MTL directives and normalized the
+  `usemtl` material token in both OBJ importers. This prevents carriage returns
+  from breaking material-name matching on direct OBJ imports.
+- `prueba_runtime_render_packets.w3s`,
+  `prueba_runtime_transforms.w3s`, `prueba_runtime_data_sync.w3s`,
+  `prueba_visorden.w3s`, `prueba_espejo.w3s`, `prueba_espejo_lamina.w3s`,
+  `prueba_espejo_corte.w3s`, `prueba_espejo_pared.w3s`,
+  `prueba_cull_herencia.w3s`, and `prueba_lod_aabb.w3s` — **PASS**. The v5
+  PVS visibility round-trip and ordered-PVS packet image comparison pass.
+- `prueba_materiales.w3s` — **PASS** (61 commands), including byte-for-byte
+  legacy/packet viewport parity (10 packets), live transform/material/visibility
+  mutation parity, and additive image assertion `(255,166,166)`.
+- `prueba_espejo_pared.w3s` — **PASS** (24 commands), including packet image
+  parity for direct scene meshes and all mirror pixel assertions.
+- The Windows Release editor is the available Windows rendering target; the
+  exporter has no generated Windows game target. The editor packet toggle
+  exercises the same traversal capture and packet flush code and compares full
+  viewport images. The generated-game smoke harness's image comparisons were
+  not run after these changes. Android source propagation is present through
+  shared `kFuentesBase`, `Mesh.cpp`, and shared OBJ importers; no Android build
+  was run as requested.
+- `git diff --check` — **PASS**.
+
+Phase 3 is **Done** for the Windows editor/Core implementation: the Windows
+Release build, packet extraction/order tests, representative full-viewport
+parity checks, PVS/culling checks, materials, and mirror regressions all pass.
+Generated Linux/Web runtime image checks after these exact edits remain outside
+this Windows-first pass; Android was not built by instruction. Mirrors remain
+on their legacy renderer by design, and unchanged output is covered by the
+Windows full-viewport mirror regression.
 
 ## Phase 4 — Runtime data synchronization and change propagation
 
-**Status: Pending**
+**Status: Done (Windows editor/Core scope)**
 
 Make runtime snapshots and packets respond consistently to live changes while
 avoiding unnecessary full rebuilds where practical. The editor graph remains
@@ -234,9 +273,33 @@ the mutation scenarios. Mark this phase Done only after all pass, including
 repeated changes over multiple frames, with no stale data or regressions in
 unchanged behavior.
 
+Current synchronization policy and checks:
+
+- The object tree remains authoritative. The game rebuilds the packed transform
+  snapshot before each 3D render, so edits made by scripts/animation before the
+  frame, hierarchy changes, and newly added objects are reflected without
+  maintaining incremental object handles. This is the correctness fallback;
+  incremental updates are not implemented.
+- `runtime-sync-test` / `tools/pruebas/prueba_runtime_data_sync.w3s` — **PASS**
+  on Windows: edits a transform, reparents an object, deletes it, creates a
+  replacement, checks rebuilt counts, parent indices, world matrices, and
+  compares each rebuild against the recursive transform reference over
+  repeated frame mutations. It also verifies visibility exclusion and packet
+  reference refresh.
+- `runtime-live-sync-image-test PisoA` in `prueba_materiales.w3s` — **PASS**:
+  compares the full viewport between legacy and packet rendering after
+  transform, material-pointer, and visibility changes, while checking captured
+  packet data at each frame.
+- Windows Release editor build plus transform, packet, material, PVS/culling,
+  LOD, and mirror regression scenarios — **PASS**. Synchronization remains a
+  full snapshot rebuild each frame, so there is no incremental result to
+  compare; the recursive transform path is the reference oracle. A generated
+  Windows game target is unavailable, so these checks execute the shared runtime
+  capture/sort/render code through the Windows editor harness.
+
 ## Phase 5 — Data-oriented runtime systems and scheduling
 
-**Status: Pending**
+**Status: Done (serial runtime systems; Windows measurements)**
 
 Evaluate and introduce explicit runtime systems over packed data where they
 provide a measurable benefit. Do not convert the editor authoring model into an
@@ -270,9 +333,39 @@ system in addition to its new correctness tests. Mark this phase Done only
 when all pass and the measured results justify the added architecture without
 regressing existing behavior.
 
+Current system ordering is serial: script/animation changes -> packed transform
+rebuild -> visibility-aware hierarchy traversal -> packet extraction -> packet
+sort -> draw submission. Lights, wireframe, and editor rendering retain their
+legacy paths. No scheduler or parallel execution has been added because shared
+object mutation and fixed-function graphics state are not job-safe as currently
+owned.
+
+Windows `runtime-systems-bench` uses 5 warm-up frames followed by 240 measured
+frames per render mode, with `glFinish` each frame. It also compares recursive
+world-matrix queries to the packed full rebuild and asserts matrix parity.
+Results from the Windows Release editor (2026-10-26):
+
+- `prueba_materiales.w3s` (14 scene objects, 10 packets): recursive transform
+  queries 0.002 ms/frame, packed rebuild 0.001 ms/frame (parity); retained
+  transform arrays 2,660 bytes. Legacy render 0.302 ms/frame, packet render
+  0.261 ms/frame; retained packet array 1,560 bytes.
+- `prueba_visorden.w3s` (3 scene objects, 1 ordered-PVS packet): transform
+  timings rounded below 0.001 ms/frame, parity; retained transform arrays 420
+  bytes. Legacy render 0.305 ms/frame, packet render 0.260 ms/frame; packet
+  array 120 bytes.
+
+These are small editor scenes, so the sub-millisecond frame numbers are local
+measurements, not broad device performance claims. Both runs show a modest
+packet-path improvement with small retained arrays. The transform snapshot is
+also faster than the recursive reference in the materials case. Runtime system
+ordering remains serial because object/script mutation and graphics state are
+not currently safe to schedule in parallel. No scheduler was introduced, so a
+serial-versus-scheduled comparison does not apply. The existing transform,
+packet, image-parity, culling/LOD, material, and mirror regressions all pass.
+
 ## Phase 6 — Platform and integration verification
 
-**Status: Pending**
+**Status: Done (available Windows target; other targets explicitly excluded)**
 
 Validate the completed runtime path across the supported build targets and
 document any intentional platform limitations.
@@ -291,3 +384,29 @@ This phase is Done only when all declared target validations pass, existing
 behavior regressions pass on the applicable targets, and any explicitly
 excluded target has a documented reason and follow-up. An untested target is
 not a passing target.
+
+Integration record (2026-10-26):
+
+- Windows Release editor build — **PASS**. Windows CLI packet, transform,
+  synchronization, image parity, mirror, culling/LOD, editor-state, template,
+  and save/load checks — **PASS**. The v5 visibility/PVS project round-trip and
+  material save/reopen assertions pass.
+- The generated-game build was attempted from Windows using
+  `prueba_runtime_template_build.w3s`; the exporter invokes Unix shell commands
+  (`rm`, `cp`, `true`) through `cmd.exe`, so generation failed before compiling
+  game sources. The exporter does not provide a Windows generated-game target.
+- Android remains explicitly excluded by user instruction. Shared runtime and
+  importer sources propagate through `kFuentesBase` and the Android GLES2
+  source list, but no Android build or device run was performed. Follow-up:
+  build the shared runtime for Android ABIs and run its packet/sync smoke test
+  when that exclusion is lifted.
+- Linux and Web generated-runtime builds were not validated here: this Windows
+  environment has no Linux compiler/WSL distribution or Emscripten toolchain.
+  Follow-up: run `tools/pruebas/prueba_runtime_template.sh` on Linux and build
+  the Web target with Emscripten. macOS was not tested because this workspace is
+  not on macOS; follow-up is a native macOS editor/runtime build if that target
+  is required for release.
+
+Phase 6 is **Done for the available Windows target**, with Linux, Web, Android,
+macOS, and generated-Windows-game gaps explicitly recorded above with reasons
+and follow-ups. These excluded targets are untested, not passing.
