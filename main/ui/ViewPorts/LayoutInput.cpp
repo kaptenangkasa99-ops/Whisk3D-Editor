@@ -117,7 +117,7 @@ static std::string CarpetaPlantillas() {
     if (!internal || !*internal) return std::string();
     return w3dFileSystem::JoinPath(internal, "Templates");
 #else
-    return "platform/android/templates";
+    return "templates";
 #endif
 }
 

@@ -563,7 +563,11 @@ bool LeerOBJ(const std::vector<const char*>& lines,
              int* acumuladoColores,
              bool NoMerge)
 {
+#ifdef W3D_GAME_RUNTIME
+    Mesh* mesh = new Mesh(SceneCollection, Vector3(0, 0, 0));
+#else
     Mesh* mesh = new Mesh(CollectionActive, Vector3(0, 0, 0));
+#endif
     mesh->SetNameObj(ExtractBaseName(filename)); // nombre UNICO: importar dos veces el mismo .obj no repite
 
     Wavefront Wobj;
@@ -973,7 +977,11 @@ static void RecolectarMeshesExport(Object* o, bool selectedOnly, std::vector<Mes
     if (!o) return;
     for (size_t i = 0; i < o->Childrens.size(); i++) {
         Object* c = o->Childrens[i];
+#ifdef W3D_GAME_RUNTIME
+        if (c->getType() == ObjectType::mesh && !selectedOnly)
+#else
         if (c->getType() == ObjectType::mesh && (!selectedOnly || c->select))
+#endif
             out.push_back((Mesh*)c);
         RecolectarMeshesExport(c, selectedOnly, out);
     }

@@ -29,6 +29,10 @@
 
 namespace gfx = w3dEngine;
 
+#ifdef W3D_GAME_RUNTIME
+static int EditSelectMode = SelVertex;
+#endif
+
 // ============================================================================
 //  Logica de EDICION de la malla (Edit Mode) — movido de Mesh.cpp (Fase A del
 //  re-split core/editor). Estos metodos de Mesh DEREFERENCIAN EditMesh (editor),
@@ -60,8 +64,10 @@ void Mesh::InvalidarEdit() {
 }
 
 // delegan en EditMesh (los llaman las funciones globales de seleccion segun el modo)
+#ifndef W3D_GAME_RUNTIME
 void Mesh::EditSeleccionarTodo(bool sel) { EnsureEdit(); if (edit) edit->SeleccionarTodo(sel); }
 void Mesh::EditInvertir()                { EnsureEdit(); if (edit) edit->Invertir(); }
+#endif
 
 // BORRA la seleccion de Edit Mode. 'deleteType' (SelVertex/SelEdge/SelFace) dice
 // QUE borrar; la SELECCION se lee del MODO ACTUAL (EditSelectMode) como un set de
@@ -2637,7 +2643,11 @@ static void ScrewPoly(PolyMesh& W, int axis, float angleDeg, float height, int s
 // viewport). Devuelve false si nada corrio. outSmooth -> normales smooth. (free function: miembros publicos del Mesh)
 static bool Mesh_AplicarStack(Mesh* m, bool render, PolyMesh& W, bool& outSmooth) {
     outSmooth = false;
+#ifdef W3D_GAME_RUNTIME
+    const bool enEdit = false;
+#else
     const bool enEdit = ((Object*)m == g_editMesh); // en Edit Mode se saltean los mods con mostrarEdit=false
+#endif
     { bool alguno=false; for (size_t i=0;i<m->modificadores.size();i++){ Modifier* md=m->modificadores[i];
         if (md->tipo == ModifierType::Armature) continue; // el Armature NO genera malla (deform por-frame en el render)
         if (md->tipo == ModifierType::CullingTri) continue; // el PVS no genera malla: solo elige INDICES (override en el render)

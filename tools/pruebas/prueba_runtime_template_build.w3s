@@ -1,0 +1,4 @@
+# Compile the shared platformer project through the real game exporter.
+# The caller sets W3D_RUNTIME_SOURCE to the repository-owned test runtime shim.
+abrirw3d ../../templates/platformer/platformer.w3d
+compilarjuego 0 0 1

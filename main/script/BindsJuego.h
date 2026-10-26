@@ -16,6 +16,7 @@
 //    mostrar(o, visible)    setOpacidad(o, 0..1)   setTam(o, px)
 //    salir()                cierra el juego (la plataforma corta el loop)
 //    apretado(o) -> bool    (flanco de tap/click nuevo DENTRO del rect)
+//    isDown(o) -> bool      (dedo/mouse sostenido dentro del rect)
 //    chocan(a, b) -> bool    (AABB de las cajas EN PANTALLA; regla crudo-vs-
 //                             resuelto: gameplay libre = pos cruda sin lag,
 //                             puesto por el layout = rect resuelto dibujado)
@@ -116,7 +117,7 @@ void BindsJuegoRaton(float cx, float cy, bool presente);
 // getter para el overlay (borde de hover de los botones): true si hay mouse
 // presente; deja su posicion de lienzo en (cx, cy).
 bool BindsJuegoRatonEstado(float* cx, float* cy);
-// snapshot del estado apretado para el flanco de apretado() del PROXIMO frame:
+// limpia los downs retenidos despues de que todos los scripts del frame corrieron.
 // llamar UNA vez por frame DESPUES de correr los scripts.
 void BindsJuegoSnapshotPunteros(void);
 // soltar todos los punteros (al parar/reiniciar la simulacion).

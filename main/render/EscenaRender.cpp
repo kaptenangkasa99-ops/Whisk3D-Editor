@@ -5,7 +5,9 @@
 #include "EscenaRender.h"
 #include "gfx/w3dGraphics.h"
 #include "objects/Objects.h"
+#include "objects/RuntimeTransforms.h"
 #include "objects/Mesh.h"        // w3dLoteStamp + los diferidos (calcomanias / luces aditivas)
+#include "objects/RuntimeRenderPackets.h"
 #include "objects/Particulas.h"  // particulas diferidas (billboards translucidos)
 #include "objects/Light.h"        // MAX_LIGHTS: apagar los GL lights antes del pase
 #include "render/OpcionesRender.h"// RenderType + la luz de los modos de preview
@@ -139,7 +141,16 @@ void W3dEscena3DPasada() {
     // dibujo antes (chrome del editor, HUD del frame anterior) pudo tocar GL crudo.
     gfx::Invalidate();
     w3dLoteStamp++;              // sello del pase: las Collection con lote marcan a sus horneadas
+#ifdef W3D_GAME_RUNTIME
+    W3dRuntimeTransformsScope runtimeTransforms(SceneCollection);
+    const bool packetized = W3dRuntimeRenderPacketsEnabled() &&
+                            !w3dRenderLuces && !w3dRenderWireframe;
+    if (packetized) W3dRuntimeRenderPacketsBegin();
+#endif
     SceneCollection->Render();
+#ifdef W3D_GAME_RUNTIME
+    if (packetized) W3dRuntimeRenderPacketsFlush();
+#endif
     // CALCOMANIAS (sombras) y LUCES ADITIVAS (chispas/halos): no escriben z, asi que
     // van DESPUES de toda la escena opaca o cualquier opaco posterior las borra.
     W3dDecalesDibujarPendientes();

@@ -1,0 +1,10 @@
+# Package the shared platformer template as a project container, reopen it, and
+# exercise its scene/render data. Run from tools/pruebas:
+#   ../../build/whisk3d --script prueba_template_empaquetado.w3s
+abrirw3d ../../templates/platformer/platformer.w3d
+guardarw3d /tmp/w3d_platformer_template_package/project.w3d
+abrirw3d /tmp/w3d_platformer_template_package/project.w3d
+meshinfo
+simplay 2
+simstop
+bench 2 noswap

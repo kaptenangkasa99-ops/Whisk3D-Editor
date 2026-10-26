@@ -1,0 +1,14 @@
+# Editor-state regression for runtime/editor separation. Run from tools/pruebas:
+#   ../../build/whisk3d --script prueba_fase2_estado_editor.w3s
+abrirw3d prueba_wirevisible.w3d
+selobj MallaVis
+mode edit
+selmode face
+select face 0
+editinfo
+editbbox
+editcenter 0 0 0
+undo
+mode object
+vpvista wire
+bench 1 noswap

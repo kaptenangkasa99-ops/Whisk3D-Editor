@@ -1,0 +1,3 @@
+# Packed runtime-transform regression scenario.
+# Run with: ../../platform/linux/build/whisk3d --script prueba_runtime_transforms.w3s
+runtime-transform-test

@@ -1,0 +1,7 @@
+# Confirm every shared template can be opened from the repository-root folder.
+# Run from this directory:
+#   ../../platform/linux/build/whisk3d --script prueba_plantillas_compartidas.w3s
+abrirw3d ../../templates/animation/animation.w3d
+abrirw3d ../../templates/controls/controls.w3d
+abrirw3d ../../templates/platformer/platformer.w3d
+abrirw3d ../../templates/audio/audio.w3d

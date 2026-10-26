@@ -1,6 +1,7 @@
 #include "w3dGraphics.h" // abstraccion de graficos (independencia de OpenGL)
 #include "Instance.h"
 #include "objects/Mesh.h"   // w3dDecalesInline: la copia se dibuja con matriz PRESTADA
+#include "objects/RuntimeRenderPackets.h"
 
 // Constructor
 Instance::Instance(Object* parent, Object* instance)
@@ -39,10 +40,15 @@ void Instance::RenderObject() {
     // veces con un delta). Si la copia se difiriera, se dibujaria UNA sola vez y
     // en el lugar del original. Mismo motivo por el que lo prende el espejo.
     const bool difInline = w3dDecalesInline;
+    const bool packetCapture = W3dRuntimeRenderPacketsSetCapture(false);
     w3dDecalesInline = true;
     struct Restaurar {   // C++03: sin lambdas. Devuelve el flag salga por donde salga.
-        bool v; ~Restaurar() { w3dDecalesInline = v; }
-    } _rest = { difInline };
+        bool v, packet;
+        ~Restaurar() {
+            w3dDecalesInline = v;
+            W3dRuntimeRenderPacketsSetCapture(packet);
+        }
+    } _rest = { difInline, packetCapture };
     (void)_rest;
 
     // Mirror: renderiza el target ESPEJADO sobre un eje (el objeto original

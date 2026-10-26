@@ -1,0 +1,52 @@
+W3DMESH 1
+# malla de Whisk3D. texto por lineas, indices base 0.
+# MAYUSCULA abre bloque (cierra END) | minuscula = directiva | espacio = dato
+requiere V F
+nombre PisoC
+puntos 4
+esquinas 6
+caras 2
+suave 0
+uvactiva 0
+
+# los PUNTOS de control (x y z)
+V 4 punto
+ -0.8 -0.8 0
+ 0.8 -0.8 0
+ 0.8 0.8 0
+ -0.8 0.8 0
+END
+
+# caras: <lados> y sus puntos, en orden alrededor del poligono
+F 2 cara
+ 3 0 1 2
+ 3 0 2 3
+END
+
+# normal por esquina (x y z enteros, escala 1/127)
+NRM 6 esquina
+ 0 0 -128
+ 0 0 -128
+ 0 0 -128
+ 0 0 -128
+ 0 0 -128
+ 0 0 -128
+END
+
+UV 6 esquina nombre=UVMap
+ 0 1
+ 1 1
+ 1 0
+ 0 1
+ 1 0
+ 0 0
+END
+
+# partes de malla (el material vive en la escena: se referencia POR NOMBRE)
+PARTS 1 global
+ Mesh
+END
+
+PARTMAT 1 global
+ 0 mat-piso
+END

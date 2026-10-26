@@ -10,6 +10,9 @@
 extern bool g_showEmpty; // toggle del submenu "Objects" (overlays)
 
 void Empty::RenderObject() {
+#ifdef W3D_GAME_RUNTIME
+    return;
+#else
     if (!g_showEmpty) return; // oculto por el toggle "Empty" del menu de overlays
     static const GLfloat cruz[] = {
         -0.5f,0,0,  0.5f,0,0,   0,-0.5f,0,  0,0.5f,0,   0,0,-0.5f,  0,0,0.5f };
@@ -28,4 +31,5 @@ void Empty::RenderObject() {
     w3dEngine::DrawLines(6);
     w3dEngine::EnableArray(w3dEngine::NormalArray);
     if (luzEstaba) w3dEngine::Enable(w3dEngine::Lighting);
+#endif
 }

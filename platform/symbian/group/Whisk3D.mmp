@@ -85,6 +85,7 @@ SOURCE          Matrix4.cpp
 // Fase C re-split: SOLO el modelo de datos del CORE queda en libs\Whisk3DCore\objects
 SOURCEPATH      ..\..\..\libs\Whisk3DCore\objects
 SOURCE          Objects.cpp
+SOURCE          RuntimeTransforms.cpp
 SOURCE          Materials.cpp
 SOURCE          Mesh.cpp
 SOURCE          CameraBase.cpp // camara BASE del core (la vista que usa el render)

@@ -1,0 +1,130 @@
+W3DMESH 1
+# malla de Whisk3D. texto por lineas, indices base 0.
+# MAYUSCULA abre bloque (cierra END) | minuscula = directiva | espacio = dato
+requiere V F
+nombre Orilla
+puntos 12
+esquinas 24
+caras 8
+suave 0
+uvactiva 0
+colactiva 0
+
+# los PUNTOS de control (x y z)
+V 12 punto
+ -30 10 30
+ 30 10 30
+ 30 10 6
+ -30 10 6
+ -30 10 -6
+ 30 10 -6
+ 30 10 -30
+ -30 10 -30
+ -6 10 6
+ -6 10 -6
+ 6 10 6
+ 6 10 -6
+END
+
+# caras: <lados> y sus puntos, en orden alrededor del poligono
+F 8 cara
+ 3 0 1 2
+ 3 0 2 3
+ 3 4 5 6
+ 3 4 6 7
+ 3 3 8 9
+ 3 3 9 4
+ 3 10 2 5
+ 3 10 5 11
+END
+
+# normal por esquina (x y z enteros, escala 1/127)
+NRM 24 esquina
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+ 0 127 0
+END
+
+UV 24 esquina nombre=UVMap
+ 0 1
+ 1 1
+ 1 0
+ 0 1
+ 1 0
+ 0 0
+ 0 1
+ 1 1
+ 1 0
+ 0 1
+ 1 0
+ 0 0
+ 0 1
+ 1 1
+ 1 0
+ 0 1
+ 1 0
+ 0 0
+ 0 1
+ 1 1
+ 1 0
+ 0 1
+ 1 0
+ 0 0
+END
+
+COL 24 esquina nombre=Col
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+ 0 178 0 255
+END
+
+# partes de malla (el material vive en la escena: se referencia POR NOMBRE)
+PARTS 1 global
+ Mesh
+END
+
+PARTMAT 1 global
+ 0 OrillaVerde
+END

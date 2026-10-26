@@ -9,6 +9,7 @@
 #include <ctime>               // nombresperf: clock() para la cota de tiempo
 #include <thread>              // compjobs: hardware_concurrency (la cota del -j del build)
 #include "objects/Objects.h"   // ObjActivo, g_editMesh, EditSelectMode, Sel*, DeseleccionarTodo
+#include "objects/RuntimeTransforms.h"
 #include "objects/Mesh.h"      // NewMesh, MeshType, Mesh
 #include "objects/MallaDatos.h" // mallacache/meminfo: geometria compartida (A/B + medicion)
 #include "io/W3dRecursos.h"     // meminfo: el almacen de recursos (descriptores por tipo)
@@ -1294,6 +1295,144 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
     std::istringstream ss(linea);
     std::string cmd; ss >> cmd;
     if (cmd.empty()) return true;
+
+    // ---- runtime-transform-test: packed hierarchy, cached local/world matrices,
+    //      stable parent links for the snapshot, and rebuild after live edits. ----
+    if (cmd == "runtime-transform-test") {
+        Object* root = new Object(NULL, "RuntimeTransformTestRoot", Vector3(2, 0, 0));
+        Object* child = new Object(root, "RuntimeTransformTestChild", Vector3(3, 0, 0));
+        Object* leaf = new Object(child, "RuntimeTransformTestLeaf", Vector3(4, 0, 0));
+        bool ok = true;
+        const char* reason = NULL;
+
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        Matrix4 local, world;
+        child->GetMatrix(local);
+        leaf->GetWorldMatrix(world);
+        if (W3dRuntimeTransformsCount() != 3) {
+            ok = false; reason = "expected three packed transforms";
+        } else if (W3dRuntimeTransformParent(root) != (unsigned)-1 ||
+                   W3dRuntimeTransformParent(child) != root->runtimeTransformHandle ||
+                   W3dRuntimeTransformParent(leaf) != child->runtimeTransformHandle) {
+            ok = false; reason = "packed parent indices do not match hierarchy";
+        } else if (fabsf(local.m[12] - 3.0f) > 1e-4f ||
+                   fabsf(world.m[12] - 9.0f) > 1e-4f) {
+            ok = false; reason = "initial local/world transforms are incorrect";
+        }
+
+        W3dRuntimeTransformsActivate(false);
+        Matrix4 fallbackWorld;
+        leaf->GetWorldMatrix(fallbackWorld);
+        if (ok && fabsf(fallbackWorld.m[12] - 9.0f) > 1e-4f) {
+            ok = false; reason = "deactivating the snapshot changed transform results";
+        }
+
+        root->pos.x = 5.0f;
+        child->pos.x = 2.0f;
+        W3dRuntimeTransformsActivate(true);
+        leaf->GetWorldMatrix(world);
+        if (ok && fabsf(world.m[12] - 9.0f) > 1e-4f) {
+            ok = false; reason = "live edits changed a snapshot before it was rebuilt";
+        }
+        W3dRuntimeTransformsBuild(root);
+        W3dRuntimeTransformsActivate(true);
+        leaf->GetWorldMatrix(world);
+        if (ok && fabsf(world.m[12] - 11.0f) > 1e-4f) {
+            ok = false; reason = "rebuild did not include live transform edits";
+        }
+
+        W3dRuntimeTransformsActivate(false);
+        {
+            W3dRuntimeTransformsScope runtimeScope(root);
+            if (ok && !W3dRuntimeTransformLocal(root)) {
+                ok = false; reason = "runtime scope did not activate packed transforms";
+            }
+        }
+        if (ok && W3dRuntimeTransformLocal(root)) {
+            ok = false; reason = "runtime scope did not deactivate packed transforms";
+        }
+        W3dRuntimeTransformsBuild(NULL);
+        W3dLiberarSubarbol(root);
+        if (!ok) {
+            err = std::string("runtime-transform-test: ") + reason;
+            return false;
+        }
+        printf("      [runtime-transform-test] packed hierarchy and live rebuild OK\n");
+        return true;
+    }
+
+    // ---- platformer-touch-test: run the shared template against simulated multi-touch input. ----
+    if (cmd == "platformer-touch-test") {
+        lua_State* L = luaL_newstate();
+        if (!L) { err = "platformer-touch-test: could not create Lua state"; return false; }
+        luaL_openlibs(L);
+        const char* test = R"lua(
+            local player = {x = 0, y = 0, z = 0.8}
+            local boxes = {
+                LeftButton = {-100, -180, 80, 60},
+                RightButton = {0, -180, 80, 60},
+                JumpButton = {120, -180, 100, 60}
+            }
+            local touches = {}
+            function object(name)
+                if name == "Player" then return player end
+                return name
+            end
+            function getUIBox(name)
+                local box = boxes[name]
+                return box[1], box[2], box[3], box[4]
+            end
+            function finger(index)
+                local point = touches[index]
+                if not point then return 0, 0, false end
+                return point.x, point.y, point.active
+            end
+            function setFinger(index, x, y, active)
+                touches[index] = {x = x, y = y, active = active}
+            end
+            function key() return false end
+            function keyPressed() return false end
+            function Position(obj) return obj.x, obj.y, obj.z end
+            function SetPosition(obj, x, y, z)
+                obj.x, obj.y, obj.z = x, y, z
+            end
+            dofile("../../templates/platformer/platformer.lua")
+
+            setFinger(1, -100, -180, true)
+            update(0.1)
+            assert(player.x < -0.29, "left touch did not move the player left")
+
+            setFinger(1, 0, -180, true)
+            update(0.1)
+            assert(player.x > -0.01, "right touch did not move the player right")
+
+            setFinger(2, 120, -180, true)
+            update(0.1)
+            assert(player.z > 0.8, "jump touch did not make the player jump")
+
+            for _ = 1, 20 do update(0.1) end
+            assert(math.abs(player.z - 0.7) < 0.001,
+                   "holding jump caused an unwanted repeated jump after landing")
+
+            setFinger(2, 120, -180, false)
+            update(0.1)
+            setFinger(2, 120, -180, true)
+            update(0.1)
+            assert(player.z > 0.7, "a new jump touch after release was ignored")
+        )lua";
+        const int status = luaL_dostring(L, test);
+        if (status != 0) {
+            const char* detail = lua_tostring(L, -1);
+            err = std::string("platformer-touch-test: ") +
+                  (detail ? detail : "Lua test failed without an error message");
+            lua_close(L);
+            return false;
+        }
+        lua_close(L);
+        printf("      [platformer-touch-test] left/right, jump, multitouch, and jump edge OK\n");
+        return true;
+    }
 
     // ---- add <cube|plane|circle|uvsphere|cone|cylinder|vertex> ----
     if (cmd == "add") {

@@ -75,9 +75,11 @@ UI* UI2D_UIDelEditor() {
     // el que ven el script (pantalla/posPx) y el dibujo. Sin juego, gActiva es NULL.
     UI* act = W3dEscenaActiva();
     if (act) return act;
+#ifndef W3D_GAME_RUNTIME
     // el UI de la cadena del activo gana (estas trabajando en el); sino el primero en escena
     for (Object* o = ObjActivo; o; o = o->Parent)
         if (o->getType() == ObjectType::ui) return (UI*)o;
+#endif
     if (!SceneCollection) return NULL;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
         Object* o = SceneCollection->Childrens[i];

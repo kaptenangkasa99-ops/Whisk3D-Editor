@@ -62,14 +62,16 @@ static float gSafeWinX = 0.0f, gSafeWinY = 0.0f, gSafeWinW = 0.0f, gSafeWinH = 0
 // cajaUI() lea el rect ya resuelto de un objeto anclado sin recalcularlo.
 static std::vector<UI2DPos> gUltPos;
 
-// PUNTEROS en coords de LIENZO (centro 0,0), las MISMAS que posPx/tamPx, mas el estado
-// apretado ACTUAL y el del frame ANTERIOR (para el flanco de bajada de apretado()). Los
-// slots son los dedos 0..3; el clic del mouse entra por el slot 0 (dedo 0 / toque()).
+// PUNTEROS en coords de LIENZO (centro 0,0), las MISMAS que posPx/tamPx. gPunTap
+// retiene el down hasta que los scripts del frame corran, incluso si el up llego
+// antes del tick. Los slots son los dedos 0..3; mouse entra por el slot 0.
 #define W3D_GAME_MAXDEDOS 4
 static float gPunX[W3D_GAME_MAXDEDOS]    = {0,0,0,0};
 static float gPunY[W3D_GAME_MAXDEDOS]    = {0,0,0,0};
 static bool  gPunAct[W3D_GAME_MAXDEDOS]  = {false,false,false,false};
-static bool  gPunPrev[W3D_GAME_MAXDEDOS] = {false,false,false,false};
+static bool  gPunTap[W3D_GAME_MAXDEDOS]  = {false,false,false,false};
+static float gPunTapX[W3D_GAME_MAXDEDOS] = {0,0,0,0};
+static float gPunTapY[W3D_GAME_MAXDEDOS] = {0,0,0,0};
 
 // MOUSE-OVER en coords de LIENZO (centro 0,0): solo lo alimentan los eventos de MOUSE
 // (runtime W3dGameRaton / editor SimRatonPantalla). El tactil NO pasa por aca, asi que
@@ -497,12 +499,30 @@ static int LApretado(lua_State* L) {
     if (!o || !CajaHitLienzo(o, &cx, &cy, &hw, &hh)) { lua_pushboolean(L, 0); return 1; }
     bool nuevo = false;
     for (int i = 0; i < W3D_GAME_MAXDEDOS; i++) {
-        if (gPunAct[i] && !gPunPrev[i]) {   // recien apretado este frame
-            float px = gPunX[i], py = gPunY[i];
+        if (gPunTap[i]) {   // evento de down retenido hasta ejecutar todos los scripts del frame
+            float px = gPunTapX[i], py = gPunTapY[i];
             if (px >= cx - hw && px <= cx + hw && py >= cy - hh && py <= cy + hh) { nuevo = true; break; }
         }
     }
     lua_pushboolean(L, nuevo ? 1 : 0);
+    return 1;
+}
+// isDown(object) -> true mientras un dedo o el mouse siga apretado dentro del rect.
+// A diferencia de isPressed, no es un evento de flanco: sirve para movimiento continuo.
+static int LEstaPresionado(lua_State* L) {
+    Object* o = W3dScriptParamObjeto(L, 1);
+    float cx, cy, hw, hh;
+    if (!o || !CajaHitLienzo(o, &cx, &cy, &hw, &hh)) { lua_pushboolean(L, 0); return 1; }
+    for (int i = 0; i < W3D_GAME_MAXDEDOS; i++) {
+        if (gPunAct[i]) {
+            float px = gPunX[i], py = gPunY[i];
+            if (px >= cx - hw && px <= cx + hw && py >= cy - hh && py <= cy + hh) {
+                lua_pushboolean(L, 1);
+                return 1;
+            }
+        }
+    }
+    lua_pushboolean(L, 0);
     return 1;
 }
 // chocan(a, b) -> bool. true si los rects EN PANTALLA de a y b se solapan (AABB).
@@ -964,6 +984,7 @@ void BindsJuegoRegistrar(void* Lv) {
     lua_pushcfunction(L, LSalir);       lua_setglobal(L, "quot");
     // facilidades: logica generica del juego (una linea en lua)
     lua_pushcfunction(L, LApretado);    lua_setglobal(L, "isPressed");
+    lua_pushcfunction(L, LEstaPresionado); lua_setglobal(L, "isDown");
     lua_pushcfunction(L, LChocan);      lua_setglobal(L, "isColliding");
     lua_pushcfunction(L, LLimitar);     lua_setglobal(L, "clamp");
     lua_pushcfunction(L, LDentro);      lua_setglobal(L, "isInside");
@@ -1001,6 +1022,13 @@ void BindsJuegoRender(float esc, float x0, float y0,
 
 void BindsJuegoPunto(int slot, float cx, float cy, bool activo) {
     if (slot < 0 || slot >= W3D_GAME_MAXDEDOS) return;
+    if (activo && !gPunAct[slot]) {
+        // Un tap puede bajar y subir dentro del mismo lote de eventos SDL, antes
+        // del siguiente tick Lua. Retener el down evita perder ese evento.
+        gPunTap[slot] = true;
+        gPunTapX[slot] = cx;
+        gPunTapY[slot] = cy;
+    }
     gPunX[slot] = cx; gPunY[slot] = cy; gPunAct[slot] = activo;
 }
 
@@ -1015,14 +1043,15 @@ bool BindsJuegoRatonEstado(float* cx, float* cy) {
 }
 
 void BindsJuegoSnapshotPunteros(void) {
-    // el flanco de apretado() del PROXIMO frame compara contra ESTE estado; se hace DESPUES de correr
-    // los scripts para que todas las llamadas de ESTE frame vean el mismo "estado anterior".
-    for (int i = 0; i < W3D_GAME_MAXDEDOS; i++) gPunPrev[i] = gPunAct[i];
+    // Todos los scripts del frame ven los downs retenidos; despues se limpian.
+    for (int i = 0; i < W3D_GAME_MAXDEDOS; i++) gPunTap[i] = false;
 }
 
 void BindsJuegoResetPunteros(void) {
     for (int i = 0; i < W3D_GAME_MAXDEDOS; i++) {
-        gPunAct[i] = false; gPunPrev[i] = false; gPunX[i] = 0.0f; gPunY[i] = 0.0f;
+        gPunAct[i] = false; gPunTap[i] = false;
+        gPunX[i] = 0.0f; gPunY[i] = 0.0f;
+        gPunTapX[i] = 0.0f; gPunTapY[i] = 0.0f;
     }
     // al parar/reiniciar tambien se olvida el mouse: sin hover colgado de una corrida vieja
     gRatonPresente = false; gRatonCX = 0.0f; gRatonCY = 0.0f;

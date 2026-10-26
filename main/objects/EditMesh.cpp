@@ -11,6 +11,10 @@
 #include <string.h>              // memcmp (re-anclaje de sharp/seam por posicion)
 #include <utility>
 
+#ifdef W3D_GAME_RUNTIME
+static int EditSelectMode = SelVertex;
+#endif
+
 EditMesh::EditMesh() { src = NULL; activeIdx = -1; syncedGeomVersion = 0; }
 
 // arma la malla de edicion desde la malla de render: vertices unicos, aristas,

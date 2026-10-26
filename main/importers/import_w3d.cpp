@@ -485,6 +485,7 @@ static int g_proyReproduciendo = -1;
 //  duplicados y el reparador renombra). Un .w3d viejo no trae el bloque:
 //  g_sesFrame queda en -1 y no se toca nada (retrocompat).
 // ---------------------------------------------------------------------------
+#ifndef W3D_GAME_RUNTIME
 static int g_sesFrame = -1;                     // -1 = el archivo no trae "sesion"
 static std::string g_sesActivo;                 // nombre del objeto ACTIVO ("" = ninguno)
 static std::vector<std::string> g_sesSeleccion; // nombres de los objetos seleccionados
@@ -526,6 +527,7 @@ static void SesionAplicar() {
             CurrentFrame, (int)ObjSelects.size(), ObjActivo ? ObjActivo->name.c_str() : "");
     g_redraw = true;
 }
+#endif
 
 // MULTI-ESCENA: la escena que ARRANCA + el modo. Sin esto, con varias UI el
 // motor no sabia cual es la inicial (arrancaba la primera por orden).
@@ -671,11 +673,15 @@ void ApplyCommonProps(Object* obj, const std::map<std::string,std::string>& p){
     }
 
     
+#ifndef W3D_GAME_RUNTIME
     if(p.count("desplegado")) obj->desplegado = B("desplegado");
+#endif
     // el "ojito" del outliner: el formato de texto no lo escribia nunca, pero un .w3d
     // a mano tiene que poder ocultar un objeto (mismo idioma que el JSON v4)
     if(p.count("visible")) obj->visible = B("visible");
+#ifndef W3D_GAME_RUNTIME
     if(p.count("showRelantionshipsLines")) obj->showRelantionshipsLines = B("showRelantionshipsLines");
+#endif
 
     // Escala
     if(p.count("scale")){
@@ -1254,7 +1260,9 @@ Object* CreateObjectFromNode(Node* n, Object* parent){
         //              lote: "estatico" <hijos> }
         // (orden lejos->cerca para transparentes + lote estatico; ver Collection.h)
         Collection* C = new Collection(parent);
+#ifndef W3D_GAME_RUNTIME
         if(!CollectionActive) CollectionActive = C;
+#endif
         C->ordenarPorCamara = GetBoolOrDefault(p, "ordenarPorCamara", false);
         C->ordenarUnaVez    = GetBoolOrDefault(p, "ordenarUnaVez", false);
         C->lote = (p.count("lote") && Unquote(w3dMapAt(p, "lote")) == "estatico") ? 1 : 0;
@@ -1397,8 +1405,10 @@ void BuildScene(Node* root){
     for(size_t _i=0;_i<root->children.size();_i++)
         BuildObjectRecursive(root->children[_i], SceneCollection);  // el parent puede ser la escena global
 
+#ifndef W3D_GAME_RUNTIME
     if(!CollectionActive) 
         CollectionActive = SceneCollection;        // seguridad
+#endif
 }
 
 // ===========================================================================
@@ -1514,7 +1524,9 @@ static int SanearPadres(std::vector<int>& padre, const char* quien) {
 static void JsonComunes(JVal* j, Object* o) {
     o->name = JS(j, "nombre", o->name);
     o->visible = JB(j, "visible", true);
+#ifndef W3D_GAME_RUNTIME
     o->showRelantionshipsLines = JB(j, "lineasParentales", true); // ausente = true (archivos viejos)
+#endif
     o->paleta = JS(j, "paleta", "");   // seleccion de paleta ("" = hereda del padre)
     JVal* v;
     if ((v = JHijo(j, "pos", 5)) && v->lista.size() >= 3) {
@@ -2814,7 +2826,9 @@ static void LeerConstraints(JVal* j, Object* o) {
         c->Normalizar();
         o->constraints.push_back(c);
     }
+#ifndef W3D_GAME_RUNTIME
     if (!o->constraints.empty()) o->constraintActivo = (int)o->constraints.size() - 1;
+#endif
 }
 
 // UN nodo del .w3d: el objeto + SUS HIJOS. La lectura de "hijos" esta ACA y en
@@ -3248,6 +3262,7 @@ static bool AbrirEscenaJson(const char* datos, size_t n, const std::string& base
     // config de la tarjeta Juego (opcional): modo ventana, orientacion, flags,
     // assets y plataforma del juego COMPILADO. Ausente = defaults del editor.
     AplicarCompilar(JHijo(raiz, "compilar", 4));
+#ifndef W3D_GAME_RUNTIME
     // SESION (opcional): frame actual + seleccion. Solo se LEE aca; se aplica en el
     // pie de AbrirW3D, con los nombres ya definitivos (ver g_sesFrame arriba).
     {
@@ -3268,6 +3283,7 @@ static bool AbrirEscenaJson(const char* datos, size_t n, const std::string& base
                         g_sesSeleccion.push_back(sel->lista[i]->str);
         }
     }
+#endif
     AplicarLayoutTexto(JS(raiz, "layout", "2d"));
     delete raiz;
     return true;
@@ -3415,8 +3431,10 @@ static void MigrarConstraintsViejos() {
                 dest->constraints.push_back(c);
                 puestos++;
             }
+#ifndef W3D_GAME_RUNTIME
             if (!dest->constraints.empty())
                 dest->constraintActivo = (int)dest->constraints.size() - 1;
+#endif
         }
 
         // ---- que pasa con el NODO viejo ----
@@ -3571,8 +3589,10 @@ void ReiniciarEscena() {
     // adoptadas de sus .w3dui)
     W3dPaletasLimpiar();
     // nada seleccionado ni activo
+#ifndef W3D_GAME_RUNTIME
     DeseleccionarTodo();
     ObjActivo = NULL;
+#endif
     // el undo guarda punteros a objetos que van a morir
     extern void UndoLimpiar();
     UndoLimpiar();
@@ -3601,7 +3621,9 @@ void ReiniciarEscena() {
             SceneCollection->Childrens.pop_back();
             W3dLiberarSubarbol(o);
         }
+#ifndef W3D_GAME_RUNTIME
     CollectionActive = SceneCollection;
+#endif
 
     // ---- TEXTURAS: liberar de verdad (reporte del dueno) ----------------------
     // Hasta hoy ReiniciarEscena() no tocaba `Textures` ni una vez: abrir un
@@ -3827,7 +3849,9 @@ void AbrirW3D(const std::string& ruta) {
     // (los viejos) abre en el default del editor y NO se queda con el playhead donde lo
     // habia dejado el proyecto anterior. Si el archivo trae "sesion", SesionAplicar lo
     // pisa en el pie. La seleccion ya la limpia el DeseleccionarTodo del pie.
+#ifndef W3D_GAME_RUNTIME
     SesionReset();
+#endif
     CurrentFrame = 1;
     // idem el FPS: AplicarFps ignora un "fps" ausente/0, asi que sin este reset
     // un proyecto sin el campo HEREDABA el fps del proyecto anterior
@@ -3879,7 +3903,9 @@ void AbrirW3D(const std::string& ruta) {
     }
 
     // ---- pie COMUN a los tres formatos (tambien si algo fallo: el editor sigue) ----
+#ifndef W3D_GAME_RUNTIME
     if (!CollectionActive) CollectionActive = SceneCollection;
+#endif
     bool layoutDelProyecto = (rootViewport != NULL);
     if (!rootViewport) {
         // fallback: el .w3d no trae bloque Layout -> EL layout por defecto (por tamano de pantalla,
@@ -3890,8 +3916,10 @@ void AbrirW3D(const std::string& ruta) {
 
     // nada seleccionado al abrir (los constructores van seleccionando lo
     // ultimo creado; un proyecto recien abierto arranca LIMPIO)
+#ifndef W3D_GAME_RUNTIME
     DeseleccionarTodo();
     ObjActivo = NULL;
+#endif
 
     // un proyecto CON SCRIPTS es un JUEGO: arranca con el selector del timeline
     // en "Juego" y en PLAY (asi el doble click abre jugando y las vertex
@@ -3941,7 +3969,9 @@ void AbrirW3D(const std::string& ruta) {
     // SESION: el frame y la seleccion que el usuario tenia en ESTE proyecto. Va DESPUES
     // de W3dNombresRepararEscena (los nombres recien ahi son los definitivos) y despues
     // del DeseleccionarTodo de arriba, que es el que deja limpio al que no trae bloque.
+#ifndef W3D_GAME_RUNTIME
     SesionAplicar();
+#endif
 
     // RESUMEN corto de la apertura (queda en el log; se ve en el viewport Console)
     if (ok) {

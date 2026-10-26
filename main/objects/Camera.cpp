@@ -282,6 +282,9 @@ Vector3 Camera::PuntoDelRiel(float indice) const {
 extern bool g_showCamera; // toggle del submenu "Objects" (overlays)
 
 void Camera::RenderObject() {
+#ifdef W3D_GAME_RUNTIME
+    return;
+#else
     if (!g_showCamera) return; // oculto por el toggle "Camera" del menu de overlays
 #ifdef W3D_SYMBIAN
     // MISMO gate que PC: sin overlays (render a PNG / limpieza de pantalla) o mirando DESDE la camara
@@ -370,6 +373,7 @@ void Camera::RenderObject() {
     }
     w3dEngine::PopMatrix();
 #endif // !W3D_SYMBIAN
+#endif
 }
 
 // EL RIEL: pone this->pos sobre la curva 'Riel', en el punto mas cercano al 'target' (menos el

@@ -1,0 +1,6 @@
+# Test the globally shared platformer project and its multi-touch controls.
+# Run from this directory:
+#   ../../platform/linux/build/whisk3d --script prueba_platformer_touch.w3s
+platformer-touch-test
+abrirw3d ../../templates/platformer/platformer.w3d
+bench 2 noswap

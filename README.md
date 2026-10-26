@@ -37,6 +37,12 @@ Whisk3D currently runs on Linux, Windows, Mac, Android, Symbian, and Web. Instru
 
 On all systems, run first: `git submodule update --init --recursive` (the `platform/<system>/build_*` scripts already do this for you).
 
+## Project templates
+
+Shared starter game projects are in [`templates/`](templates/), outside any
+platform-specific directory. The New Project flow uses these templates; each
+platform may package or copy them into its own application assets as needed.
+
 ## Clarifications:
 
 1. No is a port: This program **does not share** code with Blender.

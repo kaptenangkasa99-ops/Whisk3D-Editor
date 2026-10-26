@@ -30,15 +30,18 @@ Returns the x/y value of a stick.
 ### `touch()`
 Returns the current touch state for the primary touch slot.
 - Returns: `x, y, active`
+- Coordinates use the game canvas in pixels, with `(0, 0)` at the center.
 
 ### `mouse()`
 Returns mouse position and active state.
 - Returns: `x, y, active`
 
 ### `finger(index)`
-Returns the touch data for a finger.
+Returns the touch data for a finger. Use this with `getUIBox(obj)` when a
+control needs to respond to a particular button or to support multiple fingers.
 - `index`: finger number; in Lua the engine treats this as 1-based, so `finger(1)` is the first finger.
 - Returns: `x, y, active`
+- Coordinates use the game canvas in pixels, with `(0, 0)` at the center.
 
 ### `button(name)`
 Returns the current pressed state of a button.
@@ -261,7 +264,11 @@ Stops a sound by handle.
 Plays a synthesized beep/tone.
 
 ### `isPressed(obj)`
-Returns whether a UI/game object is currently pressed/active as a control.
+Returns `true` for one frame when a new touch or click begins inside the object's UI box.
+
+### `isDown(obj)`
+Returns `true` while a touch or mouse button is held inside the object's UI box. Use it for
+continuous controls such as virtual left/right buttons; use `isPressed` for one-shot actions.
 
 ### `isColliding(a, b)`
 Returns whether two UI/game regions or objects overlap/collide.
@@ -282,8 +289,8 @@ Returns the current safe-area rectangle for the screen.
 Applies a fade/transition on a UI object.
 
 ### `getUIBox(obj)`
-Returns the current rendered UI box of an object.
-- Typical return: `x, y, w, h` or equivalent rect values depending on the call site.
+Returns the current rendered UI box of an object as its center `x, y` and
+dimensions `w, h`, in game-canvas pixels.
 
 ### `screenOf(obj)`
 Returns the screen-space data for the given UI object.

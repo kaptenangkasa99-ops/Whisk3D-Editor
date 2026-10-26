@@ -18,7 +18,7 @@ platform/android/build_android.sh
 ```
 
 El script:
-1. Copia `res/` y `platform/android/templates/` a los assets del APK.
+1. Copia `res/` y los templates compartidos de `templates/` a los assets del APK.
 2. Compila las librerías nativas con `ndk-build` para las ABIs (por defecto `arm64`, `amd64`, `arm32`).
 3. Empaqueta el APK con `./gradlew assembleDebug` (firmado con el keystore de debug).
 

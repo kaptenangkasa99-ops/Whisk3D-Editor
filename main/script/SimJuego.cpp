@@ -361,8 +361,8 @@ static void TickReal(float dt) {
         if (!W3dEscenaEsDeActiva(gScripted[i])) continue;
         W3dScriptActualizar(gScripted[i], dt);
     }
-    // SNAPSHOT del estado apretado para el flanco de apretado() del PROXIMO frame (DESPUES de los scripts,
-    // igual que el runtime en W3dGameActualizar): asi apretado() funciona identico en el Play y compilado.
+    // Limpiar los downs retenidos despues de que todos los scripts los hayan leido,
+    // igual que en el runtime generado.
     BindsJuegoSnapshotPunteros();
     // el cambio de escena pedido por cambiarEscena() se aplica ACA, al final del frame (no
     // en el callback: no mutar la iteracion de arriba). El init perezoso corre en este punto.

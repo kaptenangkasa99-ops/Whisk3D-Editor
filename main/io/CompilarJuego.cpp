@@ -1095,6 +1095,7 @@ static bool EscribirMain(const std::string& ruta, const std::string& fontRel,
     fputs("Uint32 now=SDL_GetTicks();float dt=(now-g_lastMs)/1000.0f;g_lastMs=now;\n", f);
     fputs("if(dt<0)dt=0;if(dt>0.1f)dt=0.1f;\n", f);
     fputs("W3dGameActualizar(dt);\n", f);
+    fputs("BindsJuegoSnapshotPunteros();\n", f);
     // lua salir(): cerrar el juego (no en web). En Android hay que MATAR el proceso:
     // si solo se retorna, la Activity queda viva y al reabrir arranca con los globals
     // C++ sucios ("abre y se cierra"); exit() la proxima vez parte limpio.
@@ -1320,7 +1321,8 @@ static const char* kFuentesBase[] = {
     "${CORE}/io/W3dTexto.cpp", "${CORE}/io/W3dMalla.cpp",
     "${CORE}/base/w3dlog.cpp", "${CORE}/base/W3dInteractionState.cpp", "${CORE}/base/W3dConfig.cpp",
     "${CORE}/math/Vector3.cpp", "${CORE}/math/Quaternion.cpp", "${CORE}/math/Matrix4.cpp",
-    "${CORE}/objects/Objects.cpp", "${CORE}/objects/Mesh.cpp", "${CORE}/objects/Light.cpp",
+    "${CORE}/objects/Objects.cpp", "${CORE}/objects/RuntimeTransforms.cpp",
+    "${CORE}/objects/Mesh.cpp", "${CORE}/objects/Light.cpp",
     "${CORE}/objects/Materials.cpp", "${CORE}/objects/Textures.cpp", "${CORE}/objects/CameraBase.cpp",
     "${CORE}/objects/Armature.cpp", "${CORE}/objects/RenderColors.cpp",
     "${CORE}/animation/Animation.cpp", "${CORE}/animation/VertexAnimation.cpp",
@@ -1434,11 +1436,17 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
     fputs("set(CORE ${W3DROOT}/libs/Whisk3DCore)\n", f);
     fputs("set(UILIB ${W3DROOT}/libs/WhiskUI)\n", f);
     fputs("set(GAME ${W3DROOT}/../Whisk3D-Examples/game)\n", f);
+    fputs("if(DEFINED W3D_RUNTIME_SOURCE)\n"
+          "  set(W3D_CUSTOM_RUNTIME_SOURCE ON)\n"
+          "else()\n"
+          "  set(W3D_CUSTOM_RUNTIME_SOURCE OFF)\n"
+          "  set(W3D_RUNTIME_SOURCE ${GAME}/w3drun.cpp)\nendif()\n"
+          "get_filename_component(W3D_RUNTIME_SOURCE_DIR ${W3D_RUNTIME_SOURCE} DIRECTORY)\n", f);
     fputs("set(LUA ${W3DROOT}/thirdparty/lua/src)\n", f);
     fputs("find_package(SDL2 REQUIRED)\nfind_package(OpenGL REQUIRED)\n", f);
     fputs("file(GLOB LUA_SRC ${LUA}/*.c)\nlist(REMOVE_ITEM LUA_SRC ${LUA}/lua.c ${LUA}/luac.c)\n", f);
     fprintf(f, "add_executable(%s\n", nombre.c_str());
-    fputs("  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp\n  ${GAME}/w3drun.cpp\n", f);
+    fputs("  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp\n  ${W3D_RUNTIME_SOURCE}\n", f);
     if (empaquetar)   // el pak generado con todos los archivos del juego
         fputs("  ${CMAKE_CURRENT_SOURCE_DIR}/pak.cpp\n", f);
     fputs("  ${CORE}/gfx/w3dGraphics.cpp\n", f);   // backend GL de PC (en Android es el de GLES2)
@@ -1465,18 +1473,24 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
             usarSonido ? " W3D_ENABLE_AUDIO" : "",
             usarFisica ? "" : " W3D_SIN_FISICA",
             con3D ? " W3D_SIN_EDITOR W3D_JUEGO_3D" : "");
+    fputs("if(W3D_CUSTOM_RUNTIME_SOURCE)\n", f);
+    fprintf(f, "  target_compile_options(%s PRIVATE -ffunction-sections -fdata-sections)\n", nombre.c_str());
+    fprintf(f, "  target_link_options(%s PRIVATE -Wl,--gc-sections)\nendif()\n", nombre.c_str());
     fprintf(f, "target_include_directories(%s PRIVATE\n  ${GAME}\n", nombre.c_str());
     for (int i = 0; kIncludesBase[i]; i++) fprintf(f, "  %s\n", kIncludesBase[i]);
     if (con3D)   // los headers del editor que el lector de proyecto compartido incluye
         for (int i = 0; kIncludes3D[i]; i++) fprintf(f, "  %s\n", kIncludes3D[i]);
-    fputs("  ${LUA})\n", f);
+    fputs("  ${LUA} ${W3D_RUNTIME_SOURCE_DIR})\n", f);
     fprintf(f, "target_link_libraries(%s PRIVATE SDL2::SDL2 OpenGL::GL OpenGL::GLU)\n", nombre.c_str());
     if (!empaquetar) {
         // TODOS los assets del juego (multi-escena) al lado del binario y en el paquete: por glob
         // (no por nombre) -> sirve para 1 o N escenas + las texturas/fuente que sea.
         fputs("file(GLOB GAME_ASSETS ${CMAKE_CURRENT_SOURCE_DIR}/*.w3dui "
               "${CMAKE_CURRENT_SOURCE_DIR}/*.lua ${CMAKE_CURRENT_SOURCE_DIR}/*.png "
-              "${CMAKE_CURRENT_SOURCE_DIR}/*.json)\n", f);   // *.json = proyecto.json (la escena 3D)
+              "${CMAKE_CURRENT_SOURCE_DIR}/*.json ${CMAKE_CURRENT_SOURCE_DIR}/*.obj "
+              "${CMAKE_CURRENT_SOURCE_DIR}/*.wobj ${CMAKE_CURRENT_SOURCE_DIR}/*.glb "
+              "${CMAKE_CURRENT_SOURCE_DIR}/*.gltf ${CMAKE_CURRENT_SOURCE_DIR}/*.fbx)\n",
+              f);   // proyecto + assets de escena referenciados directamente
         fputs("foreach(A ${GAME_ASSETS})\n", f);
         fprintf(f, "  add_custom_command(TARGET %s POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy "
                    "${A} $<TARGET_FILE_DIR:%s>)\n", nombre.c_str(), nombre.c_str());
@@ -2113,6 +2127,17 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         // ------------------------------------------------------------------
         // los .png de la carpeta del proyecto, planos (los .w3dui los referencian por nombre)
         { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.png \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (system(cmd)) {} }
+        // Los .w3d de texto guardan tambien scripts planos en la raiz; el colector
+        // basado en JSON no los detecta cuando el proyecto usa la sintaxis legacy.
+        { char cmd[1400]; snprintf(cmd, sizeof(cmd), "cp \"%s\"/*.lua \"%s\"/ 2>/dev/null || true", proy.c_str(), out.c_str()); if (system(cmd)) {} }
+        // Los proyectos .w3d de texto anteriores al contenedor pueden referenciar
+        // modelos desde la raiz con `filePath:`; el colector JSON no puede leer esa
+        // sintaxis, asi que se llevan los formatos de modelo junto al proyecto.
+        { char cmd[2400]; snprintf(cmd, sizeof(cmd),
+            "cp \"%s\"/*.obj \"%s\"/*.wobj \"%s\"/*.mtl \"%s\"/*.glb "
+            "\"%s\"/*.gltf \"%s\"/*.fbx \"%s\"/*.bin \"%s\"/ 2>/dev/null || true",
+            proy.c_str(), proy.c_str(), proy.c_str(), proy.c_str(),
+            proy.c_str(), proy.c_str(), proy.c_str(), out.c_str()); if (system(cmd)) {} }
         // la subcarpeta assets/ entera, CON su carpeta ("assets/xxx.png")
         { char cmd[2600]; snprintf(cmd, sizeof(cmd),
             "rm -rf \"%s/assets\" && if [ -d \"%s/assets\" ]; then cp -r \"%s/assets\" \"%s/\"; fi",
@@ -2409,8 +2434,16 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
         // PC (Linux): cmake (configurar) + cmake --build; luego cpack -G DEB (plataforma 0).
         // Van como comandos SEPARADOS: el worker parsea el "[ NN%]" del --build para la barra.
         char cfg[1200], bld[900];
-        snprintf(cfg, sizeof(cfg), "cd \"%s\" && cmake -S . -B out -DW3DROOT=\"%s\"",
-                 out.c_str(), repo.c_str());
+        const char* runtimeSource = getenv("W3D_RUNTIME_SOURCE");
+        if (runtimeSource && runtimeSource[0]) {
+            snprintf(cfg, sizeof(cfg),
+                     "cd \"%s\" && cmake -S . -B out -DW3DROOT=\"%s\" "
+                     "-DW3D_RUNTIME_SOURCE=\"%s\"",
+                     out.c_str(), repo.c_str(), runtimeSource);
+        } else {
+            snprintf(cfg, sizeof(cfg), "cd \"%s\" && cmake -S . -B out -DW3DROOT=\"%s\"",
+                     out.c_str(), repo.c_str());
+        }
         // -j ACOTADO (nunca pelado): ver W3dCompilarJobs en CompilarJuego.h
         snprintf(bld, sizeof(bld), "cd \"%s\" && cmake --build out %s",
                  out.c_str(), W3dCompilarJobsFlag().c_str());

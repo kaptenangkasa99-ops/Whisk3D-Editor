@@ -4,6 +4,7 @@ Whisk3D {
         background: "0.12, 0.16, 0.22, 1.0"
         Camera {
             name: "Camera"
+            target: "Player"
             y: -10.0
             z: 3.0
         }

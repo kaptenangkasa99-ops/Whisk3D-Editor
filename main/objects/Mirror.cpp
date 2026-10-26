@@ -1,6 +1,7 @@
 #include "w3dGraphics.h" // abstraccion de graficos (independencia de OpenGL)
 #include "Mirror.h"
 #include "objects/Mesh.h"   // w3dDecalesInline: la sombra del target se dibuja en el pase del espejo
+#include "objects/RuntimeRenderPackets.h"   // w3dDecalesInline: la sombra del target se dibuja en el pase del espejo
 #include "Culling.h"    // W3dBoundsSubarbol: el AABB en MUNDO del subarbol del target
 #include <sstream>
 
@@ -290,6 +291,11 @@ bool Mirror::TargetSeRefleja(Object* tg) const {
 void Mirror::RenderObject() {
     namespace gfx = w3dEngine;
     if (TargetsVivos() == 0 || (!mirrorX && !mirrorY && !mirrorZ)) return;
+    const bool packetCapture = W3dRuntimeRenderPacketsSetCapture(false);
+    struct RestaurarCaptura {
+        bool enabled;
+        ~RestaurarCaptura() { W3dRuntimeRenderPacketsSetCapture(enabled); }
+    } restaurarCaptura = { packetCapture };
 
     Matrix4 W; GetWorldMatrix(W);
     Matrix4 Winv; bool hayInv = Matrix4::InvertirAfin(W, Winv);

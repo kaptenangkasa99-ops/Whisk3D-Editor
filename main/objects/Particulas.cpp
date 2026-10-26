@@ -183,6 +183,7 @@ void Particulas::RenderObject() {
     for (size_t i = 0; i < gPendientes.size(); i++) if (gPendientes[i] == this) { anotado = true; break; }
     if (!anotado) gPendientes.push_back(this);   // el dibujo real va DESPUES de los opacos
 
+#ifndef W3D_GAME_RUNTIME
     // gizmo del EMISOR (overlay del editor, jamas en el render final): una flechita
     // +Y local (la boca del cono), con el color de seleccion de siempre
     if (!g_mostrarOverlays) return;
@@ -209,6 +210,7 @@ void Particulas::RenderObject() {
     gfx::EnableArray(gfx::TexCoordArray);
     gfx::EnableArray(gfx::NormalArray);
     if (luzEstaba) gfx::Enable(gfx::Lighting);
+#endif
 }
 
 // una entrada del pase ordenado: la particula 'idx' de 'sys', con su profundidad de

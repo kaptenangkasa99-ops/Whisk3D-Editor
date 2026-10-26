@@ -79,6 +79,9 @@ bool Curve::RotacionEnNodo(float indice, Vector3* pitchYawRoll, float* fovOut) c
 }
 
 void Curve::RenderObject() {
+#ifdef W3D_GAME_RUNTIME
+    return;
+#else
     { extern bool g_showCurvas; if (!g_showCurvas) return; } // toggle "Curves" del overlay: ocultar la linea del riel
 #ifdef W3D_SYMBIAN
     if (!vertex || vertexSize < 2) return;
@@ -124,6 +127,7 @@ void Curve::RenderObject() {
     w3dEngine::VertexPointer3f(0, vertex);
     w3dEngine::DrawLineStripIndexed(vertexSize, indices);
 #endif // !W3D_SYMBIAN
+#endif
 }
 
 #ifdef W3D_SYMBIAN

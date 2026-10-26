@@ -1,0 +1,3 @@
+# Archivos que este proyecto usa pero que NO estan adentro del .w3d.
+# Si mandas este .w3d a otra maquina, estos archivos NO viajan.
+ext:vis-dos.obj  | objeto "MallaOrden"  | EXISTE
