@@ -2348,6 +2348,8 @@ static Object* JsonObjetoCrear(JVal* j, Object* parent, const std::string& base)
     if (tipo == "escena") {
         SceneData* escena = new SceneData(parent);
         JsonComunes(j, escena);
+        escena->archivoEscena = RutaJson(JS(j, "archivoEscena", ""), base);
+        escena->cargada = JB(j, "cargada", true);
         return escena;
     }
     if (tipo == "coleccion") {
@@ -2853,6 +2855,9 @@ static void JsonObjeto(JVal* j, Object* parent, const std::string& base) {
     const std::string padre2d = JS(j, "padre2d", "");
     if (creado && !padre2d.empty() && parent && parent->getType() == ObjectType::ui)
         ReColgarDePadre2D(creado, parent, padre2d);
+    SceneData* escena = creado && creado->getType() == ObjectType::scene
+                            ? dynamic_cast<SceneData*>(creado) : NULL;
+    if (escena && !escena->cargada) return;
     JVal* h = JHijo(j, "hijos", 5);
     if (!h) return;
     Object* p = creado ? creado : parent;
@@ -3421,6 +3426,11 @@ bool W3dSceneLoadDataAdditive(const std::string& path) {
         delete raiz;
         Notificar("The scene data did not create a scene root.", true);
         return false;
+    }
+    SceneData* loadedData = dynamic_cast<SceneData*>(loadedScene);
+    if (loadedData) {
+        loadedData->archivoEscena = path;
+        loadedData->cargada = true;
     }
 
     ResolverModArmaturePendientes();

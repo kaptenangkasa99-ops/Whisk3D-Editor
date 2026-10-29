@@ -470,7 +470,14 @@ scene's object tree, animations, materials, and referenced assets; it does not
 create a project file or include project settings, layout, or session state. If
 the destination already exists, choose Rename, Overwrite, or Cancel. Choosing
 Rename opens the inline name editor and retries the save with the new scene name.
-The existing load/unload action remains available for legacy UI scene roots.
+The row actions are Save, Load/Unload, Remove, visibility, and render
+visibility. The Load/Unload icon changes from an archive when loaded to a
+folder when unloaded; clicking it switches the scene state. Use the Scenes
+menu's **Load Scene** command to load another scene additively. Unloading keeps
+a placeholder in the Outliner; choose Save, Discard, or Cancel. Saved
+placeholders reload from their `.w3dscene` file, and the file reference is
+retained when the project is saved. The existing load/unload action remains
+available for legacy UI scene roots.
 
 ### 9.3 `main/app/main.cpp`
 This is the primary app bootstrap for the desktop/editor app. It includes:

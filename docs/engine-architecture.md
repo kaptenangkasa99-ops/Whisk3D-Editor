@@ -71,12 +71,12 @@ resource model. The game exporter selects the runtime source set and packages
 the project assets for a target rather than using the editor UI as the game
 runtime.
 
-The editor Outliner can unload legacy UI-root scene content while retaining a
-small file-backed placeholder, so other scenes remain editable without keeping
-every UI tree in memory. Reload restores the saved scene; unloading offers Save,
-Discard, or Cancel. New `SceneData` roots currently remain resident because
-their world hierarchy is stored inline in the project JSON; runtime scene
-switching still requires its destination scene to be loaded in the project.
+The editor Outliner can unload legacy UI-root and `SceneData` content while
+retaining a small file-backed placeholder, so other scenes remain editable
+without keeping every scene tree in memory. Reload restores the saved scene;
+unloading offers Save, Discard, or Cancel. Scene roots can also be loaded
+additively or removed from the project. Runtime scene switching still requires
+its destination scene to be loaded in the project.
 
 ## 3. Runtime frame flow
 

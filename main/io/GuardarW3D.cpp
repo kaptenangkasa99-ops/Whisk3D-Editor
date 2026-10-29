@@ -1463,8 +1463,18 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
     if (padre2d && !padre2d->empty()) { JSang(s, ind + 1); s += "\"padre2d\": "; JEsc(s, *padre2d); s += ",\n"; }
 
     if (t == ObjectType::scene) {
+        SceneData* scene = dynamic_cast<SceneData*>(o);
         JSang(s, ind + 1); s += "\"tipo\": \"escena\",\n";
         CamposComunes(s, ind + 1, o);
+        if (scene && !g_w3dEscenaUnica) {
+            if (!scene->archivoEscena.empty()) {
+                s += ",\n"; JSang(s, ind + 1); s += "\"archivoEscena\": ";
+                JEsc(s, scene->archivoEscena);
+            }
+            if (!scene->cargada) {
+                s += ",\n"; JSang(s, ind + 1); s += "\"cargada\": false";
+            }
+        }
     }
     else if (t == ObjectType::ui) {
         // cada escena UI es OTRO json (.w3dui) EXTERNO, referenciado por ruta

@@ -1512,6 +1512,43 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             err = "scene-architecture-test: additive scene-data load lost the scene root or its objects";
             return false;
         }
+        SceneData* importedData = dynamic_cast<SceneData*>(importedScene);
+        const size_t rootsBeforeUnload = SceneCollection->Childrens.size();
+        if (!importedData || importedData->archivoEscena != sceneProjectPath ||
+            !W3dSceneDataUnload(importedData) || importedData->cargada ||
+            !importedData->Childrens.empty() ||
+            SceneCollection->Childrens.size() != rootsBeforeUnload) {
+            err = "scene-architecture-test: scene unload did not retain an empty reloadable placeholder";
+            return false;
+        }
+        if (!W3dSceneDataLoad(importedData) ||
+            SceneCollection->Childrens.size() != rootsBeforeUnload) {
+            err = "scene-architecture-test: unloaded scene could not be reloaded from its scene file";
+            return false;
+        }
+        SceneData* reloadedDataRoot = NULL;
+        bool reloadedPayloadFound = false;
+        for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
+            Object* root = SceneCollection->Childrens[i];
+            SceneData* data = root ? dynamic_cast<SceneData*>(root) : NULL;
+            if (!data || data->archivoEscena != sceneProjectPath) continue;
+            reloadedDataRoot = data;
+            for (size_t child = 0; child < root->Childrens.size(); ++child)
+                if (root->Childrens[child] &&
+                    root->Childrens[child]->name.find(baseName + "_payload") == 0)
+                    reloadedPayloadFound = true;
+        }
+        if (!reloadedDataRoot || !reloadedDataRoot->cargada || !reloadedPayloadFound) {
+            err = "scene-architecture-test: reloaded scene lost its source reference or object data";
+            return false;
+        }
+        const std::string removedSceneName = reloadedDataRoot->name;
+        if (!W3dSceneRemoveRoot(reloadedDataRoot) ||
+            W3dEscenaBuscar(removedSceneName) ||
+            !globalObject->Parent || globalObject->Parent != SceneCollection) {
+            err = "scene-architecture-test: removing a scene did not delete only its root";
+            return false;
+        }
         W3dSceneRemoveLoadedRoots();
         if (!globalObject->Parent || globalObject->Parent != SceneCollection) {
             err = "scene-architecture-test: New removed project-global data";
@@ -1582,7 +1619,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             return false;
         }
 
-        printf("      [scene-architecture-test] legacy lifecycle, scene rename/undo/save/load, additive/new roots, and async activation OK\n");
+        printf("      [scene-architecture-test] legacy lifecycle, scene save/load/unload/remove, additive/new roots, rename/undo, and async activation OK\n");
         return true;
     }
 
