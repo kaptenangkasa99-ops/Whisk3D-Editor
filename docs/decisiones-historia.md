@@ -1,45 +1,21 @@
-# Historia de las decisiones
+# History of Decisions
 
-Por qué las reglas de [decisiones.md](decisiones.md) son como son. Esto **no va en el código**:
-es contexto para cuando alguien quiera cambiar una regla y necesite saber qué se rompió antes.
+Why the rules in [decisiones.md](decisiones.md) are the way they are. This **does not go into the code**: it is context for when someone wants to change a rule and needs to know what broke before.
 
 ---
 
-## Undo: ocho rondas del mismo bug
+## Undo: Eight Rounds of the Same Bug
 
-El bug siempre fue el mismo con distinta ropa: **un paso de undo guarda una posición, la lista
-se corre, y el Ctrl+Z aplica sobre el elemento de al lado**. Apareció ocho veces en comandos
-distintos porque se lo buscaba de a uno, por intuición, en vez de clasificar.
+The bug was always the same with different clothing: **an undo step saves a position, the list shifts, and Ctrl+Z applies to the adjacent element**. It appeared eight times across different commands because it was handled one by one through intuition rather than through systematic classification.
 
-**Rondas 1 a 5.** Se descubrió primero en los pasos de *rename*, y el criterio quedó escrito
-sólo para ellos. Pero los pasos que guardan posición no son sólo esos: un paso de *reordenar*
-("intercambiar i y j") también se rompe si entre medio se borra un elemento con un borrado no
-deshacible — no corrompe nombres, pero deja un orden que nunca existió. De ahí salió que esos
-comandos también implementaran `RemapLista`, siguiendo sus dos puntas y matándose (no-op) si
-les borraron una.
+**Rounds 1 to 5.** It was first discovered in *rename* steps, and the criteria were written down only for those. However, steps that store positions are not limited to renames: a *reorder* step ("swap i and j") also breaks if an element is deleted in between by a non-undoable delete operation—it does not corrupt names, but it leaves an ordering that never existed. That gave rise to those commands also implementing `RemapLista`, tracking both of their ends and self-terminating (no-op) if one of them was deleted.
 
-**Ronda 6.** Se probó una defensa por construcción: hacer `RemapLista` virtual pura, para que
-el compilador obligue a implementarla. Eso cierra un agujero ("me olvidé de escribirla") pero
-**no** el otro: "clasifiqué mal un miembro". `KeyframesUndo` ya implementaba `RemapLista` y ya
-estaba en la tabla, y aun así su `snap` figuraba como (b) cuando era (c): un vector paralelo
-posicional contra una lista que ni siquiera se guardaba, porque se re-resolvía desde los
-globales al aplicar. El compilador no puede atrapar eso. De ahí salieron las reglas mecánicas
-R1/R2 de `decisiones.md`.
+**Round 6.** A defense by construction was attempted: making `RemapLista` pure virtual so that the compiler enforces its implementation. That closes one loophole ("I forgot to write it"), but **not** the other: "I misclassified a member." `KeyframesUndo` already implemented `RemapLista` and was already in the dispatch table, yet its `snap` was listed as (b) when it was actually (c): a positional parallel vector against a list that was not even stored, because it was re-resolved from globals upon execution. The compiler cannot catch that. That yielded the mechanical rules R1/R2 in `decisiones.md`.
 
-**Rondas 7 y 8.** El orden de los segmentos de una clave resultó no ser cosmético. Con el
-número adelante (`arm:k<clip>/<rig>`, como quedó en la ronda 7), el prefijo del aviso de
-remapeo no puede llevar el rig, y borrar o reordenar un clip de **un** armature corre los
-índices de clip de **todos**. Lo fija el test `dopeclip3d`.
+**Rounds 7 and 8.** The order of key segments turned out not to be cosmetic. With the number at the front (`arm:k<clip>/<rig>`, as left in round 7), the prefix of the remap notification cannot include the rig, and deleting or reordering a clip from **one** armature shifts the clip indices for **all** of them. This is locked down by the `dopeclip3d` test.
 
-**Lo que dejó la ronda 8, y es la lección más útil:** los tres fallos estaban *justificados
-como cubiertos* en un comentario del propio arreglo ("es inofensivo porque el resolver chequea
-el nombre del rig", "(a) puntero revalidado contra `SceneAnimations`"). O sea que el comentario
-no sólo estaba equivocado: **apagó la revisión siguiente**, porque quien pasó después lo leyó y
-siguió de largo. Por eso la regla de escritura: si un comentario declara algo inofensivo, tiene
-que citar el test que lo demuestra.
+**What Round 8 left behind, which is the most useful lesson:** all three failures were *justified as covered* in a comment within the fix itself ("harmless because the resolver checks the rig name", "(a) pointer revalidated against `SceneAnimations`"). In other words, the comment was not merely wrong: **it shut down subsequent code reviews**, because whoever came next read it and moved on. Hence the authoring rule: if a comment declares something harmless, it must cite the test that proves it.
 
-**El otro síntoma de la misma familia:** un guard "si los tamaños no coinciden no toco nada"
-(era el caso de `BonesUndo` / `Bones2DUndo`). Parece defensivo y es el bug en silencio.
+**The other symptom from the same family:** a guard like "if sizes do not match, touch nothing" (which was the case for `BonesUndo` / `Bones2DUndo`). It looks defensive, but it is just the bug operating in silence.
 
-Tests que fijan todo esto: `reparentundo`, `dopeclip3d`, `modtargetuaf`, `capaorden`,
-`capaindices`, `cliporden`, `nombresundo`.
+Tests that lock all of this down: `reparentundo`, `dopeclip3d`, `modtargetuaf`, `capaorden`, `capaindices`, `cliporden`, `nombresundo`.

@@ -1,21 +1,29 @@
-#include "w3dGraphics.h" // abstraccion de graficos (independencia de OpenGL)
+#include "w3dGraphics.h" // Graphics abstraction (OpenGL independence).
 #ifdef _WIN32
     #include <windows.h>
 #endif
 
 #include "Outliner.h"
+#include "W3dLang.h"
 #include "WhiskUI/draw/glesdraw.h"
-#include "render/OpcionesRender.h" // g_redraw (CentrarSeleccion pide redibujar)
-#include "objects/ObjectMode.h" // reparent del drag&drop
-#include "objects/Instance.h"   // IconoDeObjeto: array/mirror/instance segun el modo
-#include "objects/Mesh.h"       // Mesh::armatures2d (una fila VIRTUAL azul por rig 2D bajo la malla)
-#include "ViewPorts/PopUp/ConfirmarPopup.h" // AbrirConfirmarBorrado (confirmar antes de borrar)
-#include "ViewPorts/Notificaciones.h"       // Notificar (renames del modo mover)
-#include "Undo.h"                           // UndoCapturarRenames (1 solo paso al confirmar el mover)
-#include <cstdio>                           // sprintf (el contador del aviso)
+#include "render/OpcionesRender.h" // g_redraw (CenterSelection requests a redraw).
+#include "objects/ObjectMode.h" // Reparenting for drag and drop.
+#include "objects/Instance.h"   // ObjectIcon: array, mirror, or instance depending on the mode.
+#include "objects/Mesh.h"       // Mesh::armatures2d (one virtual blue row per 2D rig beneath its mesh).
+#include "objects/UI.h"
+#include "W3dEscena.h"
+#include "io/GuardarW3D.h"
+#include "io/UI2DFormato.h"
+#include "script/W3dScript.h"
+#include "w3dFilesystem.h"
+#include "variables.h"
+#include "ViewPorts/PopUp/ConfirmarPopup.h" // AbrirConfirmarBorrado (confirm before deleting).
+#include "ViewPorts/Notificaciones.h"       // Notificar (keyboard-move rename notifications).
+#include "Undo.h"                           // UndoCapturarRenames (one step when confirming a move).
+#include <cstdio>                           // sprintf (notification counter).
 #ifdef W3D_SYMBIAN
     #include <GLES/gl.h>
-    extern int W3dPantallaAlto;  // alto de pantalla (flip de Y; glesdraw.cpp)
+    extern int W3dPantallaAlto;  // Screen height (Y flip; glesdraw.cpp).
     extern int ShiftCount;
     extern bool middleMouseDown;
     extern bool MouseWheel;
@@ -23,9 +31,143 @@
     #include <GL/gl.h>
 #endif
 
-// El icono del objeto se DERIVA de su tipo (Fase D: el core ya no guarda iconos de UI).
-// Mapeo tipo de objeto -> IconType (el catalogo de iconos vive en la UI, que el editor SI ve).
-size_t IconoDeObjeto(Object* o) {
+static UI* gEscenaAccionOutliner = NULL;
+
+static bool FindSavedScenePath(UI* scene, std::string& path, bool& isContainerEntry) {
+    if (!scene || scene->archivoW3dui.empty()) return false;
+    const std::string& ref = scene->archivoW3dui;
+    const bool absoluta = ref[0] == '/' || ref[0] == '\\' ||
+                          (ref.size() > 1 && ref[1] == ':');
+    if (!absoluta && !g_w3dDirProyecto.empty()) {
+        std::string enProyecto = g_w3dDirProyecto + "/" + ref;
+        if (w3dFileSystem::FileExists(enProyecto)) {
+            path = enProyecto;
+            isContainerEntry = false;
+            return true;
+        }
+    }
+    if (w3dFileSystem::FileExists(ref)) {
+        path = ref;
+        isContainerEntry = false;
+        return true;
+    }
+    path = ref;
+    isContainerEntry = !absoluta;
+    return isContainerEntry && w3dFileSystem::FileExists(ref);
+}
+
+static void DestroySceneChildren(Object* parent) {
+    while (parent && !parent->Childrens.empty()) {
+        Object* child = parent->Childrens.back();
+        DestroySceneChildren(child);
+        delete child;
+        parent->Childrens.pop_back();
+    }
+}
+
+static void UnloadScene(UI* scene) {
+    if (!scene || !scene->cargada) return;
+    UndoLimpiar();
+    DeseleccionarTodo(true);
+    DestroySceneChildren(scene);
+    delete scene->scriptDatos;
+    scene->scriptDatos = NULL;
+    scene->cargada = false;
+    W3dEscenaRegistrarTodas();
+}
+
+static void SaveAndUnloadScene() {
+    UI* scene = gEscenaAccionOutliner;
+    gEscenaAccionOutliner = NULL;
+    if (!scene || w3dPath.empty()) {
+        Notificar(T("Save the project before unloading this scene."), true);
+        return;
+    }
+    if (!GuardarW3D(w3dPath)) {
+        Notificar(T("The project could not be saved; the scene remains loaded."), true);
+        return;
+    }
+    UnloadScene(scene);
+}
+
+static void DiscardAndUnloadScene() {
+    UI* scene = gEscenaAccionOutliner;
+    gEscenaAccionOutliner = NULL;
+    std::string path;
+    bool isContainerEntry = false;
+    if (!scene || !FindSavedScenePath(scene, path, isContainerEntry)) {
+        Notificar(T("Save the project before unloading this new scene."), true);
+        return;
+    }
+    (void)isContainerEntry;
+    UnloadScene(scene);
+}
+
+static void LoadUnloadedScene(UI* placeholder) {
+    if (!placeholder || placeholder->cargada || !SceneCollection) return;
+    std::string path;
+    bool isContainerEntry = false;
+    if (!FindSavedScenePath(placeholder, path, isContainerEntry)) {
+        Notificar(T("The saved scene file could not be found."), true);
+        return;
+    }
+    const bool refsAntes = g_w3dRefsEntradas;
+    g_w3dRefsEntradas = isContainerEntry;
+    UI* loadedScene = UI2DCargar(path);
+    g_w3dRefsEntradas = refsAntes;
+    if (!loadedScene) {
+        Notificar(T("The saved scene could not be loaded."), true);
+        return;
+    }
+
+    size_t indice = SceneCollection->Childrens.size();
+    for (size_t i = 0; i < SceneCollection->Childrens.size(); i++)
+        if (SceneCollection->Childrens[i] == placeholder) { indice = i; break; }
+    if (indice == SceneCollection->Childrens.size()) {
+        loadedScene->Parent = SceneCollection;
+        SceneCollection->Childrens.push_back(loadedScene);
+        DestroySceneChildren(loadedScene);
+        SceneCollection->Childrens.pop_back();
+        loadedScene->Parent = NULL;
+        delete loadedScene;
+        Notificar(T("The scene placeholder is no longer in the project."), true);
+        return;
+    }
+
+    loadedScene->Parent = SceneCollection;
+    loadedScene->SetNameCrudo(placeholder->name);
+    loadedScene->visible = placeholder->visible;
+    loadedScene->renderizable = placeholder->renderizable;
+    loadedScene->desplegado = placeholder->desplegado;
+    loadedScene->archivoW3dui = placeholder->archivoW3dui;
+    SceneCollection->Childrens[indice] = loadedScene;
+    placeholder->Parent = NULL;
+    delete placeholder;
+    UndoLimpiar();
+    W3dEscenaRegistrarTodas();
+}
+
+static void ToggleSceneLoadedState(UI* scene) {
+    if (!scene) return;
+    if (!scene->cargada) {
+        LoadUnloadedScene(scene);
+        return;
+    }
+    if (W3dEscenaActiva()) {
+        Notificar(T("Stop play mode before unloading a scene."), true);
+        return;
+    }
+    gEscenaAccionOutliner = scene;
+    if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
+    confirmarPopup->AbrirTresOpciones(
+        std::string(T("Unload scene")) + " \"" + scene->name + "\"? " +
+            T("Save the project, discard this scene's unsaved edits, or cancel."),
+        T("Discard"), DiscardAndUnloadScene, T("Save"), SaveAndUnloadScene);
+}
+
+// Derive the object icon from its type (Phase D: the core no longer stores UI icons).
+// Map object types to IconType; the icon catalog belongs to the UI layer.
+size_t ObjectIcon(Object* o) {
     switch (o->getType().v) {
         case ObjectType::mesh:       return (size_t)IconType::mesh;
         case ObjectType::light:      return (size_t)IconType::light;
@@ -36,65 +178,63 @@ size_t IconoDeObjeto(Object* o) {
         case ObjectType::curve:      return (size_t)IconType::curve;
         case ObjectType::mirror:     return (size_t)IconType::mirror;
         case ObjectType::script:     return (size_t)IconType::gamepad;
-        case ObjectType::instance: { // array / mirror / instance segun el modo
+        case ObjectType::instance: { // Array, mirror, or instance depending on the mode.
             Instance* in = (Instance*)o;
             if (in->mirror)    return (size_t)IconType::mirror;
             if (in->count > 1) return (size_t)IconType::array;
             return (size_t)IconType::instance;
         }
-        case ObjectType::lod:        return (size_t)IconType::array;     // LOD: niveles de detalle
-        case ObjectType::culling:    return (size_t)IconType::visible;   // Culling: que se ve / que se corta
-        case ObjectType::particulas: return (size_t)IconType::circle;    // Particulas: emisor (puntitos redondos)
-        case ObjectType::ui:         return (size_t)IconType::textura;   // interfaz 2D
-        case ObjectType::imagen2d:   return (size_t)IconType::foto;      // elemento imagen 2D
-        case ObjectType::rect2d:     return (size_t)IconType::plane;     // elemento rectangulo 2D
-        case ObjectType::cont2d:     return (size_t)IconType::carpeta;   // contenedor 2D (ordena hijos)
-        case ObjectType::slice9:     return (size_t)IconType::cuadricula; // imagen con bordes fijos
-        case ObjectType::boton2d:    return (size_t)IconType::object;     // boton de interfaz
-        case ObjectType::expandir2d: return (size_t)IconType::arrowRight; // resorte de layout
-        case ObjectType::video2d:    return (size_t)IconType::camera;     // video (sin sonido)
+        case ObjectType::lod:        return (size_t)IconType::array;     // Levels of detail.
+        case ObjectType::culling:    return (size_t)IconType::visible;   // Culling: visible or clipped.
+        case ObjectType::particulas: return (size_t)IconType::circle;    // Particle emitter.
+        case ObjectType::ui:         return (size_t)IconType::archive;   // 2D scene/interface root.
+        case ObjectType::imagen2d:   return (size_t)IconType::foto;      // 2D image element.
+        case ObjectType::rect2d:     return (size_t)IconType::plane;     // 2D rectangle element.
+        case ObjectType::cont2d:     return (size_t)IconType::carpeta;   // 2D container that orders children.
+        case ObjectType::slice9:     return (size_t)IconType::cuadricula; // Image with fixed borders.
+        case ObjectType::boton2d:    return (size_t)IconType::object;    // UI button.
+        case ObjectType::expandir2d: return (size_t)IconType::arrowRight; // Layout spring.
+        case ObjectType::video2d:    return (size_t)IconType::camera;    // Video (no audio).
         default:                     return (size_t)IconType::archive;
     }
 }
 
 // ===================================================================================================
-//  FILAS VIRTUALES "Armature 2D": los huesos 2D NO son objetos de escena, viven DENTRO de la malla
-//  (Mesh::armatures2d). El outliner lo AVISA con UNA fila informativa POR ARMATURE 2D (una malla
-//  puede tener varios rigs 2D independientes) colgando de la malla y en
-//  AZUL (el mismo azul con el que el editor UV dibuja los huesos), para dejar claro que el rig 2D es
-//  parte del mesh. Es una fila INERTE: no se selecciona, no se arrastra, no es destino de drop, no
-//  se puede desemparentar (no es un objeto) y NO se despliega -- los huesos se listan y se editan en
-//  la pestania "Armature 2D" del panel Properties y en el propio editor UV, que es donde se los ve
-//  dibujados (tenerlos DOS veces era ruido: decision del dueno).
-//  TODOS los recorridos (nombres, ojos, fila<->objeto, alto del contenido) se alinean con la MISMA
-//  cuenta Arm2DCant(obj): no hay conteo de filas duplicado que mantener.
+// Virtual "Armature 2D" rows: 2D bones are not scene objects; they live inside the mesh
+// (Mesh::armatures2d). The Outliner shows one informational row per rig beneath the mesh,
+// which may contain multiple independent 2D rigs. The blue color matches the UV editor's bones
+// and clarifies that the rig belongs to the mesh. This row is inert: it cannot be selected,
+// dragged, used as a drop target, unparented, or expanded. Bones are listed and edited in the
+// Properties panel's "Armature 2D" tab and in the UV editor, where they are drawn.
+// Every traversal (names, toggles, row-to-object lookup, and content height) uses the same
+// Armature2DCount(obj) count, avoiding duplicated row-counting logic.
 // ===================================================================================================
-static const float kArm2DAzul[3] = { 0.28f, 0.55f, 1.00f }; // = el azul de los huesos del UV editor
+static const float kArm2DAzul[3] = { 0.28f, 0.55f, 1.00f }; // Same blue as the bones in the UV editor.
 
-// la malla con armatures 2D de este objeto (NULL = no aplica; tambien es "suma filas virtuales?")
-static Mesh* Arm2DDe(Object* o){
+// Return this object's mesh with 2D armatures (NULL if not applicable).
+static Mesh* Armature2DOnMesh(Object* o){
     if (!o || o->getType() != ObjectType::mesh) return NULL;
     Mesh* m = (Mesh*)o;
     return m->TieneArm2D() ? m : NULL;
 }
-// CUANTAS filas virtuales suma este objeto (= cuantos armatures 2D tiene la malla; 0 = ninguna)
-static int Arm2DCant(Object* o){ Mesh* m = Arm2DDe(o); return m ? (int)m->armatures2d.size() : 0; }
-// 'o' tiene algo que desplegar? (hijos objeto O filas virtuales de armature 2D)
-static bool OutTieneHijos(Object* o){ return (o->Childrens.size() >= 1) || (Arm2DCant(o) > 0); }
+// Number of virtual rows contributed by this object (its mesh's 2D armature count; 0 = none).
+static int Armature2DCount(Object* o){ Mesh* m = Armature2DOnMesh(o); return m ? (int)m->armatures2d.size() : 0; }
+// Does this object have anything to expand (object children or virtual 2D armature rows)?
+static bool OutlinerHasChildren(Object* o){ return (o->Childrens.size() >= 1) || (Armature2DCount(o) > 0); }
 
-// resultado de ubicar una fila del arbol: un objeto REAL, o la fila VIRTUAL del armature 2D
+// Result of resolving a tree row: a real object or a virtual 2D armature row.
 struct OutFila {
-    Object* obj;    // objeto real (NULL si la fila es virtual)
-    Mesh*   arm2d;  // != NULL -> fila virtual "Armature 2D" de esta malla
-    int     arm2dIdx; // indice del armature 2D de esa fila (solo si arm2d != NULL)
-    int     prof;   // nivel de sangria
+    Object* obj;    // Real object (NULL for a virtual row).
+    Mesh*   arm2d;  // Non-NULL for a virtual "Armature 2D" row of this mesh.
+    int     arm2dIdx; // Armature index for this row (only when arm2d != NULL).
+    int     prof;   // Indentation depth.
     OutFila() : obj(NULL), arm2d(NULL), arm2dIdx(-1), prof(0) {}
 };
 
-// Constructor
-static Object* W3dObjetoEnFila(int fila, int* profOut = 0); // profOut (opcional) = profundidad del objeto
-static bool W3dFilaEnArbol(int fila, OutFila& out);         // fila -> objeto real o fila virtual (false = vacio)
-static int W3dFilaDe(Object* objetivo);                     // fila visible de un objeto (-1 si esta plegado)
+// Constructor.
+static Object* ObjectAtRow(int row, int* depthOut = 0);
+static bool FindRowInTree(int row, OutFila& out);
+static int RowForObject(Object* target);
 
 Outliner::Outliner() : ViewportBase() {
     Renglon = new Rec2D();
@@ -114,27 +254,28 @@ Outliner::Outliner() : ViewportBase() {
     BarCrear();
 }
 
-//para hacer el calculo si o si hay que hacerlo de forma recursiva
-void Outliner::CalcularRenglon(Object* obj, int* MaxPosXtemp, int* MaxPosYtemp){
-    int rowWidth = marginGS + IconSizeGS + gapGS + IconSizeGS + gapGS + IconSizeGS + marginGS;
+// This calculation must be recursive.
+void Outliner::CalculateRowLayout(Object* obj, int* MaxPosXtemp, int* MaxPosYtemp){
+    int rowWidth = marginGS + IconSizeGS + gapGS + IconSizeGS + gapGS +
+                   IconSizeGS + gapGS + IconSizeGS + marginGS;
     *MaxPosYtemp -= RenglonHeightGS;
     int textWidth = obj->name.size() * LetterWidthGS;
     rowWidth += textWidth + gapGS;
 
-    // guardar ancho máximo
+    // Store the maximum width.
     if (rowWidth > *MaxPosXtemp) *MaxPosXtemp = rowWidth;
 
-    //si no tiene hijos. o no esta desplegado se ahorra todos los bucles siguentes
-    if (!OutTieneHijos(obj) || !obj->desplegado) return;
-    *MaxPosYtemp -= RenglonHeightGS * Arm2DCant(obj); // una fila virtual por armature 2D
+    // Skip the remaining loops if there are no children or the object is collapsed.
+    if (!OutlinerHasChildren(obj) || !obj->desplegado) return;
+    *MaxPosYtemp -= RenglonHeightGS * Armature2DCount(obj); // One virtual row per 2D armature.
 
     //std::cout << "textWidth: " << textWidth << " rowWidth: " << rowWidth << std::endl;
     for (size_t o = 0; o < obj->Childrens.size(); o++) {
-        CalcularRenglon(obj->Childrens[o], MaxPosXtemp, MaxPosYtemp);
+        CalculateRowLayout(obj->Childrens[o], MaxPosXtemp, MaxPosYtemp);
         /*int rowWidthObj = marginGS + IconSizeGS + gapGS + IconSizeGS + gapGS + IconSizeGS + gapGS + IconSizeGS + marginGS;
         *MaxPosYtemp -= RenglonHeightGS;
 
-        // texto del objeto
+        // Object text.
         int textWidthObj = reinterpret_cast<Text*>(obj->Childrens[o]->name->data)->letters.size() * LetterWidthGS;
         rowWidthObj += textWidthObj + gapGS;
 
@@ -147,11 +288,10 @@ void Outliner::Resize(int newW, int newH){
     ViewportBase::Resize(newW, newH);
     ResizeBorder(newW, newH);
 
-    // (el ancho de las franjas se ajusta al final, cuando ya se sabe
-    // si existe la barra vertical)
+    // The row-strip width is adjusted later, once we know whether the vertical scrollbar exists.
 
-    // Calcular cuántos renglones entran en la altura
-    // (ceil portable: std::ceil es ambiguo en RVCT)
+    // Calculate how many rows fit in the viewport height.
+    // Use a portable ceil calculation because std::ceil is ambiguous in RVCT.
     CantidadRenglones = (size_t)((height + RenglonHeightGS - 1) / RenglonHeightGS);
 
     int MaxPosXtemp = 0;
@@ -163,29 +303,29 @@ void Outliner::Resize(int newW, int newH){
         return;
     }
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++) {
-        CalcularRenglon(SceneCollection->Childrens[c], &MaxPosXtemp, &MaxPosYtemp);
+        CalculateRowLayout(SceneCollection->Childrens[c], &MaxPosXtemp, &MaxPosYtemp);
     }
-    //este es el gap para la barra de desplazamiento de abajo
+    // Gap for the horizontal scrollbar below.
     MaxPosYtemp -= marginGS;
     //std::cout << "MaxPosXtemp: " << MaxPosXtemp << " width: " << width << std::endl;
     //std::cout << "MaxPosYtemp: "<< MaxPosYtemp << std::endl;
     //std::cout << "Ancho: " << newW << " Alto: "<< newH << std::endl;
     ResizeScrollbar(newW, newH, MaxPosXtemp, MaxPosYtemp, BarTopOffset());
 
-    // las franjas le dejan el "scrollbar area" SOLO si hay barra
-    // vertical; sin barra el espacio no se desperdicia
+    // Reserve the scrollbar area only when the vertical bar is present;
+    // otherwise, do not waste the space.
     int reservaV = scrollY ? (borderGS + GlobalScale * 9 + 2) : 0;
     Renglon->SetSize(0, 0, (GLshort)(width - reservaV), RenglonHeightGS);
 }
 
 void Outliner::Render(){
-    // AUTO-REFRESH del scrollbar: si cambio la cantidad de FILAS VISIBLES (importar/agregar/borrar/desplegar) se
-    // recalcula el rango de scroll. Antes solo se recalculaba al REDIMENSIONAR el viewport -> tras importar objetos
-    // el scrollbar quedaba viejo y no se podia scrollear hasta cambiar el tamanio de un viewport a mano.
+    // Refresh the scrollbar when the number of visible rows changes (import/add/delete/expand).
+    // Previously it was recalculated only on viewport resize, leaving it stale after imports
+    // until the user manually resized a viewport.
     if (SceneCollection){
         struct C { static int rec(Object* o){ int n = 1;
-            if (OutTieneHijos(o) && o->desplegado){
-                n += Arm2DCant(o);                        // una fila virtual por armature 2D
+            if (OutlinerHasChildren(o) && o->desplegado){
+                n += Armature2DCount(o);                        // One virtual row per 2D armature.
                 for (size_t i = 0; i < o->Childrens.size(); i++) n += rec(o->Childrens[i]);
             }
             return n; } };
@@ -199,13 +339,13 @@ void Outliner::Render(){
     w3dEngine::MatrixMode(w3dEngine::ModelView);
     w3dEngine::LoadIdentity();
 
-    // arbol con origen ARRIBA-izquierda (4 OS): GL quiere abajo-izquierda
+    // The tree origin is top-left (all four OSes); GL expects bottom-left.
     const int glY = W3dPantallaAlto - y - height;
     if (!SceneCollection) return;
 
-    // Limpiar pantalla
+    // Clear the viewport.
     w3dEngine::Enable(w3dEngine::ScissorTest);
-    w3dEngine::Scissor(x, glY, width, height); // igual a tu viewport
+    w3dEngine::Scissor(x, glY, width, height); // Match the viewport bounds.
     w3dEngine::ClearColor(ListaColores[static_cast<int>(ColorID::background)][0],
         ListaColores[static_cast<int>(ColorID::background)][1],
         ListaColores[static_cast<int>(ColorID::background)][2],
@@ -213,7 +353,7 @@ void Outliner::Render(){
     w3dEngine::Clear(w3dEngine::ColorBuffer | w3dEngine::DepthBuffer);
     w3dEngine::Disable(w3dEngine::ScissorTest);
 
-    w3dEngine::Viewport(x, glY, width, height); // x, y, ancho, alto
+    w3dEngine::Viewport(x, glY, width, height); // x, y, width, height.
     w3dEngine::Ortho(0, width, height, 0, -1, 1);
 
     w3dEngine::Disable(w3dEngine::Fog);
@@ -228,7 +368,7 @@ void Outliner::Render(){
     w3dEngine::DisableArray(w3dEngine::TexCoordArray);
     w3dEngine::DisableArray(w3dEngine::NormalArray);
 
-    //de aca en adelante es como antes
+    // The rendering below continues as before.
     w3dEngine::PushMatrix();
     size_t RenglonesY = 0;
     w3dEngine::Translatef(0, PosY + borderGS + BarTopOffset(), 0);
@@ -236,22 +376,22 @@ void Outliner::Render(){
         w3dEngine::PushMatrix();
         w3dEngine::Translatef(0, RenglonesY, 0);
         RenglonesY += RenglonHeightGS;
-        // Renglón Seleccionado
+        // Selected row.
         if (dragging && dropZona == 1 && (int)i == dropFila) {
-            // vista previa: este seria el futuro PADRE del drop
+            // Preview: this would become the drop's parent.
             w3dEngine::Color4ub(ListaColoresUbyte[static_cast<int>(ColorID::accentDark)][0],
                        ListaColoresUbyte[static_cast<int>(ColorID::accentDark)][1],
                        ListaColoresUbyte[static_cast<int>(ColorID::accentDark)][2], 255);
         }
         else if ((int)i == hoverFila) {
-            // hover: feedback antes de hacer click
+            // Hover feedback before clicking.
             w3dEngine::Color4ub(ListaColoresUbyte[static_cast<int>(ColorID::headerColor)][0], ListaColoresUbyte[static_cast<int>(ColorID::headerColor)][1], ListaColoresUbyte[static_cast<int>(ColorID::headerColor)][2], 255);
         }
         else if (i % 2 == 0) {
             w3dEngine::Color4ub(ListaColoresUbyte[static_cast<int>(ColorID::gris)][0], ListaColoresUbyte[static_cast<int>(ColorID::gris)][1], ListaColoresUbyte[static_cast<int>(ColorID::gris)][2], 255);
         }
         else {
-            // Renglón impar
+            // Odd row.
             w3dEngine::Color4ub(ListaColoresUbyte[static_cast<int>(ColorID::background)][0], ListaColoresUbyte[static_cast<int>(ColorID::background)][1], ListaColoresUbyte[static_cast<int>(ColorID::background)][2], 255);
         }
         //RenderObject2D(*Renglon);
@@ -271,21 +411,24 @@ void Outliner::Render(){
 #endif
     SetColorID(ColorID::grisUI);
 
-    //esto es para recortar y que no se ponga el texto encima de los ojos de la derecha
+    // Clip the text so it does not draw over the toggles on the right.
+    int anchoNombres = width - 3*IconSizeGS - 2*gapGS - marginGS - borderGS -
+                       gapGS - (scrollY ? (GlobalScale*9 + gapGS) : 0);
+    if (anchoNombres < 0) anchoNombres = 0;
     w3dEngine::Enable(w3dEngine::ScissorTest);
     if (scrollX){
-        w3dEngine::Scissor(x, glY + marginGS, width - 2*IconSizeGS - gapGS - marginGS - borderGS - gapGS - (scrollY ? (GlobalScale*9 + gapGS) : 0), height - marginGS); // - ojos+camaras+barra
+        w3dEngine::Scissor(x, glY + marginGS, anchoNombres, height - marginGS); // Exclude load, eye, camera, and scrollbar columns.
     }
     else {
-        w3dEngine::Scissor(x, glY, width - 2*IconSizeGS - gapGS - marginGS - borderGS - gapGS - (scrollY ? (GlobalScale*9 + gapGS) : 0), height); // - ojos+camaras+barra
+        w3dEngine::Scissor(x, glY, anchoNombres, height); // Exclude load, eye, camera, and scrollbar columns.
     }
 
     RenglonesY = 0;
-    cullBaseY = PosY + borderGS + BarTopOffset(); filaDFS = 0; // culling: Y de la 1er fila del recorrido de NOMBRES
+    cullBaseY = PosY + borderGS + BarTopOffset(); filaDFS = 0; // Culling: Y of the first row in the name traversal.
     w3dEngine::PushMatrix();
     w3dEngine::Translatef(marginGS + PosX, PosY + borderGS + BarTopOffset(), 0);
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++){
-        DibujarRenglon(SceneCollection->Childrens[c], !SceneCollection->Childrens[c]->visible);
+        DrawRow(SceneCollection->Childrens[c], !SceneCollection->Childrens[c]->visible);
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
     }
     w3dEngine::PopMatrix();
@@ -294,26 +437,27 @@ void Outliner::Render(){
     RenglonesY = 0;
 
     w3dEngine::PushMatrix();
-    //no usa PosX porque los ojos siempre estan en la misma posicion en X. al borde
-    int reservaBarra = scrollY ? (GlobalScale * 9 + gapGS) : 0;   // solo el ancho de la barra + un gap chico
-    w3dEngine::Translatef(width - 2*IconSizeGS - gapGS - marginGS - borderGS - reservaBarra, GlobalScale + PosY + borderGS + BarTopOffset(), 0);
+    // Do not use PosX: the toggles stay at a fixed X position at the right edge.
+    int reservaBarra = scrollY ? (GlobalScale * 9 + gapGS) : 0;   // Only the scrollbar width plus a small gap.
+    w3dEngine::Translatef(width - 3*IconSizeGS - 2*gapGS - marginGS - borderGS - reservaBarra,
+                          GlobalScale + PosY + borderGS + BarTopOffset(), 0);
 
     if (scrollX){
-        w3dEngine::Scissor(x, glY + marginGS, width - marginGS - borderGS, height - marginGS); // igual a tu viewport - los ojos
+        w3dEngine::Scissor(x, glY + marginGS, width - marginGS - borderGS, height - marginGS); // Viewport bounds, excluding the toggles.
     }
     else {
-        w3dEngine::Scissor(x, glY, width - marginGS - borderGS, height); // igual a tu viewport - los ojos
+        w3dEngine::Scissor(x, glY, width - marginGS - borderGS, height); // Viewport bounds, excluding the toggles.
     }
 
-    cullBaseY = GlobalScale + PosY + borderGS + BarTopOffset(); filaDFS = 0; // culling: Y de la 1er fila del recorrido de OJOS
+    cullBaseY = GlobalScale + PosY + borderGS + BarTopOffset(); filaDFS = 0; // Culling: Y of the first row in the toggle traversal.
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++) {
-        DibujarOjos(SceneCollection->Childrens[c], !SceneCollection->Childrens[c]->visible,
+        DrawSceneToggles(SceneCollection->Childrens[c], !SceneCollection->Childrens[c]->visible,
                     !SceneCollection->Childrens[c]->renderizable);
     }
     w3dEngine::PopMatrix();
     w3dEngine::Disable(w3dEngine::ScissorTest);
 
-    // vista previa del drag: LINEA VERDE donde se va a insertar
+    // Drag preview: green line showing where the row will be inserted.
     if (dragging && (dropZona == 0 || dropZona == 2)) {
         static Rec2D* linea = NULL;
         if (!linea) linea = new Rec2D();
@@ -321,8 +465,8 @@ void Outliner::Render(){
                     + (dropFila + (dropZona == 2 ? 1 : 0)) * RenglonHeightGS;
         w3dEngine::Disable(w3dEngine::Texture2D);
         SetColorID(ColorID::accent);
-        // la linea se INDENTA al nivel del destino: si el objeto va a quedar emparentado (nivel > 0)
-        // arranca mas a la derecha y es mas angosta; a la raiz (nivel 0) ocupa todo el ancho.
+        // Indent the line to the destination depth: parented rows start farther right and
+        // use a shorter line; a root-level drop (depth 0) spans the full width.
         int indent = dropProf * (IconSizeGS + gapGS);
         linea->SetSize((GLshort)(borderGS + indent), (GLshort)(lineY - GlobalScale),
                        (GLshort)(width - bordersGS - indent), (GLshort)(2 * GlobalScale));
@@ -334,13 +478,13 @@ void Outliner::Render(){
     DibujarBordes(this);
     DibujarScrollbar(this);
 #ifdef W3D_SYMBIAN
-    w3dEngine::EnableArray(w3dEngine::NormalArray); // baseline que asume la escena
+    w3dEngine::EnableArray(w3dEngine::NormalArray); // Baseline expected by the scene.
 #endif
 }
 
-void Outliner::DibujarRenglon(Object* obj, bool hidden){
-    // CULLING: solo se DIBUJA la fila si cae en el area visible. El traversal de hijos (mas abajo) avanza la matriz
-    // igual, asi que las filas visibles quedan bien ubicadas. Margen de 1 fila arriba/abajo (no cortar filas al borde).
+void Outliner::DrawRow(Object* obj, bool hidden){
+    // Draw the row only when it intersects the visible area. The child traversal still advances
+    // the matrix so visible rows stay aligned. Keep one extra row above and below to avoid clipping edges.
     int myY = cullBaseY + (int)filaDFS * (int)RenglonHeightGS; filaDFS++;
     bool filaVisible = (myY + (int)RenglonHeightGS * 2 > 0) && (myY < (int)height + (int)RenglonHeightGS);
     if (filaVisible) {
@@ -348,14 +492,13 @@ void Outliner::DibujarRenglon(Object* obj, bool hidden){
     GLfloat opacityRow = hidden ? 0.5f : 1.0f;
 
     if (moviendo && obj == moverObj){
-        // MODO MOVER con teclado: el objeto que se esta moviendo se resalta (accent),
-        // para que en el N95 (sin mouse) se vea claro cual se esta reordenando.
+        // Highlight the object being moved so it remains clear which row is being reordered
+        // on devices such as the N95 that have no mouse.
         SetColorID(ColorID::accent, opacityRow);
     }
     else if (dragging){
-        // mientras se ARRASTRA el outliner entero se ve deseleccionado;
-        // solo el objeto arrastrado queda marcado (la seleccion vuelve
-        // a verse normal al soltar)
+        // While dragging, dim the Outliner selection and highlight only the dragged object.
+        // Restore the normal selection display when the drag ends.
         if (obj == dragObjeto){
             SetColorID(ColorID::accent, opacityRow);
         } else {
@@ -363,7 +506,7 @@ void Outliner::DibujarRenglon(Object* obj, bool hidden){
         }
     }
     else if (obj == ObjActivo){
-        //std::cout << "Objeto activo en el outliner: " << reinterpret_cast<Text*>(SceneCollection->Childrens[c]->name->data)->value << "\n";
+        //std::cout << "Active object in the Outliner: " << reinterpret_cast<Text*>(SceneCollection->Childrens[c]->name->data)->value << "\n";
         if (obj->select){
             SetColorID(ColorID::accent, opacityRow);
         }
@@ -378,32 +521,32 @@ void Outliner::DibujarRenglon(Object* obj, bool hidden){
         SetColorID(ColorID::grisUI, opacityRow);
     }
 
-    //icono desplegar (si no tiene hijos: flecha a la derecha). El armature 2D VIRTUAL tambien
-    //cuenta como "hijo" (una malla sin hijos objeto pero con huesos 2D se puede desplegar).
-    if (!OutTieneHijos(obj) || !obj->desplegado){
+    // Expand icon (right arrow when there are no children). A virtual 2D armature row
+    // also counts as a child, so a mesh with bones can be expanded.
+    if (!OutlinerHasChildren(obj) || !obj->desplegado){
         W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(IconType::arrowRight)]->uvs);
     }
     else {
         W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(IconType::arrow)]->uvs);
     }
 
-    //icono de la coleccion
+    // Collection icon.
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
-    W3dDrawStrip4(IconMesh, IconsUV[IconoDeObjeto(obj)]->uvs);
+    W3dDrawStrip4(IconMesh, IconsUV[ObjectIcon(obj)]->uvs);
 
-    //texto render
+    // Render text.
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
     RenderBitmapText(obj->name);
 
     w3dEngine::PopMatrix();
-    } // fin del DRAW de la fila (culling); el traversal de hijos de abajo corre siempre
+    } // End of row drawing (culling); the child traversal below always runs.
 
-    //si no tiene hijos. o no esta desplegado se ahorra todos los bucles siguentes
-    if (!OutTieneHijos(obj) || !obj->desplegado) return;
-    Mesh* virt = Arm2DDe(obj); // NULL = la malla no tiene armatures 2D (no suma filas)
-    const int nArm = Arm2DCant(obj);
+    // Skip the remaining loops if there are no children or the object is collapsed.
+    if (!OutlinerHasChildren(obj) || !obj->desplegado) return;
+    Mesh* virt = Armature2DOnMesh(obj); // NULL means the mesh has no 2D armatures and adds no rows.
+    const int nArm = Armature2DCount(obj);
 
-    //linea
+    // Tree line.
     w3dEngine::PushMatrix();
     for (int k = 0; k < nArm; k++){
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
@@ -415,38 +558,37 @@ void Outliner::DibujarRenglon(Object* obj, bool hidden){
     }
     w3dEngine::PopMatrix();
 
-    //flechas
+    // Arrows.
     w3dEngine::PushMatrix();
-    DibujarLineaDesplegada(obj);
+    DrawExpandedTreeLines(obj);
     w3dEngine::PopMatrix();
 
-    //renglon normal
+    // Regular row.
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
-    for (int k = 0; k < nArm; k++){       // los ARMATURES 2D van primero (son DATO de la malla)
+    for (int k = 0; k < nArm; k++){       // 2D armatures come first; they are mesh data.
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
-        DibujarArm2D(virt, k, hidden);
+        DrawArmature2DRow(virt, k, hidden);
     }
     for (size_t o = 0; o < obj->Childrens.size(); o++){
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
-        DibujarRenglon(obj->Childrens[o],
+        DrawRow(obj->Childrens[o],
             hidden ? true : !obj->Childrens[o]->visible);
     }
     w3dEngine::Translatef(-IconSizeGS - gapGS, 0, 0);
 }
 
-// fila VIRTUAL de UN armature 2D de la malla: una fila informativa (icono de armature + nombre del
-// armature), en AZUL (= parte del mesh, no un objeto de escena) y SIN flechita (no se despliega:
-// los huesos se listan en la pestania "Armature 2D" del panel). Ocupa 1 renglon y no mueve la
-// matriz. El armature ACTIVO va en azul PLENO y los demas apagados, como en el editor UV.
-void Outliner::DibujarArm2D(Mesh* m, int idx, bool hidden){
+// Draw one virtual row for a mesh's 2D armature: an informational row with its icon and name,
+// colored blue to indicate mesh data rather than a scene object. It has no expand arrow; bones
+// are listed in the Properties panel's "Armature 2D" tab. The row occupies one line without
+// moving the matrix. The active armature is bright blue; the others are dimmed, as in the UV editor.
+void Outliner::DrawArmature2DRow(Mesh* m, int idx, bool hidden){
     if (!m || idx < 0 || idx >= (int)m->armatures2d.size()) return;
-    const GLfloat op = (hidden || idx != m->armature2dActivo) ? 0.5f : 1.0f; // el ACTIVO, pleno
+    const GLfloat op = (hidden || idx != m->armature2dActivo) ? 0.5f : 1.0f; // The active rig is fully opaque.
     int myY = cullBaseY + (int)filaDFS * (int)RenglonHeightGS; filaDFS++;
     if (!((myY + (int)RenglonHeightGS * 2 > 0) && (myY < (int)height + (int)RenglonHeightGS))) return;
     w3dEngine::PushMatrix();
     w3dEngine::Color4f(kArm2DAzul[0], kArm2DAzul[1], kArm2DAzul[2], op);
-    // la columna de la flechita queda VACIA (no hay nada que desplegar): solo se saltea para que
-    // el icono y el texto queden alineados con los de las filas de objetos
+    // Leave the expand-arrow column empty; skip it so the icon and text align with object rows.
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
     W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(IconType::armature)]->uvs);
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
@@ -454,44 +596,53 @@ void Outliner::DibujarArm2D(Mesh* m, int idx, bool hidden){
     w3dEngine::PopMatrix();
 }
 
-void Outliner::DibujarLineaDesplegada(Object* obj){
-    for (int k = 0, n = Arm2DCant(obj); k < n; k++){ // cada fila virtual lleva su linea
+void Outliner::DrawExpandedTreeLines(Object* obj){
+    for (int k = 0, n = Armature2DCount(obj); k < n; k++){ // Each virtual row has a tree line.
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
         W3dDrawStrip4(IconLineMesh, IconsUV[static_cast<size_t>(IconType::line)]->uvs);
     }
     for (size_t o = 0; o < obj->Childrens.size(); o++){
         w3dEngine::Translatef(0, RenglonHeightGS, 0);
         W3dDrawStrip4(IconLineMesh, IconsUV[static_cast<size_t>(IconType::line)]->uvs);
-        DibujarLineaDesplegada(obj->Childrens[o]);
+        DrawExpandedTreeLines(obj->Childrens[o]);
     }
 }
 
-void Outliner::DibujarOjos(Object* obj, bool hidden, bool noRender){
-    // CULLING: mismo criterio que DibujarRenglon (el Translatef de avance de abajo corre siempre para ubicar a los hijos)
+void Outliner::DrawSceneToggles(Object* obj, bool hidden, bool noRender){
+    // Use the same culling as DrawRow; the translation below always advances to position children.
     int myY = cullBaseY + (int)filaDFS * (int)RenglonHeightGS; filaDFS++;
     if ((myY + (int)RenglonHeightGS * 2 > 0) && (myY < (int)height + (int)RenglonHeightGS)) {
-        // OJO (visible): ocultado por si mismo o por un PADRE oculto -> tenue
+        w3dEngine::PushMatrix();
+        if (obj->getType() == ObjectType::ui) {
+            UI* escena = (UI*)obj;
+            SetColorID(ColorID::grisUI, escena->cargada ? 1.0f : 0.5f);
+            W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(
+                escena->cargada ? IconType::archive : IconType::mas)]->uvs);
+        }
+        w3dEngine::Translatef((GLfloat)(IconSizeGS + gapGS), 0, 0);
+        // Eye (visibility): dim when hidden directly or by a hidden parent.
         SetColorID(ColorID::grisUI, hidden ? 0.5f : 1.0f);
         W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(obj->visible ? IconType::visible : IconType::hidden)]->uvs);
-        // CAMARA (renderizar) a la DERECHA del ojo: si el objeto NO se renderiza -> camara_off;
-        // si SI pero un PADRE no se renderiza -> camara encendida pero SEMI-TRANSPARENTE (igual que el ojo)
+        // Camera (render) toggle to the right of the eye: use camera_off when disabled;
+        // if enabled but a parent is disabled, show it semi-transparent like the eye.
         w3dEngine::PushMatrix();
         w3dEngine::Translatef((GLfloat)(IconSizeGS + gapGS), 0, 0);
         SetColorID(ColorID::grisUI, noRender ? 0.5f : 1.0f);
         W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(obj->renderizable ? IconType::camera : IconType::camera_off)]->uvs);
         w3dEngine::PopMatrix();
+        w3dEngine::PopMatrix();
     }
     w3dEngine::Translatef(0, RenglonHeightGS, 0);
 
-    //si no tiene hijos. o no esta desplegado se ahorra todos los bucles siguentes
-    if (!OutTieneHijos(obj) || !obj->desplegado) return;
+    // Skip the remaining loops if there are no children or the object is collapsed.
+    if (!OutlinerHasChildren(obj) || !obj->desplegado) return;
 
-    // las filas VIRTUALES de armature 2D no tienen ojo ni camara (no son objetos), pero SI ocupan
-    // fila -> hay que avanzar el contador de culling y la matriz para no desalinear los ojos.
-    for (int k = 0, n = Arm2DCant(obj); k < n; k++){ filaDFS++; w3dEngine::Translatef(0, RenglonHeightGS, 0); }
+    // Virtual 2D armature rows have no eye or camera toggles, but still occupy a row.
+    // Advance the culling index and matrix to keep the toggles aligned.
+    for (int k = 0, n = Armature2DCount(obj); k < n; k++){ filaDFS++; w3dEngine::Translatef(0, RenglonHeightGS, 0); }
 
     for (size_t o = 0; o < obj->Childrens.size(); o++){
-        DibujarOjos(obj->Childrens[o],
+        DrawSceneToggles(obj->Childrens[o],
                     hidden   ? true : !obj->Childrens[o]->visible,
                     noRender ? true : !obj->Childrens[o]->renderizable);
     }
@@ -510,7 +661,7 @@ void Outliner::mouse_button_up(int boton){
         mouseOverScrollYpress = false;
         mouseOverScrollXpress = false;
     }
-    //else if (boton == W3dMB_MEDIO) {
+    //else if (button == W3dMB_MEDIO) {
     //    middleMouseDown = false;
     //}
     FindMouseOver(lastMouseX,lastMouseY);
@@ -520,7 +671,7 @@ void Outliner::mouse_button_up(int boton){
 #ifndef W3D_SYMBIAN
 void Outliner::event_mouse_wheel(float dy, int mx, int my){
     {
-      if (BarScrollHorizontal(mx, my, (int)(dy * 40))) return; } // sobre la barra -> horizontal
+      if (BarScrollHorizontal(mx, my, (int)(dy * 40))) return; } // Over the scrollbar: horizontal scrolling.
     MouseWheel = true;
     ScrollY(dy*6*GlobalScale);
     MouseWheel = false;
@@ -528,20 +679,21 @@ void Outliner::event_mouse_wheel(float dy, int mx, int my){
 #endif
 
 void Outliner::FindMouseOver(int mx, int my){
-    // (el hover de las barras lo calcula LayoutInput con la zona del
-    // agarre; la llamada vieja a ScrollMouseOver pisaba ese estado)
+    // LayoutInput calculates scrollbar hover from the grab area;
+    // the old ScrollMouseOver call overwrote that state.
 }
 
-// TOUCH: arrastrar 1 dedo sobre el CONTENIDO = scroll (v/h). La barra la maneja el gesto lockeado.
+// Touch: drag one finger over the content to scroll vertically or horizontally.
+// The scrollbar is handled by the locked gesture.
 bool Outliner::event_finger_scroll(int px, int py, int dx, int dy){
     ScrollByTouch(dx, dy);
     return true;
 }
 
 void Outliner::event_mouse_motion(int mx, int my) {
-    // hover: fila bajo el mouse (feedback antes del click)
+    // Hover feedback for the row under the mouse.
     hoverFila = (my - y - borderGS - PosY - BarTopOffset()) / RenglonHeightGS;
-    // el "scrollbar area" esta reservada: ahi no hay hover de renglon
+    // The scrollbar area is reserved, so rows do not hover there.
     if (mouseOverScrollY || mouseOverScrollX) {
         hoverFila = -1;
     }
@@ -550,7 +702,7 @@ void Outliner::event_mouse_motion(int mx, int my) {
         if (d < 0) d = -d;
         if (!dragging && d > RenglonHeightGS / 2) dragging = true;
         if (dragging) {
-            // vista previa del drop: linea de insercion o futuro padre
+            // Drop preview: insertion line or prospective parent.
             dropZona = -2;
             if (Contains(mx, my)) {
                 int rel = my - y - borderGS - PosY - BarTopOffset();
@@ -559,20 +711,20 @@ void Outliner::event_mouse_motion(int mx, int my) {
                     int resto = rel % RenglonHeightGS;
                     int f = dropFila;
                     OutFila hitF;
-                    bool hay = W3dFilaEnArbol(f, hitF);
-                    // fila VIRTUAL del armature 2D: NO es destino de drop (no es un objeto; el
-                    // armature 2D no se puede re-emparentar desde el outliner)
+                    bool hay = FindRowInTree(f, hitF);
+                    // A virtual 2D armature row is not a drop target: it is not an object and
+                    // cannot be reparented from the Outliner.
                     if (hay && hitF.arm2d) { dropZona = -2; return; }
                     Object* destino = hay ? hitF.obj : NULL;
-                    dropProf = hay ? hitF.prof : 0; // profundidad del destino: la linea se indenta ahi
-                    if (!destino) dropZona = -1; // al vacio: a la raiz
+                    dropProf = hay ? hitF.prof : 0; // Destination depth; indent the line accordingly.
+                    if (!destino) dropZona = -1; // Empty space means the root.
                     else if (destino == dragObjeto) dropZona = -2;
                     else if (resto < RenglonHeightGS / 4) dropZona = 0;
                     else if (resto > (RenglonHeightGS * 3) / 4) dropZona = 2;
                     else dropZona = 1;
                 }
             }
-            return; // mientras se arrastra no scrollea
+            return; // Do not scroll while dragging.
         }
     }
     if (middleMouseDown || leftMouseDown) {
@@ -582,7 +734,7 @@ void Outliner::event_mouse_motion(int mx, int my) {
         ScrollY(dy);
         return;
     }
-    //si no se esta haciendo click. entonces miras si el mouse esta encima de algo
+    // If no button is pressed, check whether the mouse is over a row.
     else if (scrollY){
         FindMouseOver(mx, my);
     }
@@ -592,21 +744,21 @@ void Outliner::event_mouse_motion(int mx, int my) {
 void Outliner::event_key_down(int tecla, bool repeticion){
     const int key = tecla;
     if (repeticion == 0) {
-        // MODO MOVER: las flechas reordenan/reparentan en vez de navegar; OK confirma; C/backspace/Esc cancela.
+        // Move mode: arrows reorder/reparent instead of navigating; OK confirms; C/Backspace/Esc cancels.
         if (moviendo) {
             switch (key) {
-                case W3dK_UP:    MoverPaso(0); return;
-                case W3dK_DOWN:  MoverPaso(1); return;
-                case W3dK_LEFT:  MoverPaso(2); return; // izquierda = SACAR (unparent)
-                case W3dK_RIGHT: MoverPaso(3); return; // derecha = METER (parent bajo el hermano anterior)
-                case W3dK_RETURN: case W3dK_KP_ENTER: MoverConfirmar(); return;
-                case W3dK_ESCAPE: case W3dK_BACKSPACE: case W3dK_C: MoverCancelar(); return;
-                default: return; // en modo mover se traga el resto
+                case W3dK_UP:    StepKeyboardMove(0); return;
+                case W3dK_DOWN:  StepKeyboardMove(1); return;
+                case W3dK_LEFT:  StepKeyboardMove(2); return; // Left = move out (unparent).
+                case W3dK_RIGHT: StepKeyboardMove(3); return; // Right = move in (parent under the previous sibling).
+                case W3dK_RETURN: case W3dK_KP_ENTER: ConfirmKeyboardMove(); return;
+                case W3dK_ESCAPE: case W3dK_BACKSPACE: case W3dK_C: CancelKeyboardMove(); return;
+                default: return; // Ignore other keys while moving.
             }
         }
         switch (key) {
-            case W3dK_G: // g = entrar en modo MOVER (reordenar / reparentar el objeto activo)
-                MoverIniciar();
+            case W3dK_G: // G enters move mode to reorder or reparent the active object.
+                BeginKeyboardMove();
                 break;
             case W3dK_A:
                 SeleccionarTodo(true);
@@ -615,9 +767,9 @@ void Outliner::event_key_down(int tecla, bool repeticion){
                 ChangeVisibilityObj();
                 break;
             case W3dK_X:
-            case W3dK_DELETE:   // Supr borra igual que X
+            case W3dK_DELETE:   // Delete behaves like X.
                 if (estado == editNavegacion){
-                    AbrirConfirmarBorrado(true); // popup de confirmacion (incluye colecciones); Si -> borra con undo
+                    AbrirConfirmarBorrado(true); // Confirmation popup (including collections); Yes deletes with undo.
                 }
                 break;
             case W3dK_LEFT:
@@ -628,14 +780,14 @@ void Outliner::event_key_down(int tecla, bool repeticion){
                 break;
             case W3dK_UP:
                 changeSelect(SelectMode::PrevSingle, true);
-                AsegurarVisible();
+                EnsureVisible();
                 break;
             case W3dK_DOWN:
                 changeSelect(SelectMode::NextSingle, true);
-                AsegurarVisible();
+                EnsureVisible();
                 break;
-            case W3dK_KP_PERIOD: // numpad "." = centrar la seleccion (llega por hover, como todas
-                CentrarSeleccion(); // las teclas por-viewport: el ruteo manda al viewport bajo el mouse)
+            case W3dK_KP_PERIOD: // Numpad "." centers the selection; keyboard input routes by mouse hover.
+                CenterSelection(); // The router sends viewport-specific keys to the viewport under the mouse.
                 break;
         };
     }
@@ -649,7 +801,7 @@ void Outliner::event_key_up(int tecla){
         case W3dK_LSHIFT:
             if (ShiftCount < 20){
                 changeSelect(SelectMode::NextSingle, true);
-                AsegurarVisible();
+                EnsureVisible();
             }
             ShiftCount = 0;
             LShiftPressed = false;
@@ -661,119 +813,116 @@ void Outliner::event_key_up(int tecla){
 }
 #endif
 
-// fila visible N (respetando desplegado) -> objeto REAL o fila VIRTUAL del armature 2D.
-// Devuelve true si la fila cayo en este subarbol (out queda cargado).
-static bool W3dFilaVisibleRec(Object* obj, int& fila, int prof, OutFila& out) {
+// Resolve visible row N (respecting expansion) to a real object or virtual 2D armature row.
+// Return true if the row is in this subtree and populate out.
+static bool FindVisibleRowRecursive(Object* obj, int& fila, int prof, OutFila& out) {
     if (fila == 0) { out.obj = obj; out.arm2d = NULL; out.prof = prof; return true; }
     fila--;
     if (obj->desplegado) {
-        Mesh* am = Arm2DDe(obj);
-        for (int k = 0, n = Arm2DCant(obj); k < n; k++) { // una fila por armature 2D (sin hijos)
+        Mesh* am = Armature2DOnMesh(obj);
+        for (int k = 0, n = Armature2DCount(obj); k < n; k++) { // One row per 2D armature; no children.
             if (fila == 0) { out.obj = NULL; out.arm2d = am; out.arm2dIdx = k; out.prof = prof + 1; return true; }
             fila--;
         }
         for (size_t o = 0; o < obj->Childrens.size(); o++)
-            if (W3dFilaVisibleRec(obj->Childrens[o], fila, prof + 1, out)) return true;
+            if (FindVisibleRowRecursive(obj->Childrens[o], fila, prof + 1, out)) return true;
     }
     return false;
 }
 
-// fila N del arbol completo: objeto real o fila virtual. false = la fila esta en el VACIO
-// (debajo del ultimo renglon) -> ahi el drop desemparenta a la raiz, como siempre.
-static bool W3dFilaEnArbol(int fila, OutFila& out) {
+// Resolve row N in the full tree to a real object or virtual row. Return false when the row
+// is in empty space (below the last row); dropping there unparents the object to the root.
+static bool FindRowInTree(int fila, OutFila& out) {
     if (!SceneCollection) return false;
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++)
-        if (W3dFilaVisibleRec(SceneCollection->Childrens[c], fila, 0, out)) return true;
+        if (FindVisibleRowRecursive(SceneCollection->Childrens[c], fila, 0, out)) return true;
     return false;
 }
 
-// objeto en la fila visible N (+ su profundidad en profOut). NULL = vacio o fila VIRTUAL
-// (la fila del armature 2D no es un objeto: no se selecciona ni es destino de drop).
-static Object* W3dObjetoEnFila(int fila, int* profOut) {
+// Return the object in visible row N and its depth in profOut. NULL means empty space or a virtual
+// row (a 2D armature row is not an object, so it cannot be selected or used as a drop target).
+static Object* ObjectAtRow(int fila, int* profOut) {
     OutFila f;
-    if (!W3dFilaEnArbol(fila, f)) return NULL;
+    if (!FindRowInTree(fila, f)) return NULL;
     if (profOut) *profOut = f.prof;
     return f.obj;
 }
 
-// numero de fila visible de un objeto (-1 si no esta a la vista)
-static bool W3dBuscarFila(Object* obj, Object* objetivo, int* fila) {
+// Return an object's visible row number, or -1 if it is not visible.
+static bool FindObjectRowRecursive(Object* obj, Object* objetivo, int* fila) {
     if (obj == objetivo) return true;
     (*fila)++;
     if (obj->desplegado) {
-        (*fila) += Arm2DCant(obj);    // las filas virtuales de armature 2D corren la numeracion
+        (*fila) += Armature2DCount(obj);    // Virtual 2D armature rows are included in row numbering.
         for (size_t o = 0; o < obj->Childrens.size(); o++) {
-            if (W3dBuscarFila(obj->Childrens[o], objetivo, fila)) return true;
+            if (FindObjectRowRecursive(obj->Childrens[o], objetivo, fila)) return true;
         }
     }
     return false;
 }
 
-static int W3dFilaDe(Object* objetivo) {
+static int RowForObject(Object* objetivo) {
     if (!objetivo || !SceneCollection) return -1;
     int fila = 0;
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++) {
-        if (W3dBuscarFila(SceneCollection->Childrens[c], objetivo, &fila)) {
+        if (FindObjectRowRecursive(SceneCollection->Childrens[c], objetivo, &fila)) {
             return fila;
         }
     }
     return -1;
 }
 
-// NUMPAD "." = centrar la SELECCION en la vista (el analogo del Frame Selected de Blender,
-// por diseno). Scrollea PosY para que la fila objetivo quede en el MEDIO del area de
-// contenido. Con varios seleccionados se centra el PROMEDIO de sus filas VISIBLES (un objeto
-// dentro de un padre plegado no tiene fila: no aporta); sin seleccion visible cae al objeto
-// ACTIVO. Solo scroll vertical: no toca PosX, la seleccion ni el desplegado.
-void Outliner::CentrarSeleccion() {
+// Numpad "." centers the selection in the view (the equivalent of Blender's Frame Selected).
+// Scroll PosY to place the target row in the middle of the content area. With multiple selected
+// objects, center the average of their visible rows; objects inside collapsed parents do not
+// contribute. If none are visible, use the active object. Only vertical scrolling changes.
+void Outliner::CenterSelection() {
     if (!SceneCollection) return;
     long suma = 0; int n = 0;
     for (size_t i = 0; i < ObjSelects.size(); i++) {
-        int f = W3dFilaDe(ObjSelects[i]);
+        int f = RowForObject(ObjSelects[i]);
         if (f >= 0) { suma += f; n++; }
     }
     if (n == 0 && ObjActivo) {
-        int f = W3dFilaDe(ObjActivo);
+        int f = RowForObject(ObjActivo);
         if (f >= 0) { suma = f; n = 1; }
     }
-    if (n == 0) return;                     // nada seleccionado a la vista: no hay que encuadrar
+    if (n == 0) return;                     // Nothing visible is selected, so there is nothing to frame.
     int fila = (int)(suma / n);
-    // geometria de las filas (la misma cuenta que Render/ClickSeleccionar):
-    //   y_local(fila) = borderGS + PosY + BarTopOffset() + fila * RenglonHeightGS
-    // se pide y_local(fila) + RenglonHeightGS/2 == centro del area de contenido.
+    // Row geometry (the same calculation used by Render and SelectRowAt):
+    //   y_local(row) = borderGS + PosY + BarTopOffset() + row * RenglonHeightGS
+    // Center the row by setting y_local(row) + RenglonHeightGS/2 to the content area's center.
     int top = BarTopOffset();
     int centro = top + (height - top) / 2;
     int nuevo = centro - (int)RenglonHeightGS / 2 - borderGS - top - fila * (int)RenglonHeightGS;
-    if (nuevo > 0) nuevo = 0;               // no scrollear "antes" del inicio
-    if (nuevo < MaxPosY) nuevo = MaxPosY;   // ni mas alla del final (MaxPosY es <= 0)
+    if (nuevo > 0) nuevo = 0;               // Do not scroll past the beginning.
+    if (nuevo < MaxPosY) nuevo = MaxPosY;   // Do not scroll past the end (MaxPosY is <= 0).
     if (nuevo != PosY) { PosY = nuevo; g_redraw = true; }
 }
 
-// AUTO-SCROLL de la navegacion por teclado: el scroll MINIMO para que la fila del
-// objeto ACTIVO entre entera en el area de contenido. Si ya se ve, no toca nada (por
-// eso no reusa CentrarSeleccion: centrar en cada flecha, con 315 objetos, marea).
-// Antes no habia auto-scroll de ningun tipo: el unico encuadre era el numpad ".", asi
-// que bajando con la flecha el highlight se iba abajo de todo y no se veia mas.
-void Outliner::AsegurarVisible() {
+// Keyboard-navigation auto-scroll: apply the minimum scroll needed to show the active object's
+// full row in the content area. Do nothing if it is already visible; recentering on every arrow
+// key would be disorienting in large scenes. Previously, only Numpad "." framed the view, so
+// navigating down eventually moved the highlight out of sight.
+void Outliner::EnsureVisible() {
     if (!SceneCollection || !ObjActivo) return;
-    int fila = W3dFilaDe(ObjActivo);
-    if (fila < 0) return;                   // adentro de una rama plegada: no tiene fila
+    int fila = RowForObject(ObjActivo);
+    if (fila < 0) return;                   // An object inside a collapsed branch has no visible row.
     const int top = BarTopOffset();
     const int alto = (int)RenglonHeightGS;
-    // y_local(fila) = borderGS + PosY + top + fila * alto   (la misma cuenta de Render)
+    // y_local(row) = borderGS + PosY + top + row * height (same calculation as Render).
     const int yFila = borderGS + PosY + top + fila * alto;
     int nuevo = PosY;
-    if (yFila < top)                  nuevo = PosY + (top - yFila);              // se fue por ARRIBA
-    else if (yFila + alto > height)   nuevo = PosY - (yFila + alto - height);    // se fue por ABAJO
-    if (nuevo > 0) nuevo = 0;               // no scrollear "antes" del inicio
-    if (nuevo < MaxPosY) nuevo = MaxPosY;   // ni mas alla del final (MaxPosY es <= 0)
+    if (yFila < top)                  nuevo = PosY + (top - yFila);              // It moved above the viewport.
+    else if (yFila + alto > height)   nuevo = PosY - (yFila + alto - height);    // It moved below the viewport.
+    if (nuevo > 0) nuevo = 0;               // Do not scroll past the beginning.
+    if (nuevo < MaxPosY) nuevo = MaxPosY;   // Do not scroll past the end (MaxPosY is <= 0).
     if (nuevo != PosY) { PosY = nuevo; g_redraw = true; }
 }
 
-// suelta el arrastre de una fila: reordena (bordes de la fila destino),
-// emparenta (centro de la fila, manteniendo la transformacion) o manda
-// a la raiz (soltar en el vacio)
-void Outliner::SoltarDrag(int mx, int my) {
+// Finish a row drag: reorder at the target row's edges, parent at its center while preserving
+// the transform, or move to the root when dropped in empty space.
+void Outliner::FinishRowDrag(int mx, int my) {
     Object* obj = dragObjeto;
     bool estaba = dragging;
     dragObjeto = NULL;
@@ -787,19 +936,19 @@ void Outliner::SoltarDrag(int mx, int my) {
     int resto = rel % RenglonHeightGS;
     int f = fila;
     OutFila hitF;
-    bool hay = W3dFilaEnArbol(f, hitF);
-    if (hay && hitF.arm2d) return;   // fila VIRTUAL del armature 2D: no acepta drops
+    bool hay = FindRowInTree(f, hitF);
+    if (hay && hitF.arm2d) return;   // Virtual 2D armature rows do not accept drops.
     Object* destino = hay ? hitF.obj : NULL;
     if (!destino) {
-        // al vacio: desemparenta hacia la raiz, sin moverse del lugar
+        // Empty space: unparent to the root without changing the position.
         ReparentKeepTransform(obj, SceneCollection);
     } else if (destino != obj) {
         if (resto < RenglonHeightGS / 4) {
-            MoverJuntoA(obj, destino, false); // reordenar: antes
+            MoverJuntoA(obj, destino, false); // Reorder before the target.
         } else if (resto > (RenglonHeightGS * 3) / 4) {
-            MoverJuntoA(obj, destino, true); // reordenar: despues
+            MoverJuntoA(obj, destino, true); // Reorder after the target.
         } else {
-            // al centro: pasa a ser HIJO del destino (keep transform)
+            // Center: make it a child of the target while preserving its transform.
             ReparentKeepTransform(obj, destino);
             destino->desplegado = true;
         }
@@ -807,48 +956,45 @@ void Outliner::SoltarDrag(int mx, int my) {
     Resize(width, height);
 }
 
-// ---- MODO MOVER con teclado (reordenar / reparentar sin mouse) ----
-// NOMBRES: meter un objeto ADENTRO de otra escena (dir 3) le cambia el ESPACIO DE NOMBRES
-// y el embudo del reparent lo puede renumerar (ver W3dAdjuntarA en ObjectMode.cpp).
+// ---- Keyboard move mode (reorder or reparent without a mouse) ----
+// Names: moving an object into another scene (direction 3) changes its namespace,
+// and the reparenting path may rename it (see W3dAdjuntarA in ObjectMode.cpp).
 //
-// EL MODAL SUPRIME LOS RENAMES Y LOS RESUELVE AL CONFIRMAR. Motivo: cada paso que cruzaba
-// de escena renumeraba el subarbol Y empujaba su propio MultiRenameUndo. Cancelar
-// restauraba los nombres a mano, pero esos pasos QUEDABAN en el historial convertidos en
-// no-ops (sus valores viejos ya eran los actuales): N Ctrl+Z que no hacen nada. Y no hay
-// forma de sacarlos del stack (el modulo de undo no expone un "pop"). Entonces se invierte
-// el orden: durante el modal se levanta W3dNombresCargando -LA MISMA puerta que usan los
-// loaders, que hace que W3dAdjuntarA no renumere ni capture undo- y la uniquificacion se
-// hace UNA sola vez al CONFIRMAR, con UN solo paso de undo. Cancelar ya no tiene nada que
-// sacar del historial (y el snapshot de nombres queda igual, como red de seguridad).
-// Los nombres pueden verse repetidos MIENTRAS dura el modal: es transitorio y se resuelve
-// al soltar, igual que la posicion del objeto.
+// The modal defers renaming until confirmation. Otherwise, each cross-scene step renames the
+// subtree and adds its own MultiRenameUndo. Cancelling would restore names manually, but those
+// undo entries would remain as no-ops, with no supported way to remove them from the stack.
+// Instead, raise W3dNombresCargando during the modal (the same guard used by loaders) so
+// W3dAdjuntarA neither renames nor captures undo. Make names unique once on confirmation and
+// create one undo step. Cancelling then leaves the history untouched; the name snapshot remains
+// as a safeguard. Names may temporarily repeat during the modal, just as the object's position
+// is temporary until the move is confirmed.
 static std::vector<std::pair<Object*, std::string> > gMoverNombres;
-static void MoverJuntarNombres(Object* o) {
+static void CollectObjectNames(Object* o) {
     if (!o) return;
     gMoverNombres.push_back(std::make_pair(o, o->name));
-    for (size_t i = 0; i < o->Childrens.size(); i++) MoverJuntarNombres(o->Childrens[i]);
+    for (size_t i = 0; i < o->Childrens.size(); i++) CollectObjectNames(o->Childrens[i]);
 }
-// PRE-ORDEN (el mismo recorrido que usa la busqueda por nombre y que junta W3dAdjuntarA):
-// asi el que conserva el nombre pelado es el mismo objeto en los dos caminos.
-static void MoverJuntarSubarbol(Object* o, std::vector<Object*>& out) {
+// Pre-order traversal (the same order used by name lookup and W3dAdjuntarA),
+// so the same object keeps the unsuffixed name in both paths.
+static void CollectSubtreeObjects(Object* o, std::vector<Object*>& out) {
     if (!o) return;
     out.push_back(o);
-    for (size_t i = 0; i < o->Childrens.size(); i++) MoverJuntarSubarbol(o->Childrens[i], out);
+    for (size_t i = 0; i < o->Childrens.size(); i++) CollectSubtreeObjects(o->Childrens[i], out);
 }
-// al CONFIRMAR: re-uniquifica el subarbol movido en su scope definitivo, en UN paso de
-// undo (misma receta que W3dAdjuntarA, que aca quedo cortocircuitado por el guard).
-static void MoverUniquificarSubarbol(Object* raiz) {
+// On confirmation, make names unique within the moved subtree's final scope in one undo step.
+// This mirrors W3dAdjuntarA, which the guard bypasses during the modal.
+static void MakeSubtreeNamesUnique(Object* raiz) {
     if (!raiz) return;
     std::vector<Object*> sub;
-    MoverJuntarSubarbol(raiz, sub);
+    CollectSubtreeObjects(raiz, sub);
     bool hayCambio = false;
     for (size_t i = 0; i < sub.size() && !hayCambio; i++)
         if (sub[i]->NombreLibre(sub[i]->name) != sub[i]->name) hayCambio = true;
     if (!hayCambio) return;
-    // Object::name = destino 'Directo' legitimo (ver W3dRenameDest en Undo.h)
+    // Object::name is a valid direct destination (see W3dRenameDest in Undo.h).
     std::vector<W3dRenameDest> puntas;
     for (size_t i = 0; i < sub.size(); i++) puntas.push_back(W3dDestNombre(&sub[i]->name));
-    UndoCapturarRenames(puntas);   // TODAS las puntas en UN comando
+    UndoCapturarRenames(puntas);   // Capture all name destinations in one command.
     int n = 0; std::string primeros;
     for (size_t i = 0; i < sub.size(); i++) {
         const std::string viejo = sub[i]->name;
@@ -864,18 +1010,18 @@ static void MoverUniquificarSubarbol(Object* raiz) {
     }
 }
 
-// El objeto que se mueve es el ACTIVO. Guarda su posicion original para poder cancelar.
-void Outliner::MoverIniciar() {
+// Move the active object and save its original position so the operation can be cancelled.
+void Outliner::BeginKeyboardMove() {
     if (moviendo) return;
     if (!ObjActivo || !SceneCollection) return;
     moverObj = ObjActivo;
     gMoverNombres.clear();
-    MoverJuntarNombres(moverObj);
-    // UNDO: los pasos de adentro del modal NO capturan (W3dNombresCargando esta levantado, ver
-    // MoverPaso). El estado PREVIO se toma ACA, una sola vez, y se empuja al CONFIRMAR: asi el
-    // modal deja EXACTAMENTE un paso -mudanza + renumeracion- y el cancelar no deja ninguno.
+    CollectObjectNames(moverObj);
+    // Undo: steps inside the modal do not capture undo because W3dNombresCargando is set
+    // (see StepKeyboardMove). Capture the original state once here and push it on confirmation,
+    // leaving exactly one undo step for the move and renaming, or none if cancelled.
     UndoReparentIniciar(moverObj);
-    moverPadreOrig = moverObj->Parent;   // NULL = raiz
+    moverPadreOrig = moverObj->Parent;   // NULL means the root.
     moverAnteriorOrig = NULL;
     Object* padre = moverObj->Parent ? moverObj->Parent : SceneCollection;
     for (size_t i = 0; i < padre->Childrens.size(); i++)
@@ -883,43 +1029,43 @@ void Outliner::MoverIniciar() {
     moviendo = true;
 }
 
-// dir: 0=arriba 1=abajo (reordena entre hermanos) 2=afuera(unparent) 3=adentro(parent bajo el hermano anterior)
-void Outliner::MoverPaso(int dir) {
+// dir: 0=up, 1=down (reorder siblings), 2=out (unparent), 3=in (parent under the previous sibling).
+void Outliner::StepKeyboardMove(int dir) {
     if (!moviendo || !moverObj || !SceneCollection) return;
     Object* padre = moverObj->Parent ? moverObj->Parent : SceneCollection;
     int idx = -1;
     for (size_t i = 0; i < padre->Childrens.size(); i++)
         if (padre->Childrens[i] == moverObj) { idx = (int)i; break; }
     if (idx < 0) return;
-    // los renames (y su undo) se posponen al MoverConfirmar: ver el bloque de arriba
+    // Defer renaming and its undo entry until ConfirmKeyboardMove; see the explanation above.
     struct MoverGuard { bool prev; MoverGuard(){ prev = W3dNombresCargando; W3dNombresCargando = true; }
                         ~MoverGuard(){ W3dNombresCargando = prev; } } moverGuard;
-    if (dir == 0) {                         // ARRIBA: antes del hermano anterior
+    if (dir == 0) {                         // Up: before the previous sibling.
         if (idx > 0) { Object* ref = padre->Childrens[idx-1]; MoverJuntoA(moverObj, ref, false); }
-    } else if (dir == 1) {                  // ABAJO: despues del hermano siguiente
+    } else if (dir == 1) {                  // Down: after the next sibling.
         if (idx + 1 < (int)padre->Childrens.size()) { Object* ref = padre->Childrens[idx+1]; MoverJuntoA(moverObj, ref, true); }
-    } else if (dir == 2) {                  // AFUERA (unparent): al abuelo, justo despues del padre
+    } else if (dir == 2) {                  // Out (unparent): to the grandparent, just after the parent.
         if (padre != SceneCollection) {
             Object* viejoPadre = padre;
             Object* abuelo = padre->Parent ? padre->Parent : SceneCollection;
             ReparentKeepTransform(moverObj, abuelo);
             MoverJuntoA(moverObj, viejoPadre, true);
         }
-    } else if (dir == 3) {                  // ADENTRO (parent): hijo del hermano anterior
+    } else if (dir == 3) {                  // In (parent): become a child of the previous sibling.
         if (idx > 0) {
             Object* nuevoPadre = padre->Childrens[idx-1];
             ReparentKeepTransform(moverObj, nuevoPadre);
             nuevoPadre->desplegado = true;
         }
     }
-    Resize(width, height); // recalcular el scroll
+    Resize(width, height); // Recalculate scrolling.
 }
 
-void Outliner::MoverConfirmar() {
+void Outliner::ConfirmKeyboardMove() {
     if (moviendo && moverObj) {
-        UndoGrupoIniciar();          // la mudanza y los nombres, en UN SOLO Ctrl+Z
-        UndoReparentConfirmar();     // el paso del ARBOL (capturado en MoverIniciar) va PRIMERO
-        MoverUniquificarSubarbol(moverObj); // recien ACA se renumera (y empuja su paso)
+        UndoGrupoIniciar();          // Group the move and renames into a single undo step.
+        UndoReparentConfirmar();     // Add the tree change captured in BeginKeyboardMove first.
+        MakeSubtreeNamesUnique(moverObj); // Rename only now, adding its step to the group.
         UndoGrupoFin();
     } else {
         UndoReparentCancelar();
@@ -927,21 +1073,21 @@ void Outliner::MoverConfirmar() {
     moviendo = false; moverObj = NULL; gMoverNombres.clear();
 }
 
-void Outliner::MoverCancelar() {
-    UndoReparentCancelar();   // el objeto vuelve solo: el modal no deja NINGUN paso (test 'nombresmover')
+void Outliner::CancelKeyboardMove() {
+    UndoReparentCancelar();   // Restore the object; the modal leaves no undo step (test 'nombresmover').
     if (moviendo && moverObj && SceneCollection) {
-        // el regreso tampoco tiene que renumerar ni empujar undo (los pasos ya no lo hicieron)
+        // Restoring the original position must not rename objects or add undo entries either.
         struct MoverGuard { bool prev; MoverGuard(){ prev = W3dNombresCargando; W3dNombresCargando = true; }
                             ~MoverGuard(){ W3dNombresCargando = prev; } } moverGuard;
         Object* padreOrig = moverPadreOrig ? moverPadreOrig : SceneCollection;
-        ReparentKeepTransform(moverObj, padreOrig); // restaura el padre + el transform local (el mundo se mantuvo)
+        ReparentKeepTransform(moverObj, padreOrig); // Restore the parent and local transform; world transform is preserved.
         if (moverAnteriorOrig) {
-            MoverJuntoA(moverObj, moverAnteriorOrig, true); // justo despues del hermano que estaba antes
+            MoverJuntoA(moverObj, moverAnteriorOrig, true); // Place it immediately after its previous sibling.
         } else {
-            for (size_t i = 0; i < padreOrig->Childrens.size(); i++) // era el PRIMERO: al frente
+            for (size_t i = 0; i < padreOrig->Childrens.size(); i++) // It was first: move it to the front.
                 if (padreOrig->Childrens[i] != moverObj) { MoverJuntoA(moverObj, padreOrig->Childrens[i], false); break; }
         }
-        // ...y los NOMBRES (el reparent los pudo renumerar al cruzar de escena)
+        // Restore names too; reparenting may have changed them across scenes.
         for (size_t i = 0; i < gMoverNombres.size(); i++)
             if (gMoverNombres[i].first) gMoverNombres[i].first->SetNameObj(gMoverNombres[i].second);
         Resize(width, height);
@@ -949,43 +1095,51 @@ void Outliner::MoverCancelar() {
     moviendo = false; moverObj = NULL; gMoverNombres.clear();
 }
 
-void Outliner::ClickSeleccionar(int mx, int my) {
+void Outliner::SelectRowAt(int mx, int my) {
     if (!SceneCollection) return;
     int rel = my - y - borderGS - PosY - BarTopOffset();
-    if (rel < 0) return;   // franja del borde: la division de un negativo chico daba fila 0
+    if (rel < 0) return;   // Ignore the border; dividing a small negative value would yield row 0.
     int fila = rel / RenglonHeightGS;
-    int filaClick = fila; // (el walk de abajo consume "fila")
-    // columnas de la derecha: CAMARA (renderizar) y OJO (a su izquierda), corridas
-    // por la barra de scroll vertical si esta presente
+    int filaClick = fila; // The traversal below consumes "fila".
+    // Right-side columns: camera, visibility, and scene loading, shifted
+    // by the vertical scrollbar when it is present.
     int reservaBarra = scrollY ? (GlobalScale * 9 + gapGS) : 0;
     bool enCamara = (mx - x) >= (width - IconSizeGS - marginGS - borderGS - reservaBarra) &&
                     (mx - x) <  (width - marginGS - borderGS - reservaBarra);
     bool enOjo = !enCamara && (mx - x) >= (width - 2*IconSizeGS - gapGS - marginGS - borderGS - reservaBarra) &&
                  (mx - x) < (width - IconSizeGS - gapGS - marginGS - borderGS - reservaBarra);
-    // ---- fila VIRTUAL del armature 2D: INERTE. No se selecciona, no se arrastra, no se empareja,
-    // no tiene ojo/camara y no se despliega (los huesos se listan y se editan en la pestania
-    // "Armature 2D" del panel Properties). El click se COME aca para que no caiga en la malla.
+    bool enCarga = !enCamara && !enOjo &&
+                   (mx - x) >= (width - 3*IconSizeGS - 2*gapGS - marginGS - borderGS - reservaBarra) &&
+                   (mx - x) < (width - 2*IconSizeGS - 2*gapGS - marginGS - borderGS - reservaBarra);
+    // ---- Virtual 2D armature row: inert. It cannot be selected, dragged, parented,
+    // toggled, or expanded. Its bones are listed in the Properties panel's "Armature 2D" tab.
+    // Consume the click here so it does not fall through to the mesh.
     {
         int fv = fila; OutFila hv;
-        if (W3dFilaEnArbol(fv, hv) && hv.arm2d) return;
+        if (FindRowInTree(fv, hv) && hv.arm2d) return;
     }
     for (size_t c = 0; c < SceneCollection->Childrens.size(); c++) {
         int prof = 0;
         OutFila hf;
-        Object* hit = W3dFilaVisibleRec(SceneCollection->Childrens[c], fila, 0, hf) ? hf.obj : NULL;
+        Object* hit = FindVisibleRowRecursive(SceneCollection->Childrens[c], fila, 0, hf) ? hf.obj : NULL;
         prof = hf.prof;
         if (hit) {
-            // la FLECHA de desplegar (primer icono, segun la profundidad)
+            // Expand arrow (the first icon at this depth).
             int xFlecha = x + marginGS + PosX + prof * (IconSizeGS + gapGS);
-            if (!enOjo && !enCamara && mx >= xFlecha && mx < xFlecha + IconSizeGS &&
+            if (!enOjo && !enCamara && !enCarga && mx >= xFlecha && mx < xFlecha + IconSizeGS &&
                 !hit->Childrens.empty()) {
                 hit->desplegado = !hit->desplegado;
-                Resize(width, height); // recalcular el scroll
+                Resize(width, height); // Recalculate scrolling.
                 return;
             }
-            if (!enOjo && !enCamara) {
-                // el click puede convertirse en ARRASTRE (reordenar /
-                // emparentar): se confirma al moverse con el boton
+            if (enCarga && hit->getType() == ObjectType::ui) {
+                ToggleSceneLoadedState((UI*)hit);
+                Resize(width, height);
+                return;
+            }
+            if (!enOjo && !enCamara && !enCarga) {
+                // This click may become a drag to reorder or parent; confirm it
+                // once the pointer moves while the button is held.
                 dragObjeto = hit;
                 dragging = false;
                 dragY0 = my;
@@ -995,30 +1149,30 @@ void Outliner::ClickSeleccionar(int mx, int my) {
             } else if (enOjo) {
                 hit->visible = !hit->visible;
             } else if (LShiftPressed) {
-                // shift+click: RANGO desde el activo hasta la fila
-                // clickeada (1 y 4 -> 1,2,3,4), sumando a la seleccion
-                int desde = W3dFilaDe(ObjActivo);
+                // Shift-click adds the range from the active row through the clicked row
+                // (for example, rows 1 and 4 select rows 1 through 4).
+                int desde = RowForObject(ObjActivo);
                 if (desde < 0) {
                     hit->Seleccionar();
                 } else {
                     int a = desde < filaClick ? desde : filaClick;
                     int b = desde < filaClick ? filaClick : desde;
                     for (int f = a; f <= b; f++) {
-                        Object* o = W3dObjetoEnFila(f);
-                        // el rango tiene que quedar en ObjSelects, no solo con select=true:
-                        // operaciones como Join arman su lista desde ObjSelects pero borran por el
-                        // flag select -> un rango select=true fuera de ObjSelects se borra SIN unirse
-                        // (las mallas intermedias "desaparecen"). Mantener ambos consistentes.
+                        Object* o = ObjectAtRow(f);
+                        // Keep the range in ObjSelects as well as setting select=true:
+                        // operations such as Join build their list from ObjSelects but delete
+                        // by the select flag. Otherwise, selected objects outside ObjSelects
+                        // would be deleted without being joined. Keep both representations consistent.
                         if (o && !o->select) { o->select = true; ObjSelects.push_back(o); }
                     }
-                    hit->Seleccionar(); // el clickeado queda activo
+                    hit->Seleccionar(); // Keep the clicked object active.
                 }
             } else if (LCtrlPressed) {
-                // ctrl+click: agregar/sacar UNO de la seleccion (Deseleccionar lo saca de ObjSelects,
-                // no solo select=false -> sino quedaba en ObjSelects y ops como Join lo procesaban igual)
+                // Ctrl-click toggles one object. Deseleccionar also removes it from ObjSelects;
+                // setting select=false alone would leave it there for operations such as Join.
                 if (hit->select) { hit->Deseleccionar(); if (ObjActivo == hit) ObjActivo = NULL; }
                 else { hit->Seleccionar(); }
-            } else if (!enOjo && !enCamara) {
+            } else if (!enOjo && !enCamara && !enCarga) {
                 DeseleccionarTodo();
                 hit->Seleccionar();
             }

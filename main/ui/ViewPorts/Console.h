@@ -45,7 +45,7 @@ class Console : public ViewportBase, public WithBorder, public Scrollable {
         // 1=3D 2=outliner 3=props 4=UV 5=timeline 6=2D 7=console
         int ViewportKind() const { return 7; }
         // engancha el ruteo compartido de scrollbars (hover/agarre/arrastre/touch)
-        Scrollable* ComoScrollable() { return this; }
+        Scrollable* AsScrollable() { return this; }
 
         // metricas del contenido la ultima vez que se midio (para recalcular el
         // rango de scroll SOLO cuando cambia algo, como lastContentRows del Outliner)

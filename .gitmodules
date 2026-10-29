@@ -1,6 +1,6 @@
 [submodule "libs/Whisk3DCore"]
 	path = libs/Whisk3DCore
-	url = https://github.com/Dante-Leoncini/Whisk3Dcore
+	url = https://github.com/kaptenangkasa99-ops/Whisk3DCore/tree/my-feature-branch
 [submodule "libs/WhiskUI"]
 	path = libs/WhiskUI
 	url = https://github.com/Dante-Leoncini/Whisk3D-UI

@@ -252,7 +252,7 @@ static void SimPlay() {
     // Stop dejaba pegado lo que los scripts movieron en inicio().)
     Snapshot(&gBaseEditor);
     // MULTI-ESCENA: registrar las escenas UI. La INICIAL arranca ya; las demas quedan
-    // cargadas pero sin inicir (init perezoso al hacer cambiarEscena()).
+    // cargadas pero sin iniciar (init perezoso al hacer changeScene()).
     W3dEscenaSetInit(EditorInitEscena);
     W3dEscenaRegistrarTodas();
     bool hayEscenas = W3dEscenaHayEscenas();
@@ -364,7 +364,7 @@ static void TickReal(float dt) {
     // Limpiar los downs retenidos despues de que todos los scripts los hayan leido,
     // igual que en el runtime generado.
     BindsJuegoSnapshotPunteros();
-    // el cambio de escena pedido por cambiarEscena() se aplica ACA, al final del frame (no
+    // el cambio de escena pedido por changeScene() se aplica ACA, al final del frame (no
     // en el callback: no mutar la iteracion de arriba). El init perezoso corre en este punto.
     W3dEscenaAplicarPendiente();
     // VERTEX ANIMS AL AVANZAR FRAME A FRAME EN PAUSA. Jugando, quien las hace

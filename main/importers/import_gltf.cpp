@@ -440,7 +440,11 @@ bool ImportGLTF(const std::string& filepath) {
       for (int i = 0; i < nNodes; i++) L::rec(i, globalM, localM, parentNode, done);
     }
 
+#ifdef W3D_GAME_RUNTIME
+    Object* collection = SceneCollection;
+#else
     Object* collection = CollectionActive;
+#endif
     std::string baseNom = ExtractBaseName(filepath);
 
     // ---- skin -> Armature ----

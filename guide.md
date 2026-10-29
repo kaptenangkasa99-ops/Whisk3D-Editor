@@ -577,7 +577,7 @@ These are the Whisk3D globals registered for scripts. Names and capitalization a
 | Vertex editing | `grupoVertices`, `verticePos`, `setVerticePos`, `setVerticeColor`, `setVertices` |
 | Physics | `velocity`, `accelerate`, `collisionBox`, `bounce`, `bounceWithin`, `bounceInside` |
 | Screen and UI | `screen`, `posPx`, `setPosPx`, `getScreenPx`, `setScreenPx`, `setText`, `setTextura`, `show`, `setOpacity`, `setFontScreenSize`, `isPressed`, `isColliding`, `clamp`, `isInside`, `getScale`, `getSafeArea`, `fade`, `getUIBox`, `screenOf`, `quot` |
-| Camera, visibility, and game | `setRail`, `setRailNode`, `setRailLookAt`, `railOf`, `lensOf`, `setLens`, `cameraXZ`, `target`, `controllers`, `controller`, `setSector`, `visibilityCell`, `setVisibilityAnchor`, `setVisibilityCurve`, `setCollection`, `emitter`, `cambiarEscena` |
+| Camera, visibility, and game | `setRail`, `setRailNode`, `setRailLookAt`, `railOf`, `lensOf`, `setLens`, `cameraXZ`, `target`, `controllers`, `controller`, `setSector`, `visibilityCell`, `setVisibilityAnchor`, `setVisibilityCurve`, `setCollection`, `emitter`, `changeScene` |
 
 The physics functions are still registered in builds made without the physics module, but those builds provide disabled stubs. Some scene, visibility, particle, and collection operations depend on runtime hooks; see their individual descriptions below.
 
@@ -2190,14 +2190,16 @@ Changes a collection's static-batch mode. The mode defaults to `"off"`; use
 `"estatico"` to enable static batching, and `"off"` to disable it.
 The function has no return value.
 
-#### `cambiarEscena(name: string [, restart: boolean])`
+#### `changeScene(name: string [, restart: boolean])`
 Requests a switch to the named scene. `restart` defaults to false; pass true to
 request a restart. The function has no return value.
 
 ```lua
 setVisibilityCurve(tunnelZone, railOf(camera) == "TunnelRail" and 0.5 or 0)
-cambiarEscena("NextLevel")
+changeScene("NextLevel")
 ```
+
+`cambiarEscena` remains available as a compatibility alias for existing scripts.
 
 These operations depend on the relevant editor/runtime feature hook being available. The request is processed by the game loop; it does not synchronously replace the active scene inside the current callback.
 

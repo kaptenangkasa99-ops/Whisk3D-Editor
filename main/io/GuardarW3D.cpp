@@ -1418,23 +1418,50 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
         std::string visible = u->archivoW3dui.empty()
                                   ? (o->name.empty() ? std::string("ui") : o->name)
                                   : BaseSinExt(u->archivoW3dui);
+        std::string uiOrigen = u->archivoW3dui;
         std::string nom = "escenas/" + W3dSlugEntrada(visible) + ".w3dui";
         for (int k = 2; cx->esc->Tiene(nom); k++) {
             char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
             nom = "escenas/" + W3dSlugEntrada(visible) + sf + ".w3dui";
         }
         u->archivoW3dui = nom;
-        // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
-        // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
-        std::string tmpUi = cx->esc->RutaTemporal("e");
-        std::string quienAntes = gQuien;
-        gQuien = "escena \"" + o->name + "\"";
-        bool okUi = UI2DGuardar(u, tmpUi, std::string());
-        gQuien = quienAntes;
-        if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi)) {
-            remove(tmpUi.c_str());
-            w3dLogfE("GuardarW3D: no pude escribir la escena UI %s", nom.c_str());
-            cx->error = true;
+        if (u->cargada) {
+            // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
+            // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
+            std::string tmpUi = cx->esc->RutaTemporal("e");
+            std::string quienAntes = gQuien;
+            gQuien = "escena \"" + o->name + "\"";
+            bool okUi = UI2DGuardar(u, tmpUi, std::string());
+            gQuien = quienAntes;
+            if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi)) {
+                remove(tmpUi.c_str());
+                w3dLogfE("GuardarW3D: no pude escribir la escena UI %s", nom.c_str());
+                cx->error = true;
+            }
+        } else {
+            // El placeholder no contiene el arbol. Copiar el .w3dui guardado tal cual
+            // mantiene la escena persistente sin volver a cargarla en memoria.
+            std::vector<unsigned char> uiGuardada;
+            std::string rutaUi = uiOrigen;
+            bool leida = false;
+            if (!rutaUi.empty() && rutaUi[0] != '/' &&
+                !(rutaUi.size() > 1 && rutaUi[1] == ':') &&
+                !g_w3dDirProyecto.empty()) {
+                std::string enProyecto = g_w3dDirProyecto + "/" + rutaUi;
+                leida = w3dFileSystem::ReadFileBytes(enProyecto, uiGuardada);
+                if (leida)
+                    rutaUi = enProyecto;
+            }
+            if (!leida && !rutaUi.empty())
+                leida = w3dFileSystem::ReadFileBytes(rutaUi, uiGuardada);
+            bool okUi = leida && !uiGuardada.empty() &&
+                cx->esc->AgregarBytes(nom,
+                    std::string(uiGuardada.begin(), uiGuardada.end()), false);
+            if (!okUi) {
+                w3dLogfE("GuardarW3D: no pude preservar la escena UI descargada %s",
+                         uiOrigen.c_str());
+                cx->error = true;
+            }
         }
         JSang(s, ind + 1); s += "\"tipo\": \"ui\",\n";
         JSang(s, ind + 1); s += "\"archivo\": "; JEsc(s, nom);

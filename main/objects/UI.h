@@ -70,9 +70,11 @@ public:
     // las escenas UI viven como .w3dui externos al lado del .w3d). Vacio = UI nueva
     // que nunca se guardo: al guardar toma "<nombre>.w3dui".
     std::string archivoW3dui;
+    bool cargada;         // false = Outliner conserva solo el placeholder de una escena descargada
 
     UI(Object* parent = NULL, Vector3 pos = Vector3(0,0,0))
         : Object(parent, "UI", pos) {
+        cargada = true;
         verEn3D = false;
         igualQueRender = true;
         ancho = 640.0f; alto = 480.0f;

@@ -22,7 +22,7 @@ class Scrollable; // ScrollBar.h (que incluye a este: por eso va declarada, no i
 
 // El icono de un objeto se DERIVA de su tipo (el core ya no guarda iconos de UI).
 // Compartido por Outliner + Properties; definido en Outliner.cpp.
-size_t IconoDeObjeto(Object* o);
+size_t ObjectIcon(Object* o);
 
 #ifdef W3D_SYMBIAN
     #include <GLES/gl.h>
@@ -117,7 +117,7 @@ class ViewportBase {
         // Antes esto era una tabla de downcasts a mano indexada por ViewportKind(), en LayoutInput: para que un
         // viewport nuevo tuviera scroll habia que acordarse de agregarlo ALLA. Si te olvidabas, la barra se
         // dibujaba y no respondia a nada. Asi el enganche vive en el propio viewport y es una linea.
-        virtual Scrollable* ComoScrollable() { return NULL; }
+        virtual Scrollable* AsScrollable() { return NULL; }
 
         virtual void event_mouse_motion(int mx, int my);
         virtual void button_left();

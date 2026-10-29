@@ -43,7 +43,8 @@ void W3dEscenaRegistrarTodas() {
     if (!SceneCollection) return;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
         Object* o = SceneCollection->Childrens[i];
-        if (o && o->getType() == ObjectType::ui) gEscenas[o->name] = (UI*)o;
+        if (o && o->getType() == ObjectType::ui && ((UI*)o)->cargada)
+            gEscenas[o->name] = (UI*)o;
     }
 }
 
@@ -93,7 +94,7 @@ void W3dEscenaAplicarPendiente() {
     bool yaInit = (gInited.find(nueva) != gInited.end() && gInited[nueva]);
     MostrarSolo(nueva);            // ocultar la activa anterior, mostrar la nueva
     gEscActiva = nueva;
-    // init PEREZOSO (primera vez) o REINICIO forzado (cambiarEscena(n, true))
+    // init perezoso (primera vez) o reinicio forzado (changeScene(n, true))
     if (!yaInit || gReiniciarPend) {
         if (gInitFn) gInitFn(nueva, gReiniciarPend && yaInit);   // reiniciar solo si ya estaba iniciada
         gInited[nueva] = true;
@@ -376,9 +377,9 @@ void W3dPaletaRenombrar(int idx, const std::string& nuevo) {
 }
 
 // ---------------------------------------------------------------------------
-//  BIND lua: cambiarEscena(nombre[, reiniciar]).
+//  Lua bind: changeScene(name[, restart]).
 // ---------------------------------------------------------------------------
-static int LCambiarEscena(lua_State* L) {
+static int LChangeScene(lua_State* L) {
     const char* n = lua_tostring(L, 1);
     bool re = lua_toboolean(L, 2) != 0;
     if (n) W3dEscenaPedirCambio(n, re);
@@ -386,5 +387,7 @@ static int LCambiarEscena(lua_State* L) {
 }
 void W3dEscenaRegistrarBind(void* Lv) {
     lua_State* L = (lua_State*)Lv;
-    lua_pushcfunction(L, LCambiarEscena); lua_setglobal(L, "cambiarEscena");
+    lua_pushcfunction(L, LChangeScene); lua_setglobal(L, "changeScene");
+    // Keep existing projects working while scripts migrate to the English name.
+    lua_pushcfunction(L, LChangeScene); lua_setglobal(L, "cambiarEscena");
 }

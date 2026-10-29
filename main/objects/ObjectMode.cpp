@@ -2388,7 +2388,7 @@ std::string W3dRenombrarObjeto(Object* o, const std::string& pedido, bool avisar
         if (nrefs > 0 || ntgt > 0)
             W3dAvisof(false, "%d referencia(s) de script y %d target(s) actualizados", nrefs, ntgt);
         if (o->getType() == ObjectType::ui)
-            W3dAvisof(true, "escena '%s' -> '%s': revisa los cambiarEscena(\"%s\") de tus .lua",
+            W3dAvisof(true, "scene '%s' -> '%s': check changeScene(\"%s\") calls in your Lua scripts",
                       W3dNombreCorto(viejo).c_str(), W3dNombreCorto(nuevo).c_str(),
                       W3dNombreCorto(viejo).c_str());
     }

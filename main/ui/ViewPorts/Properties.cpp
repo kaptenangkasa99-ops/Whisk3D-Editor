@@ -75,7 +75,7 @@ void DibujarTitulo(Object* obj, int maxPixels){
     SetColorID(ColorID::blanco);
 
     //icono de la coleccion
-    W3dDrawStrip4(IconMesh, IconsUV[IconoDeObjeto(obj)]->uvs);
+    W3dDrawStrip4(IconMesh, IconsUV[ObjectIcon(obj)]->uvs);
 
     //texto render
     w3dEngine::PushMatrix();
@@ -1284,7 +1284,7 @@ static void AccionMenuConFuente(){
     MenuConFuente->Agregar(T("View"), 1, (int)IconType::camera); // la camara que esta dibujando
     gConFuenteCand.clear(); RecolectarFuentesCon(SceneCollection, o);
     for (size_t i = 0; i < gConFuenteCand.size(); i++)
-        MenuConFuente->Agregar(gConFuenteCand[i]->name, 2 + (int)i, (int)IconoDeObjeto(gConFuenteCand[i]));
+        MenuConFuente->Agregar(gConFuenteCand[i]->name, 2 + (int)i, (int)ObjectIcon(gConFuenteCand[i]));
     AbrirMenuBajoBoton(MenuConFuente, PropsActivo->propConFuente->button);
 }
 // ---- "Mode" del billboard. Las DOS opciones representables desde la UI (W3dConstraint.h):
@@ -2716,7 +2716,7 @@ static void AccionMenuTarget(){
     RecolectarTargets(SceneCollection);
     for (size_t i = 0; i < gTargetCandidatos.size(); i++)
         MenuTarget->Agregar(gTargetCandidatos[i]->name, 1 + (int)i,
-                            (int)IconoDeObjeto(gTargetCandidatos[i]));
+                            (int)ObjectIcon(gTargetCandidatos[i]));
     bool esCam = ObjActivo->getType() == ObjectType::camera;
     Button* b = (esCam ? PropsActivo->propBtnCamTarget
                        : PropsActivo->propBtnInstTarget)->button;
@@ -2798,7 +2798,7 @@ static void AccionMenuModTarget(){
     MenuModTarget->Agregar(T("None"), 0);
     gTargetCandidatos.clear(); RecolectarTargets(SceneCollection);
     for (size_t i=0;i<gTargetCandidatos.size();i++)
-        MenuModTarget->Agregar(gTargetCandidatos[i]->name, 1+(int)i, (int)IconoDeObjeto(gTargetCandidatos[i]));
+        MenuModTarget->Agregar(gTargetCandidatos[i]->name, 1+(int)i, (int)ObjectIcon(gTargetCandidatos[i]));
     AbrirMenuBajoBoton(MenuModTarget, PropsActivo->propMirTarget->button);
 }
 // ===== target del modificador ARMATURE: SOLO esqueletos. Al elegirlo, la malla se skinnea a ese rig =====
@@ -7291,7 +7291,7 @@ void Properties::ActualizarPestanias(){
         if (esLuz)       icono = (int)IconType::light;
         else if (esCam)  icono = (int)IconType::camera;
         else if (esArm)  icono = (int)IconType::armature;      // esqueleto: pestania Animation
-        else if (esInst) icono = (int)IconoDeObjeto(ObjActivo); // instance/array/mirror
+        else if (esInst) icono = (int)ObjectIcon(ObjActivo); // instance/array/mirror
         else if (esT2d)  icono = (int)IconType::lista;           // elemento de texto 2D
         else if (esImg)  icono = (int)IconType::foto;            // elemento de imagen 2D
         else if (esRect) icono = (int)IconType::plane;           // elemento rectangulo 2D

@@ -89,3 +89,17 @@ The **Compile game** target `Windows .exe` builds into the project's
 The SDL2 source is built from this repository's `thirdparty/SDL2`; OpenGL and
 GLU come from Windows. Build output and compiler diagnostics are retained in
 `platform-build/windows/build.log`.
+
+The same build can be started without opening the editor window; progress is
+printed to the terminal while the full compiler output is saved to
+`platform-build/windows/build.log`:
+
+```bat
+platform\windows\build\Release\whisk3d.exe --build-game "C:\path\to\project.w3d" --platform windows
+```
+
+`--platform` accepts `windows`, `linux-deb`, `linux-appimage`, `web`, or
+`android`. If omitted, the project's saved target is used. Optional
+`--assets loose|packed` and `--debug` override the project's saved settings.
+The command returns exit code 0 on success and nonzero on invalid options or
+build failure.

@@ -1,53 +1,38 @@
-# Decisiones de diseño de Whisk3D
+# Whisk3D Design Decisions
 
-Las reglas que hay que respetar al tocar el editor. Cortas y al grano: si algo necesita
-explicarse largo, va en [decisiones-historia.md](decisiones-historia.md), no acá y **nunca**
-como un comentario gigante en el código.
+The rules that must be respected when modifying the editor. Short and to the point: if something requires a lengthy explanation, it goes in [decisiones-historia.md](decisiones-historia.md), not here and **never** as a giant comment in the code.
 
-Criterio para los comentarios del código: dicen **qué hace** y, si no es obvio, **por qué**.
-Dos o tres líneas. El relato de cómo se llegó a esa decisión va en el documento de historia.
+Criteria for code comments: they state **what it does** and, if not obvious, **why**. Two or three lines. The story of how that decision was reached goes in the history document.
 
 ---
 
-## Undo: los pasos que guardan un índice
+## Undo: Steps Storing an Index
 
-Un paso de undo puede guardar la posición de algo en una lista (la capa 3 de una malla, el
-clip 2 de un armature). Si entre que se guarda y que se aplica esa lista **se corre** —porque
-se borró o se reordenó un elemento— el Ctrl+Z cae sobre el elemento equivocado. No hay crash
-ni aviso: se corrompe en silencio.
+An undo step may store the position of an item within a list (layer 3 of a mesh, clip 2 of an armature). If that list **shifts** between when it is saved and when it is applied—because an element was deleted or reordered—Ctrl+Z hits the wrong element. There is no crash or warning: it corrupts silently.
 
-**La regla, para cualquier lista nueva:** si una lista tiene destinos de rename por índice
-(cualquier `W3dRenameDest` que no sea `Directo`), toda operación que corra sus índices
-—borrar, reordenar, insertar en el medio— tiene que hacer una de estas dos cosas:
+**The rule, for any new list:** if a list has rename targets by index (any `W3dRenameDest` other than `Directo`), any operation that shifts its indices—deleting, reordering, inserting in the middle—must do one of two things:
 
-1. **snapshotear la lista entera** en el mismo paso de undo, o
-2. **avisar** con `UndoListaBorrada` / `UndoListaMovida` / `UndoMoverCapaMalla` / `UndoMoverClipArm`.
+1. **snapshot the entire list** in the same undo step, or
+2. **notify** via `UndoListaBorrada` / `UndoListaMovida` / `UndoMoverCapaMalla` / `UndoMoverClipArm`.
 
-Y si el paso de undo guarda índices de esa lista, tiene que implementar `RemapLista`.
-Al agregar la lista, sumarla también a `W3dNombresJuntarEspacios` (`ObjectMode.cpp`).
+And if the undo step stores indices of that list, it must implement `RemapLista`.
+When adding the list, also include it in `W3dNombresJuntarEspacios` (`ObjectMode.cpp`).
 
-**Cómo clasificar cada miembro de un comando de undo:**
+**How to classify each member of an undo command:**
 
-| tipo | qué es | seguro? |
+| Type | What it is | Safe? |
 |---|---|---|
-| (a) | puntero revalidado al aplicar | sí (si murió, no-op) |
-| (b) | snapshot completo de la lista | sí, **solo si la lista se guarda** |
-| (c) | posición, o vector paralelo posicional | **peligroso**: decir contra qué lista indexa |
-| (d) | valor propio | sí |
+| (a) | Pointer revalidated upon execution | Yes (if dead, no-op) |
+| (b) | Full snapshot of the list | Yes, **only if the list is saved** |
+| (c) | Position, or parallel positional vector | **Dangerous**: specify which list it indexes against |
+| (d) | Own value | Yes |
 
-Tres reglas mecánicas para no clasificar mal:
+Three mechanical rules to prevent misclassification:
 
-- **R1.** Un snapshot no es (b) si la lista no se guarda. Si al aplicar la lista se vuelve a
-  buscar (por un global, por "el activo", por `FindTarget`), es (c) contra "la lista que esté
-  elegida en ese momento", que es el peor caso: cambia sin que se borre ni se reordene nada.
-- **R2.** La identidad tiene **dos partes**: el elemento y la lista. La segunda es la que
-  siempre se olvida.
-- **R3.** En las claves con dueño, el dueño va **antes** del número (`arm:<rig>/k<clip>`): el
-  aviso de remapeo corta la clave justo antes del número, así que con el número adelante,
-  borrar un clip de un armature corre los índices de todos.
+- **R1.** A snapshot is not (b) if the list is not saved. If applying it requires fetching the list again (via a global, "the active item", or `FindTarget`), it is (c) against "whatever list is selected at that time," which is the worst case: it shifts without anything being deleted or reordered.
+- **R2.** Identity consists of **two parts**: the element and the list. The second is the one that is always forgotten.
+- **R3.** In keys with an owner, the owner goes **before** the number (`arm:<rig>/k<clip>`): the remap notification truncates the key right before the number, so with the number at the front, deleting a clip from an armature shifts the indices for all of them.
 
-**Un guard del estilo "si los tamaños no coinciden no toco nada" no es una solución**: es la
-versión silenciosa del bug (el Ctrl+Z no restaura nada y tampoco avisa).
+**A guard like "if sizes do not match, touch nothing" is not a solution**: it is the silent version of the bug (Ctrl+Z restores nothing and gives no warning).
 
-**Regla de escritura:** un comentario que declara algo inofensivo tiene que venir con el test
-que lo demuestra, citado por nombre. Sin eso no es documentación, es una hipótesis sin correr.
+**Authoring Rule:** A comment declaring something harmless must be accompanied by the test that proves it, cited by name. Without that, it is not documentation; it is an unrun hypothesis.

@@ -54,6 +54,7 @@ extern int W3dPantallaAlto; // los headers GLES + tipos GL los da GeometriaUI.h 
 std::vector<UI2DPos>* g_hudCapturaPos = NULL;
 
 PopupMenu* MenuAdd = NULL;
+PopupMenu* MenuScenes = NULL;
 PopupMenu* MenuImports = NULL; // submenu "Add > Imports": OBJ / FBX / glTF / GLB
 PopupMenu* MenuMallas  = NULL; // submenu "Add > Mesh": las primitivas (8 de las 19 filas del menu)
 PopupMenu* MenuSelect = NULL;    // seleccion: All / None / Invert
@@ -98,7 +99,7 @@ Viewport3D::Viewport3D(Vector3 pos){
     //        [3] Object (solo con algo seleccionado), [4] Overlays
     // barra: [0] tipo de viewport, [1] Mode (selector de modo, con icono),
     // [2] SelMode (Vertex/Edge/Face, SOLO en edit mode, al lado de Mode),
-    // [3] Select, [4] Add, [5] Object, [6] Overlays, [7] Render, [8] Orient.
+    // [3] Select, [4] Add, [5] Scenes, [6] Object, [7] Overlays, [8] Render, [9] Orient.
     BarCrear(); // [0] = icono de tipo/split
     // Cada boton lleva su ROL estable; el dispatch los busca por rol (BarRolBtn) -> el ORDEN
     // VISUAL de aca se puede cambiar libremente sin tocar el dispatch. Orient va ANTES de Select.
@@ -119,6 +120,8 @@ Viewport3D::Viewport3D(Vector3 pos){
     // "Seleccionar"/"Anadir" comia ancho de barra (escaso, sobre todo en el N95).
     b = new Button("", IconType::seleccion); b->rol = BR_Select; b->desplegable = true; BarButtons.push_back(b);
     b = new Button("", IconType::mas); b->rol = BR_Add; b->desplegable = true; BarButtons.push_back(b);
+    b = new Button(T("Scenes"), (int)IconType::archive); b->rol = BR_Scenes;
+        b->desplegable = true; BarButtons.push_back(b);
     b = new Button(T("Mesh")); b->rol = BR_Mesh;                               // Transform/Snap/Delete comun
         b->desplegable = true; b->visible = false; BarButtons.push_back(b); // SOLO en edit mode
     b = new Button("", IconType::keyframe); b->rol = BR_Animation;   // icono rombo (keyframe)
@@ -182,6 +185,11 @@ Viewport3D::Viewport3D(Vector3 pos){
         extern void LayoutConstruirMenuAdd();
         LayoutConstruirMenuAdd();
         MenuAdd->titulo = T("Add");   // el boton es un icono sin texto -> el menu lleva titulo
+    }
+    if (!MenuScenes) {
+        MenuScenes = new PopupMenu();
+        extern void LayoutConstruirMenuScenes();
+        LayoutConstruirMenuScenes();
     }
     if (!MenuSelect){
         MenuSelect = new PopupMenu();
@@ -2232,7 +2240,8 @@ void Viewport3D::RenderUI() {
             // pausar/reanudar, y los menus View (cambiar camara) / Overlays /
             // Render. Nada de editar. Con STOP la interfaz vuelve a la normal. =====
             static const int kOcultar[] = { BR_Mode, BR_SelMode, BR_Pivot, BR_Orient, BR_Snap,
-                                            BR_Select, BR_Add, BR_Mesh, BR_Animation, BR_Object, BR_UV };
+                                            BR_Select, BR_Add, BR_Scenes, BR_Mesh, BR_Animation,
+                                            BR_Object, BR_UV };
             for (size_t i = 0; i < sizeof(kOcultar) / sizeof(kOcultar[0]); i++) {
                 Button* bo = BarRolBtn(BarButtons, kOcultar[i]);
                 if (bo) bo->visible = false;
@@ -2296,6 +2305,8 @@ void Viewport3D::RenderUI() {
             if (bMesh) bMesh->visible = enEdit;
             Button* bAdd = BarRolBtn(BarButtons, BR_Add);     // Add: SOLO en Object Mode
             if (bAdd) bAdd->visible = (InteractionMode == ObjectMode);
+            Button* bScenes = BarRolBtn(BarButtons, BR_Scenes);
+            if (bScenes) bScenes->visible = (InteractionMode == ObjectMode);
             Button* bPiv = BarRolBtn(BarButtons, BR_Pivot);   // Pivot: solo icono = el modo actual
             if (bPiv) bPiv->icon = (g_transformPivot == PivotCursor3D)   ? (int)IconType::pivotCursor :
                                    (g_transformPivot == PivotIndividual) ? (int)IconType::pivotIndividual :

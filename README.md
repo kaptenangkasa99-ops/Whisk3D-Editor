@@ -43,6 +43,10 @@ Shared starter game projects are in [`templates/`](templates/), outside any
 platform-specific directory. The New Project flow uses these templates; each
 platform may package or copy them into its own application assets as needed.
 
+For gameplay examples, see the [sample game guide](docs/sample-game-guide.md).
+For the editor/runtime design, see the
+[engine architecture](docs/engine-architecture.md).
+
 ## Clarifications:
 
 1. No is a port: This program **does not share** code with Blender.

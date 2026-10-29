@@ -2909,7 +2909,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         CurrentFrame=10; m->vertex[0]=100.0f; VertexAnimInsertarKeyframe();
         CurrentFrame=5;  for(int i=0;i<V*2;i++) m->uv[i]=0.0f; VertexAnimInsertarKeyframeUV();
         CurrentFrame=20; for(int i=0;i<V*2;i++) m->uv[i]=1.0f; VertexAnimInsertarKeyframeUV();
-        // frames esperados: 1(pos) 5(uv) 10(pos) 20(uv) — cada uno SOLO con su capa
+        // frames esperados: 1(pos) 5(uv) 10(pos) 20(uv) â€” cada uno SOLO con su capa
         struct CT { static VertexFrame* F(VertexAnimation* a, int fr){
             for (size_t k=0;k<a->frames.size();k++) if (a->frames[k]->frame==fr) return a->frames[k];
             return NULL; } };
@@ -4761,7 +4761,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         if (!ok) { err = "layoutdump: hay viewports por debajo del minimo"; return false; }
         return true;
     }
-    // ---- compilarjuego [plataforma 0..3] [assets 0=sueltos 1=empaquetados] ----
+    // ---- compilarjuego [plataforma 0..4] [assets 0=sueltos 1=empaquetados] ----
     // el MISMO camino que el boton "Compilar juego" de la tarjeta Juego (con el
     // proyecto ya abierto via abrirw3d) y ESPERA al worker (el build es asincronico).
     // La config (modo ventana, orientacion, fisica/sonido/debug, assets, plataforma)
@@ -4791,7 +4791,20 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                            assets != 0)) {
             err = "compilarjuego: no arranco (ver la notificacion en el log)"; return false;
         }
-        while (CompilarJuegoEnCurso()) { CompilarJuegoTick(); SDL_Delay(100); }
+        int ultimoPct = -1;
+        std::string ultimaEtapa;
+        do {
+            CompilarJuegoTick();
+            std::string etapa;
+            int pct = CompilarJuegoProgreso(&etapa);
+            if (pct != ultimoPct || etapa != ultimaEtapa) {
+                printf("[build] %3d%% %s\n", pct, etapa.c_str());
+                fflush(stdout);
+                ultimoPct = pct;
+                ultimaEtapa = etapa;
+            }
+            if (CompilarJuegoEnCurso()) SDL_Delay(100);
+        } while (CompilarJuegoEnCurso());
         std::string etapa; int pct = CompilarJuegoProgreso(&etapa);
         printf("      [compilarjuego] plataforma=%d assets=%s -> %d%% (%s)\n",
                plataforma, assets ? "empaquetados" : "sueltos", pct, etapa.c_str());
@@ -6054,7 +6067,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
     //      punto de mundo (x,y,z). Es la evidencia de los materiales: z-fighting del decal,
     //      brillo del aditivo, orden de pasada.
     //        escenapx foto <archivo.ppm>       -> volcado del viewport (diagnostico a ojo)
-    //      Asserts: es|noes <r> <g> <b> [tol] · comoen|distintode <x> <y> <z> [tol]
+    //      Asserts: es|noes <r> <g> <b> [tol] Â· comoen|distintode <x> <y> <z> [tol]
     //               masclaroque <x> <y> <z> [margen]  (suma de canales; prueba del ADITIVO) ----
     if (cmd == "escenapx") {
         std::string sub; ss >> sub;
@@ -12208,7 +12221,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             static int FilaDe(Outliner& ol, Object* o) {
                 for (int f = 0; f < 64; f++) {
                     DeseleccionarTodo(); ObjActivo = NULL;
-                    ol.ClickSeleccionar(ol.x + ol.width / 2, FilaY(ol, f));
+                    ol.SelectRowAt(ol.x + ol.width / 2, FilaY(ol, f));
                     if (ObjActivo == o) return f;
                 }
                 return -1;
@@ -12228,10 +12241,10 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                     int f = FilaDe(ol, destino);
                     if (f < 0) return false;
                     ol.dragObjeto = o; ol.dragging = true;
-                    ol.SoltarDrag(ol.x + ol.width / 2, FilaY(ol, f));
+                    ol.FinishRowDrag(ol.x + ol.width / 2, FilaY(ol, f));
                 } else if (puerta == 2) {               // modo MOVER (teclado): 3 = adentro
                     DeseleccionarTodo(); o->Seleccionar(); ObjActivo = o;
-                    ol.MoverIniciar(); ol.MoverPaso(3); ol.MoverConfirmar();
+                    ol.BeginKeyboardMove(); ol.StepKeyboardMove(3); ol.ConfirmKeyboardMove();
                 } else {                                // Ctrl+P sobre la seleccion (ObjectMode.h)
                     DeseleccionarTodo(); o->Seleccionar(); destino->Seleccionar(); ObjActivo = destino;
                     SetParentSeleccion();
@@ -21592,9 +21605,9 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         // --- CANCELAR: el objeto vuelve, el nombre vuelve y el historial queda vacio ---
         DeseleccionarTodo(); fuera->Seleccionar(); ObjActivo = fuera;
         UndoLimpiar();
-        ol.MoverIniciar();
-        ol.MoverPaso(3);              // ADENTRO: pasa a ser hijo del hermano anterior (la UI "Menu")
-        ol.MoverCancelar();
+        ol.BeginKeyboardMove();
+        ol.StepKeyboardMove(3);              // ADENTRO: pasa a ser hijo del hermano anterior (la UI "Menu")
+        ol.CancelKeyboardMove();
         bool volvio = (fuera->Parent == SceneCollection && fuera->name == "Ok");
         bool limpio = !UndoHayAlgo();
         printf("      [nombresmover] cancelar: padre=%s nombre='%s' (esperado raiz/'Ok') %s | pasos de undo en el historial: %s (esperado ninguno) %s\n",
@@ -21604,9 +21617,9 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         // --- CONFIRMAR: SI renumera, y en UN SOLO paso de undo ---
         DeseleccionarTodo(); fuera->Seleccionar(); ObjActivo = fuera;
         UndoLimpiar();
-        ol.MoverIniciar();
-        ol.MoverPaso(3);
-        ol.MoverConfirmar();
+        ol.BeginKeyboardMove();
+        ol.StepKeyboardMove(3);
+        ol.ConfirmKeyboardMove();
         bool renom = (fuera->Parent == menu && fuera->name == "Ok.001");
         // EXACTAMENTE un paso: hay algo, y con UN Ctrl+Z el stack queda vacio. (El nombre NO
         // vuelve a "Ok": el reparent no es undoable, asi que el objeto sigue DENTRO de "Menu",
@@ -23916,10 +23929,10 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                 Outliner* ol = new Outliner();
                 ol->x = 0; ol->y = 0; ol->Resize(320, 600);
                 m->desplegado = true;
-                int mx0 = 0, my0 = 0; ol->CalcularRenglon((Object*)m, &mx0, &my0);  // con armature 2D
+                int mx0 = 0, my0 = 0; ol->CalculateRowLayout((Object*)m, &mx0, &my0);  // con armature 2D
                 std::vector<Armature2D*> guarda; guarda.swap(m->armatures2d);
                 int actOl = m->armature2dActivo; m->armature2dActivo = -1;
-                int mx1 = 0, my1 = 0; ol->CalcularRenglon((Object*)m, &mx1, &my1);  // sin armatures 2D
+                int mx1 = 0, my1 = 0; ol->CalculateRowLayout((Object*)m, &mx1, &my1);  // sin armatures 2D
                 m->armatures2d.swap(guarda); m->armature2dActivo = actOl;
                 // UNA fila por ARMATURE 2D (no por hueso): con 1 armature es exactamente 1 renglon
                 bool filaExtra = ((my1 - my0) == RenglonHeightGS * (int)m->armatures2d.size());
@@ -23927,20 +23940,20 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                 Object* actAntes = ObjActivo;
                 int boneAntes = m->Arm2DBoneActivo();
                 // click en el TEXTO de la fila virtual: no cambia nada (no es seleccionable)
-                ol->ClickSeleccionar(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 1*RenglonHeightGS + 1);
+                ol->SelectRowAt(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 1*RenglonHeightGS + 1);
                 bool noSelecciona = (ObjActivo == actAntes && ol->dragObjeto == NULL &&
                                      m->Arm2DBoneActivo() == boneAntes);
                 // click donde ANTES estaba la flechita: ya no despliega nada (misma cantidad de filas)
-                ol->ClickSeleccionar(ol->x + marginGS + 1*(IconSizeGS + gapGS) + IconSizeGS/2,
+                ol->SelectRowAt(ol->x + marginGS + 1*(IconSizeGS + gapGS) + IconSizeGS/2,
                                      fy + 1*RenglonHeightGS + 1);
-                int mx2 = 0, my2 = 0; ol->CalcularRenglon((Object*)m, &mx2, &my2);
+                int mx2 = 0, my2 = 0; ol->CalculateRowLayout((Object*)m, &mx2, &my2);
                 bool noDespliega = (my2 == my0);
                 // la fila de ABAJO de la virtual NO es un hueso: con la malla sin hijos, ahi no hay nada
-                ol->ClickSeleccionar(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 2*RenglonHeightGS + 1);
+                ol->SelectRowAt(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 2*RenglonHeightGS + 1);
                 bool sinHuesos = (m->Arm2DBoneActivo() == boneAntes && ObjActivo == actAntes);
                 ol->dragObjeto = (Object*)m; ol->dragging = true;
                 Object* padreAntes = m->Parent;
-                ol->SoltarDrag(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 1*RenglonHeightGS + 1);
+                ol->FinishRowDrag(ol->x + marginGS + 4*(IconSizeGS + gapGS), fy + 1*RenglonHeightGS + 1);
                 bool sinDrop = (m->Parent == padreAntes);
                 printf("      [uvarm2d] outliner: 1 fila virtual por armature 2D (%d huesos en 1 armature)=%s | no seleccionable=%s | ya no despliega=%s | sin renglones por hueso=%s | no acepta drop=%s\n",
                        (int)m->Arm2DHuesos().size(), filaExtra?"OK":"MAL", noSelecciona?"OK":"MAL",
@@ -24008,10 +24021,10 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                 // --- OUTLINER: DOS filas virtuales (una por armature), sin desplegar huesos
                 { Outliner* ol2 = new Outliner(); ol2->x = 0; ol2->y = 0; ol2->Resize(320, 600);
                   m->desplegado = true;
-                  int ax = 0, ay = 0; ol2->CalcularRenglon((Object*)m, &ax, &ay);
+                  int ax = 0, ay = 0; ol2->CalculateRowLayout((Object*)m, &ax, &ay);
                   std::vector<Armature2D*> g2; g2.swap(m->armatures2d);
                   int ac = m->armature2dActivo; m->armature2dActivo = -1;
-                  int bx = 0, by = 0; ol2->CalcularRenglon((Object*)m, &bx, &by);
+                  int bx = 0, by = 0; ol2->CalculateRowLayout((Object*)m, &bx, &by);
                   m->armatures2d.swap(g2); m->armature2dActivo = ac;
                   bool dosFilas = ((by - ay) == RenglonHeightGS * 2);
                   printf("      [uvarm2d] multi: outliner con 2 filas virtuales (una por armature)=%s\n", dosFilas?"OK":"MAL");
@@ -26427,7 +26440,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                (tras == 0) ? "la animacion se fue con el objeto OK" : "QUEDO HUERFANA");
         if (tras != 0) ok = false;
 
-        // 3) el undo la devuelve (no se pierde: el comando es su dueño mientras vive)
+        // 3) el undo la devuelve (no se pierde: el comando es su dueÃ±o mientras vive)
         UndoDeshacer();
         int vuelta = 0;
         for (size_t i=0;i<AnimationObjects.size();i++) if (AnimationObjects[i].obj == c1) vuelta++;
@@ -29836,8 +29849,8 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
     // ---- zipidx [prefijo] [carpeta con zips de verdad] : EL LECTOR POR INDICE
     //      (el .w3d que se MONTA en vez de extraerse). Verifica que ve exactamente lo
     //      mismo que el lector viejo entrada por entrada, que el escritor incremental
-    //      y CopiarDe dan bytes IDENTICOS al escritor en lote, y —lo que justifica
-    //      todo— que ABRIR no levanta el archivo entero a RAM. ----
+    //      y CopiarDe dan bytes IDENTICOS al escritor en lote, y â€”lo que justifica
+    //      todoâ€” que ABRIR no levanta el archivo entero a RAM. ----
     if (cmd == "zipidx") {
         std::string pref, escanear; ss >> pref >> escanear;
         if (pref.empty()) pref = W3dDebugFile("zipidx");

@@ -82,7 +82,7 @@ std::string W3dRutaSalidaCampos(const std::string& dir, const std::string& nombr
 
 class Properties : public ViewportBase, public WithBorder, public Scrollable {
     public:
-        Scrollable* ComoScrollable() { return this; }
+        Scrollable* AsScrollable() { return this; }
         Properties();
         ~Properties() W3D_OVERRIDE;
 

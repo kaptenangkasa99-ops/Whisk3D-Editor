@@ -15,15 +15,21 @@ class ConfirmarPopup : public PopUpBase {
         std::string mensaje;
         std::vector<std::string> lineas; // mensaje partido en renglones (word-wrap al ancho disponible)
         void (*onSi)();   // callback al confirmar (Si)
+        void (*onExtra)(); // segunda accion afirmativa para dialogos de tres opciones
         Button* btnSi;    // "Si" (rojo, derecha) = soft key derecho / Accept / flecha derecha
         Button* btnNo;    // "No" (izquierda)     = soft key izquierdo / Cancel / flecha izquierda
-        int foco;         // 0 = No, 1 = Si (resaltado por teclado)
+        Button* btnExtra; // accion central en dialogos de tres opciones
+        bool tresOpciones;
+        int foco;         // 0 = No, 1 = extra, 2 = Si en dialogos de tres opciones
 
         ConfirmarPopup();
         ~ConfirmarPopup();
 
         // arma la barra inferior (ancho completo) con el mensaje + callback de Si
         void Abrir(const std::string& msg, void (*cb)());
+        void AbrirTresOpciones(const std::string& msg, const std::string& textoExtra,
+                               void (*cbExtra)(), const std::string& textoSi,
+                               void (*cbSi)());
         void Layout(); // recalcula posicion/tamaño (ancho completo, abajo) con las metricas actuales
         int Padding() const;   // padding UNIFORME de la ventana (4 lados)
         int LineHeight() const; // alto de un renglon de mensaje

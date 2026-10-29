@@ -83,6 +83,15 @@ Writes a value into the shared script state.
 - `key`: string key.
 - `value`: number, boolean or string.
 
+### `changeScene(name [, restart])`
+Requests a switch to a scene already included in the project. The switch is
+applied at the end of the current frame. The destination initializes the first
+time it is entered; an initialized scene resumes its existing script state.
+Pass `true` for `restart` to reinitialize it.
+
+The legacy name `cambiarEscena(name [, restart])` remains available for
+compatibility with existing scripts.
+
 ## 3) Persistent config and script state
 
 ### `config("key", default)`
@@ -173,6 +182,11 @@ Returns whether the object is visible.
 
 ### `setVisible(obj, visible)`
 Sets the visibility flag.
+
+### `animator(obj, animationId [, startFrame])`
+Requests a vertex-animation clip on a mesh.
+- `animationId`: numeric animation identifier.
+- `startFrame`: optional frame that switches to the requested animation immediately. Without it, the requested animation is queued after the current clip.
 
 ### `pos3(obj)`
 Returns the object position as a 3-vector-like value.

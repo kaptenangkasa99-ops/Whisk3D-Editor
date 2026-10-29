@@ -49,6 +49,7 @@ extern GLfloat LastPivotZ;
 
 #include "WhiskUI/widgets/PopupMenu.h"
 extern PopupMenu* MenuAdd;      // el desplegable del boton "Add"
+extern PopupMenu* MenuScenes;   // crear/cargar escenas independientes del proyecto
 extern PopupMenu* MenuImports;  // submenu "Add > Imports": OBJ / FBX / glTF / GLB
 extern PopupMenu* MenuMallas;   // submenu "Add > Mesh": las primitivas (plano, cubo, esfera...)
 extern PopupMenu* MenuSelect;   // el desplegable del boton "Select"
@@ -68,7 +69,7 @@ extern PopupMenu* MenuSelMode;  // edit mode: sub-elemento Vertex/Edge/Face
 // ROLES estables de los botones de la barra del 3D. El dispatch/visibilidad los buscan por ROL
 // (BarRolBtn / BarRolIdx), NO por indice -> reordenar la barra (mover botones) NO rompe nada.
 enum BarRol3D {
-    BR_Mode = 1, BR_SelMode, BR_Pivot, BR_Select, BR_Add,
+    BR_Mode = 1, BR_SelMode, BR_Pivot, BR_Select, BR_Add, BR_Scenes,
     BR_Object, BR_Overlays, BR_Render, BR_Orient, BR_UV, BR_View, BR_Snap,
     BR_JuegoStop, BR_JuegoPlay,   // transporte del MODO JUEGO (Play/Pausa es UN boton)
     BR_Mesh, // menu "Mesh" de Edit Mode (Transform/Snap/Delete), comun a vertice/borde/cara

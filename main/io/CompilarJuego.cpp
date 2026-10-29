@@ -1467,13 +1467,14 @@ static const char* kFuentesBase[] = {
     // sin estos .cpp el juego compilado no linkea (visto en integracion_portales)
     "${CORE}/io/W3dRecursos.cpp", "${CORE}/objects/MallaDatos.cpp", "${CORE}/objects/TexturaCache.cpp",
     "${CORE}/script/W3dScript.cpp",
+    "${CORE}/audio/W3dMusic.cpp", "${CORE}/audio/W3dVolumen.cpp",
     "${UILIB}/text/W3dFont.cpp", "${UILIB}/text/bitmapText.cpp", "${UILIB}/text/font.cpp",
     "${UILIB}/draw/glesdraw.cpp", "${UILIB}/draw/W3dAtlasPacker.cpp",
     "${UILIB}/core/UI.cpp", "${UILIB}/theme/colores.cpp",
     "${W3DROOT}/main/render/UIOverlay.cpp", "${W3DROOT}/main/script/BindsJuego.cpp",
     "${W3DROOT}/main/W3dEscena.cpp",
     "${W3DROOT}/main/io/UI2DFormato.cpp", "${W3DROOT}/main/io/Fuente2D.cpp",
-    "${W3DROOT}/main/io/Textura2D.cpp",
+    "${W3DROOT}/main/io/Textura2D.cpp", "${W3DROOT}/main/io/Video2DCache.cpp",
     0
 };
 // LOS INCLUDES comunes (misma razon: uno solo para las dos plataformas).
@@ -1492,6 +1493,7 @@ static const char* kFuentes3D[] = {
     "${W3DROOT}/main/render/OpcionesRender.cpp",  // g_renderBg + los flags de dibujo del Core
     "${W3DROOT}/main/render/EscenaRender.cpp",    // EL pase 3D compartido con el viewport del editor
     "${W3DROOT}/main/importers/import_w3d.cpp",   // EL MISMO lector de proyecto que el editor
+    "${W3DROOT}/main/importers/import_gltf.cpp",  // GLB legacy embebido en proyectos anteriores
     "${W3DROOT}/main/importers/import_obj.cpp",   // carga diferida de texturas + materiales
     "${W3DROOT}/main/importers/import_wobj.cpp",  // mallas .obj referenciadas (proyectos viejos)
     "${W3DROOT}/main/edit/MeshEdit.cpp",          // genera la malla de render (modificadores, bordes, PVS)
@@ -1511,6 +1513,7 @@ static const char* kFuentes3D[] = {
     "${W3DROOT}/main/objects/Gamepad.cpp",
     "${W3DROOT}/main/objects/Scene.cpp",
     "${W3DROOT}/main/io/W3dContenedor.cpp",
+    "${W3DROOT}/main/runtime/W3dRuntimeStubs.cpp", // los proyectos no tienen UI de editor ni undo
     "${W3DROOT}/main/ui/W3dColors.cpp",
     "${W3DROOT}/main/config/W3dLang.cpp",
     "${W3DROOT}/main/config/w3dVersion.cpp",
@@ -2172,7 +2175,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
     }
 
     // MULTI-ESCENA vs UNA sola: las escenas son los UI raiz de la escena (tipo ui). Con 2+ el
-    // juego cambia entre ellas con cambiarEscena() -> hay que exportar y cargar TODAS. Con 1 (o
+    // juego cambia entre ellas con changeScene() -> hay que exportar y cargar TODAS. Con 1 (o
     // un proyecto legacy con los scripts en un objeto Script) se mantiene el camino de siempre.
     std::vector<UI*> escenasUI;
     RecolectarEscenas(&escenasUI);

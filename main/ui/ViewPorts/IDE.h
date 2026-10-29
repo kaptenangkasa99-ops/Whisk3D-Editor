@@ -46,7 +46,7 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
     public:
         // 1=3D 2=outliner 3=props 4=UV 5=timeline 6=2D 7=console 8=IDE
         int ViewportKind() const { return 8; }
-        Scrollable* ComoScrollable() { return this; }
+        Scrollable* AsScrollable() { return this; }
 
         // ---- buffer ----
         std::vector<std::string> lineas; // el texto (sin '\n'; siempre >= 1 linea)

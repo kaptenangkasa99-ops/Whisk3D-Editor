@@ -3249,7 +3249,7 @@ static bool AbrirEscenaJson(const char* datos, size_t n, const std::string& base
     if (JHijo(raiz, "reproduciendo", 3))
         g_proyReproduciendo = JB(raiz, "reproduciendo", true) ? 1 : 0;
     // MULTI-ESCENA: escena inicial + modo (opcionales). Si el .w3d trae varios nodos "ui",
-    // esta es la que arranca; el resto quedan cargadas y se activan con cambiarEscena().
+    // esta es la que arranca; el resto quedan cargadas y se activan con changeScene().
     // Ausentes: escenaInicial "" (arranca la primera) y modo apagado (retrocompat 1 escena).
     AplicarEscenaInicial(JS(raiz, "escenaInicial", ""));
     AplicarModoEscenas(JB(raiz, "modoEscenas", false));

@@ -16,23 +16,47 @@ static const float ROJO_BORRAR[4] = { 0.92f, 0.26f, 0.26f, 1.0f }; // rojo del b
 
 ConfirmarPopup::ConfirmarPopup() : PopUpBase("Confirmar") {
     onSi = NULL;
+    onExtra = NULL;
+    tresOpciones = false;
     foco = 1; // por defecto resaltado en "Si" (la accion principal)
     btnSi = new Button(T("Yes"));
     btnNo = new Button(T("No"));
+    btnExtra = new Button(T("Discard"));
     btnSi->adaptar = false; btnSi->centrado = true;
     btnNo->adaptar = false; btnNo->centrado = true;
+    btnExtra->adaptar = false; btnExtra->centrado = true;
     btnSi->colorTexto = ROJO_BORRAR; // borrar = ROJO
 }
 
 ConfirmarPopup::~ConfirmarPopup() {
-    delete btnSi; delete btnNo;
+    delete btnSi; delete btnNo; delete btnExtra;
 }
 
 void ConfirmarPopup::Abrir(const std::string& msg, void (*cb)()) {
     mensaje = msg;
     onSi = cb;
+    onExtra = NULL;
+    tresOpciones = false;
+    btnNo->text = T("No");
+    btnSi->text = T("Yes");
+    btnSi->colorTexto = ROJO_BORRAR;
     foco = 1;
     PopUpActive = this; // el layout (ancho/posicion) se calcula en Render con las metricas ACTUALES
+}
+
+void ConfirmarPopup::AbrirTresOpciones(const std::string& msg, const std::string& textoExtra,
+                                      void (*cbExtra)(), const std::string& textoSi,
+                                      void (*cbSi)()) {
+    mensaje = msg;
+    onExtra = cbExtra;
+    onSi = cbSi;
+    tresOpciones = true;
+    btnNo->text = T("Cancel");
+    btnExtra->text = textoExtra;
+    btnSi->text = textoSi;
+    btnSi->colorTexto = NULL;
+    foco = 2;
+    PopUpActive = this;
 }
 
 // parte 's' en renglones de <= maxChars, cortando en un espacio si puede (la fuente es monoespaciada).
@@ -115,27 +139,31 @@ void ConfirmarPopup::Render() {
         ty += lineH;
     }
 
-    // botones: No a la IZQUIERDA, Si a la DERECHA (ancho 50% cada uno), debajo del mensaje
+    // botones debajo del mensaje
     int izq = pad;
     int contW = w - pad * 2;
-    int mitad = (contW - gapGS) / 2;
     int nL = lineas.empty() ? 1 : (int)lineas.size();
     int btnY = pad + nL * lineH + gapGS;
 
-    btnNo->Resize(mitad);
-    btnSi->Resize(mitad); // Si queda ROJO siempre (colorTexto), sin resaltado verde de foco (es el de borrar)
+    int columnas = tresOpciones ? 3 : 2;
+    int anchoBoton = (contW - gapGS * (columnas - 1)) / columnas;
+    btnNo->Resize(anchoBoton);
+    btnSi->Resize(anchoBoton); // Si queda ROJO siempre (colorTexto)
+    if (tresOpciones) btnExtra->Resize(anchoBoton);
+    btnNo->focoMenu = tresOpciones && foco == 0;
+    btnExtra->focoMenu = tresOpciones && foco == 1;
+    btnSi->focoMenu = tresOpciones && foco == 2;
 
-    w3dEngine::PushMatrix();
-    w3dEngine::Translatef((GLfloat)izq, (GLfloat)btnY, 0);
-    btnNo->Render();
-    w3dEngine::PopMatrix();
-    btnNo->sx = x + izq; btnNo->sy = y + btnY;
-
-    w3dEngine::PushMatrix();
-    w3dEngine::Translatef((GLfloat)(izq + mitad + gapGS), (GLfloat)btnY, 0);
-    btnSi->Render();
-    w3dEngine::PopMatrix();
-    btnSi->sx = x + izq + mitad + gapGS; btnSi->sy = y + btnY;
+    Button* botones[3] = { btnNo, btnExtra, btnSi };
+    for (int col = 0; col < columnas; col++) {
+        Button* boton = tresOpciones ? botones[col] : (col == 0 ? btnNo : btnSi);
+        int bx = izq + col * (anchoBoton + gapGS);
+        w3dEngine::PushMatrix();
+        w3dEngine::Translatef((GLfloat)bx, (GLfloat)btnY, 0);
+        boton->Render();
+        w3dEngine::PopMatrix();
+        boton->sx = x + bx; boton->sy = y + btnY;
+    }
 
     endView();
 }
@@ -144,18 +172,34 @@ bool ConfirmarPopup::Motion(int mx, int my) {
     Layout();
     btnNo->hover = btnNo->Contains(mx, my); // ilumina el boton al pasar el mouse (igual que cualquier boton)
     btnSi->hover = btnSi->Contains(mx, my);
+    if (tresOpciones) btnExtra->hover = btnExtra->Contains(mx, my);
     return true;
 }
 
 bool ConfirmarPopup::Click(int mx, int my) {
     Layout(); // asegura posicion/tamaño actuales para el hit-test
     if (btnNo->Contains(mx, my)) { Cerrar(); return true; }
+    if (tresOpciones && btnExtra->Contains(mx, my)) {
+        void (*cb)() = onExtra; Cerrar(); if (cb) cb(); return true;
+    }
     if (btnSi->Contains(mx, my)) { void (*cb)() = onSi; Cerrar(); if (cb) cb(); return true; }
     // click adentro de la barra (sin botón): lo consume (modal); afuera -> el caller cierra
     return Contains(mx, my);
 }
 
 bool ConfirmarPopup::Tecla(int tecla) {
+    if (tresOpciones) {
+        if (tecla == LayoutKey::Left || tecla == LayoutKey::Right) {
+            foco = (foco + (tecla == LayoutKey::Right ? 1 : 2)) % 3;
+            return true;
+        }
+        if (tecla == LayoutKey::Cancel) { Cerrar(); return true; }
+        if (tecla == LayoutKey::Enter || tecla == LayoutKey::Accept) {
+            void (*cb)() = (foco == 1) ? onExtra : (foco == 2 ? onSi : NULL);
+            Cerrar(); if (cb) cb(); return true;
+        }
+        return true;
+    }
     switch (tecla) {
         case LayoutKey::Right:   // flecha derecha / soft key derecho = Si
         case LayoutKey::Enter:   // ENTER (teclado PC) = Si: el boton de borrar es el default resaltado

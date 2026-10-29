@@ -433,7 +433,7 @@ TBool W3dLayoutClickProps(TInt aX, TInt aY) {
 // click izquierdo sobre el outliner (seleccion de objeto del arbol)
 TBool W3dLayoutClickOutliner(TInt aX, TInt aY) {
     if (!gOutliner || !gOutliner->Contains(aX, aY)) return EFalse;
-    gOutliner->ClickSeleccionar(aX, aY); // metodo COMPARTIDO (tambien PC)
+    gOutliner->SelectRowAt(aX, aY); // metodo COMPARTIDO (tambien PC)
     return ETrue;
 }
 
@@ -765,8 +765,8 @@ TBool W3dOutlinerActivo() {
 void W3dOutlinerMoverToggle() {
     if (!W3dOutlinerActivo()) return;
     Outliner* out = (Outliner*)viewPortActive;
-    if (out->ModoMover()) out->MoverConfirmar();
-    else                  out->MoverIniciar();
+    if (out->IsKeyboardMoveActive()) out->ConfirmKeyboardMove();
+    else                  out->BeginKeyboardMove();
 }
 
 // "2"/"3" sobre el outliner: 2 = ocultar/mostrar (visible), 3 = visibilidad de RENDER (renderizable) del

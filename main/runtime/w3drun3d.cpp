@@ -157,6 +157,10 @@ void W3dGameFontPngSet(const char* path) {
     g_fontPath = path ? path : "";
 }
 
+const char* W3dGameFontPng() {
+    return g_fontPath.c_str();
+}
+
 bool W3dGameCargarEscena3D(const char* path) {
     std::vector<unsigned char> data;
     if (!path || !w3dFileSystem::ReadFileBytes(path, data) || data.empty()) {

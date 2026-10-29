@@ -61,6 +61,14 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_SOURCE_DIR}/libs/WhiskUI/*.cpp
 )
 
+# These translation units belong to compiled game projects, not the editor.
+# CompilarJuego.cpp adds them explicitly to generated game targets; including
+# them here collides with editor-owned globals and UI/undo implementations.
+list(REMOVE_ITEM SRC_FILES
+    ${CMAKE_SOURCE_DIR}/main/runtime/W3dRuntimeStubs.cpp
+    ${CMAKE_SOURCE_DIR}/main/runtime/w3drun3d.cpp
+)
+
 list(APPEND SRC_FILES
     # scripts LUA del Core (estilo Unity: un .lua por objeto)
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/script/W3dScript.cpp

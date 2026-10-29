@@ -18,6 +18,7 @@
 #include "ViewPorts/PopUp/ProgressPopup.h" // barra de progreso + hook LayoutSwapBuffers
 #include "W3dDock.h"                       // barra de progreso en el icono del dock (Linux; no-op en el resto)
 #include "io/CompilarJuego.h"            // build de juegos en 2do plano (Tick + barra overlay)
+#include "io/GuardarW3D.h"               // defaults de compilacion guardados en el proyecto
 #include "io/W3dContenedor.h"            // W3dImportarAsset: importar = copiar adentro del .w3d
 #include "importers/import_obj.h"        // ImportOBJ (el importador real)
 #include "importers/import_fbx.h"        // ImportFBX
@@ -821,8 +822,12 @@ namespace w3dEngine { bool W3dAudioInit(int); }  // audio/W3dAudio.h (evita mete
 bool g_verboseDiagnostics = false;
 
 int main(int argc, char* argv[]) {
+    bool cliBuildGame = false;
+    for (int ai = 1; ai < argc; ++ai)
+        if (std::string(argv[ai]) == "--build-game") cliBuildGame = true;
 #ifndef __EMSCRIPTEN__
-    w3dRedirigirCoutAlLog();   // cout/cerr -> whisk3d.log (no la consola blanca de Windows). Impl comun en w3dlog.cpp.
+    if (!cliBuildGame)
+        w3dRedirigirCoutAlLog();   // El CLI conserva stdout/stderr para progreso y errores.
 #endif
     for (int ai = 1; ai < argc; ++ai) {
         if (std::string(argv[ai]) == "--verbose") {
@@ -965,8 +970,13 @@ int main(int argc, char* argv[]) {
         // fullscreen -> maximizada; sino respeta width/height del config (util para
         // probar tamanos chicos, ej. 240x320 estilo N95 con scale=1)
         Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
-        if (cfg.fullscreen) windowFlags |= SDL_WINDOW_MAXIMIZED;
+        if (cliBuildGame) {
+            windowFlags |= SDL_WINDOW_HIDDEN;
+        } else if (cfg.fullscreen) {
+            windowFlags |= SDL_WINDOW_MAXIMIZED;
+        }
         window = SDL_CreateWindow("Whisk3D Pre-Alpha", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, winW, winH, windowFlags);
+        if (window && cliBuildGame) SDL_HideWindow(window);
     #endif
 
     if (window) { // titulo con la VERSION (fecha de build): asi una captura de pantalla dice de que version es
@@ -1020,6 +1030,7 @@ int main(int argc, char* argv[]) {
     MenuPantallaW = winW;
     MenuPantallaH = winH;
     ConstructUniversal(argc, argv);
+    if (cliBuildGame && window) SDL_HideWindow(window);
 
     // "Add > import Wavefront" del menu + Load Texture + warp/swap: hooks de ESCRITORIO (Windows + Linux). En Android
     // no existen esas funciones (el bloque de PC no se compila); los hooks quedan NULL (se chequean antes de usar).
@@ -1075,6 +1086,97 @@ int main(int argc, char* argv[]) {
             SDL_Quit();
             return ok ? 0 : 1;
         }
+    }
+
+    // CLI headless del mismo flujo de compilacion que usa la tarjeta Juego.
+    // El proyecto conserva sus valores guardados; las opciones de la CLI pisan
+    // solo los campos indicados.
+    for (int ai = 1; ai < argc; ai++) {
+        if (std::string(argv[ai]) != "--build-game") continue;
+        if (ai + 1 >= argc) {
+            std::cerr << "Usage: whisk3d --build-game <project.w3d> "
+                         "[--platform windows|linux-deb|linux-appimage|web|android] "
+                         "[--assets loose|packed] [--debug]\n";
+            SDL_Quit();
+            return 2;
+        }
+
+        const std::string project = argv[++ai];
+        int platform = -1;
+        int assets = -1;
+        int debug = -1;
+        for (int option = ai + 1; option < argc; option++) {
+            const std::string flag = argv[option];
+            if (flag == "--platform" && option + 1 < argc) {
+                const std::string target = argv[++option];
+                if (target == "windows") platform = 4;
+                else if (target == "linux-deb") platform = 0;
+                else if (target == "linux-appimage") platform = 1;
+                else if (target == "web") platform = 2;
+                else if (target == "android") platform = 3;
+                else {
+                    std::cerr << "Unknown build target: " << target << "\n";
+                    SDL_Quit();
+                    return 2;
+                }
+            } else if (flag == "--assets" && option + 1 < argc) {
+                const std::string mode = argv[++option];
+                if (mode == "loose") assets = 0;
+                else if (mode == "packed") assets = 1;
+                else {
+                    std::cerr << "Unknown asset mode: " << mode << "\n";
+                    SDL_Quit();
+                    return 2;
+                }
+            } else if (flag == "--debug") {
+                debug = 1;
+            } else {
+                std::cerr << "Unknown or incomplete build option: " << flag << "\n";
+                SDL_Quit();
+                return 2;
+            }
+        }
+
+        std::string error;
+        if (!W3dRunCommand("abrirw3d " + project, error)) {
+            printf("Could not open project: %s\n", error.c_str());
+            SDL_Quit();
+            return 1;
+        }
+        if (platform < 0) platform = g_proyCompilar.plataforma;
+        if (assets < 0) assets = g_proyCompilar.assetsModo;
+        if (debug < 0) debug = g_proyCompilar.modoDebug ? 1 : 0;
+        std::ostringstream buildCommand;
+        buildCommand << "compilarjuego " << platform << " " << assets << " " << debug;
+        const bool ok = W3dRunCommand(buildCommand.str(), error);
+        if (!ok) printf("Game build failed: %s\n", error.c_str());
+        else {
+            std::filesystem::path projectPath(project);
+            std::filesystem::path projectDir = projectPath.parent_path();
+            if (projectDir.empty()) projectDir = std::filesystem::current_path();
+            const char* outputPlatform = platform == 4 ? "windows" :
+                                         platform == 3 ? "android" :
+                                         platform == 2 ? "web" : "linux";
+            std::filesystem::path outputDir = projectDir / "build" / outputPlatform;
+            std::filesystem::path logPath = projectDir / "platform-build" /
+                                            outputPlatform / "build.log";
+            printf("Game build completed successfully.\n");
+            if (platform == 4)
+                printf("Built game: %s\n",
+                       (outputDir / (projectPath.stem().string() + ".exe")).string().c_str());
+            else if (platform == 3)
+                printf("Built game: %s\n",
+                       (outputDir / (projectPath.stem().string() + "-android.apk")).string().c_str());
+            else if (platform == 2)
+                printf("Built game: %s\n",
+                       (outputDir / (projectPath.stem().string() + ".html")).string().c_str());
+            else
+                printf("Build output: %s\n", outputDir.string().c_str());
+            printf("Build log: %s\n", logPath.string().c_str());
+        }
+        fflush(stdout);
+        SDL_Quit();
+        return ok ? 0 : 1;
     }
 #endif
 

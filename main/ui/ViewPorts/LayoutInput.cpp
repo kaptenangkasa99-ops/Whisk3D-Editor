@@ -741,6 +741,68 @@ void AddUI(){
     }
     TrasCrearAdd(u);
 }
+
+static void SceneCrearNueva() {
+    UI* u = new UI(NULL, cursor3D.pos);
+    u->SetNameObj("Scene");
+    if (W3dPaletas().empty()) {
+        W3dPaletasAdoptar(u->paletas);
+        if (u->paletaActiva >= 0 && u->paletaActiva < (int)u->paletas.size())
+            u->paleta = u->paletas[u->paletaActiva].nombre;
+    }
+    DeseleccionarTodo();
+    u->Seleccionar();
+    g_redraw = true;
+}
+
+static bool SceneFileSupported(const std::string& path) {
+    const size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = path.substr(dot);
+    for (size_t i = 0; i < ext.size(); ++i)
+        if (ext[i] >= 'A' && ext[i] <= 'Z') ext[i] = (char)(ext[i] - 'A' + 'a');
+    return ext == ".w3dui" || ext == ".json";
+}
+
+static void SceneLoadElegida(const std::string& ruta) {
+    if (!SceneFileSupported(ruta)) {
+        Notificar(T("Unsupported scene file. Choose a .w3dui or .json file."), true);
+        return;
+    }
+    UI* u = UI2DCargar(ruta);
+    if (!u) { Notificar(T("Could not read the file"), true); return; }
+    if (!w3dPath.empty()) {
+        size_t s = w3dPath.find_last_of("/\\");
+        std::string dir = (s == std::string::npos) ? std::string() : w3dPath.substr(0, s + 1);
+        if (!dir.empty() && ruta.size() > dir.size() && ruta.compare(0, dir.size(), dir) == 0)
+            u->archivoW3dui = ruta.substr(dir.size());
+    }
+    const std::string originalName = u->name;
+    W3dNombresRepararEscena(true);
+    if (u->name != originalName) {
+        Notificar("Scene '" + originalName + "' already exists; the imported scene is now '" + u->name +
+                  "'. Update changeScene(\"" + originalName +
+                  "\") calls in its scripts if they should target this scene.", true);
+    }
+    DeseleccionarTodo();
+    u->Seleccionar();
+    g_redraw = true;
+}
+
+static void LayoutAccionScenes(int id) {
+    if (id == 0) SceneCrearNueva();
+    else if (id == 1)
+        AbrirFileBrowser(T("Load Scene"), T("Open"), ".w3dui .json", SceneLoadElegida);
+}
+
+void LayoutConstruirMenuScenes() {
+    if (!MenuScenes) return;
+    MenuScenes->Limpiar();
+    MenuScenes->titulo = T("Scenes");
+    MenuScenes->Agregar(T("New Scene"), 0, (int)IconType::mas);
+    MenuScenes->Agregar(T("Load Scene"), 1, (int)IconType::carpeta);
+    MenuScenes->action = LayoutAccionScenes;
+}
 // (aca vivia AddControl, que creaba el objeto Script. Se dio de baja: CUALQUIER
 //  objeto acepta scripts desde la pestania "Scripts" del panel, asi que un objeto cuya
 //  unica razon de ser era llevar un .lua ya no tiene sentido. Los .w3d que traigan uno
@@ -826,7 +888,7 @@ static void UIImportElegido(const std::string& ruta){
     //
     // LO QUE LA REPARACION NO PUEDE ARREGLAR (y por eso se AVISA): si la RAIZ UI que
     // entra choca con una escena que ya existe, pasa a llamarse "Menu.001", pero los
-    // cambiarEscena("Menu") de SU copia del .lua siguen diciendo "Menu" y resuelven a la
+    // changeScene("Menu") de SU copia del .lua siguen diciendo "Menu" y resuelven a la
     // PRIMERA escena. No hay arreglo automatico posible:
     //   - el nombre de la escena viaja como STRING LITERAL adentro del .lua (no es una
     //     ref registrada en W3dScriptEntrada::refs, que es lo unico que el editor sabe
@@ -841,9 +903,9 @@ static void UIImportElegido(const std::string& ruta){
     W3dNombresRepararEscena(true);
     if (u->name != nomAntes) {
         // sin sprintf: los nombres son texto del usuario y no tienen cota de largo
-        Notificar("la escena '" + nomAntes + "' ya existia -> '" + u->name +
-                  "': los cambiarEscena(\"" + nomAntes + "\") de SU .lua siguen apuntando "
-                  "a la primera. Editalos a mano.", true);
+        Notificar("Scene '" + nomAntes + "' already exists; the imported scene is now '" + u->name +
+                  "'. Update changeScene(\"" + nomAntes +
+                  "\") calls in its scripts if they should target this scene.", true);
     }
     DeseleccionarTodo();
     u->Seleccionar();
@@ -2554,7 +2616,8 @@ bool LayoutAbrirMenuDeBarra(ViewportBase* vp, int mx, int my) {
     // botones por ROL (NO por indice): reordenar la barra (mover Orient, etc.) no rompe esto.
     Button* bMode = BarRolBtn(B, BR_Mode);   Button* bSelM = BarRolBtn(B, BR_SelMode);
     Button* bPiv  = BarRolBtn(B, BR_Pivot);  Button* bSel  = BarRolBtn(B, BR_Select);
-    Button* bAdd  = BarRolBtn(B, BR_Add);    Button* bObj  = BarRolBtn(B, BR_Object);
+    Button* bAdd  = BarRolBtn(B, BR_Add);    Button* bScenes = BarRolBtn(B, BR_Scenes);
+    Button* bObj  = BarRolBtn(B, BR_Object);
     Button* bOvl  = BarRolBtn(B, BR_Overlays); Button* bRnd = BarRolBtn(B, BR_Render);
     Button* bOri  = BarRolBtn(B, BR_Orient); Button* bUV   = BarRolBtn(B, BR_UV);
     Button* bView = BarRolBtn(B, BR_View);   Button* bMesh = BarRolBtn(B, BR_Mesh);
@@ -2594,6 +2657,8 @@ bool LayoutAbrirMenuDeBarra(ViewportBase* vp, int mx, int my) {
         if (!MenuSelect->action) MenuSelect->action = LayoutAccionSelect;
     } else if (MenuAdd && bAdd && bAdd->visible && bAdd->Contains(mx, my)) {
         objetivo = MenuAdd; boton = bAdd;
+    } else if (MenuScenes && bScenes && bScenes->visible && bScenes->Contains(mx, my)) {
+        objetivo = MenuScenes; boton = bScenes;
     } else if (MenuMesh && bMesh && bMesh->visible && bMesh->Contains(mx, my)) {
         // Edit Mode: menu "Mesh" (Transform/Snap/Delete), comun a vertice/borde/cara.
         objetivo = MenuMesh; boton = bMesh;
@@ -3783,9 +3848,9 @@ static bool gScrollMovio = false; // hubo movimiento desde el agarre
 static int gScrollPrevX = 0;
 static int gScrollPrevY = 0;
 
-// Cada viewport dice SOLO si scrollea (ViewportBase::ComoScrollable). Antes esto era una tabla de downcasts a
+// Cada viewport dice SOLO si scrollea (ViewportBase::AsScrollable). Antes esto era una tabla de downcasts a
 // mano por ViewportKind() y habia que acordarse de venir a tocarla aca por cada viewport nuevo.
-static Scrollable* ComoScrollable(ViewportBase* v) { return v ? v->ComoScrollable() : NULL; }
+static Scrollable* AsScrollable(ViewportBase* v) { return v ? v->AsScrollable() : NULL; }
 
 bool LayoutEnArrastre() {
     return gScrollBarDrag != NULL;
@@ -3799,7 +3864,7 @@ bool LayoutPopupArrastrando() {
 static void SoltarDragOutliners(ViewportBase* aNodo, int mx, int my) {
     if (!aNodo) return;
     if (aNodo->isLeaf()) {
-        if (aNodo->ViewportKind() == 2) ((Outliner*)aNodo)->SoltarDrag(mx, my);
+        if (aNodo->ViewportKind() == 2) ((Outliner*)aNodo)->FinishRowDrag(mx, my);
         return;
     }
     if (aNodo->ContainerKind() == 1) {
@@ -3822,7 +3887,7 @@ void LayoutSoltar(int mx, int my) {
 #else
     if (gScrollBarDrag) {
 #endif
-        Scrollable* sc = ComoScrollable(gScrollBarDrag);
+        Scrollable* sc = AsScrollable(gScrollBarDrag);
         if (sc) {
             sc->mouseOverScrollYpress = false;
             sc->mouseOverScrollXpress = false;
@@ -3899,7 +3964,7 @@ bool LayoutMotionUI(int mx, int my) {
     if (gScrollBarDrag) {
         // la barra agarrada sigue al mouse (factor del recorrido real)
         gScrollMovio = true;
-        Scrollable* sc = ComoScrollable(gScrollBarDrag);
+        Scrollable* sc = AsScrollable(gScrollBarDrag);
         if (sc) {
             if (gScrollBarVertical) {
                 sc->PosY -= (int)((my - gScrollPrevY) * sc->scrollDragFactor);
@@ -3970,7 +4035,7 @@ bool LayoutMotionUI(int mx, int my) {
     // hover de la barra de scroll: la MISMA zona que usa el agarre del
     // click (un "scrollbar area" reservada al borde del panel)
     if (hoja) {
-        Scrollable* sc = ComoScrollable(hoja);
+        Scrollable* sc = AsScrollable(hoja);
         if (sc) {
             int areaScroll = borderGS + GlobalScale * 9;
             bool zonaV = sc->scrollY &&
@@ -4009,7 +4074,7 @@ bool LayoutClickUI(int mx, int my) {
     }
     // un click con la barra de scroll agarrada la SUELTA (Symbian)
     if (gScrollBarDrag) {
-        Scrollable* sc = ComoScrollable(gScrollBarDrag);
+        Scrollable* sc = AsScrollable(gScrollBarDrag);
         if (sc) {
             sc->mouseOverScrollYpress = false;
             sc->mouseOverScrollXpress = false;
@@ -4054,7 +4119,7 @@ bool LayoutClickUI(int mx, int my) {
     // 2) la BARRA DE SCROLL: el click la agarra (antes caia en las
     // filas del panel y era imposible arrastrarla)
     {
-        Scrollable* sc = ComoScrollable(under);
+        Scrollable* sc = AsScrollable(under);
         if (sc) {
             int areaScroll = borderGS + GlobalScale * 9;
             bool zonaV = sc->scrollY &&
@@ -4082,7 +4147,7 @@ bool LayoutClickUI(int mx, int my) {
         return true;
     }
     if (under->ViewportKind() == 2) {
-        ((Outliner*)under)->ClickSeleccionar(mx, my);
+        ((Outliner*)under)->SelectRowAt(mx, my);
         return true;
     }
     if (under->ViewportKind() == 8) {
@@ -4302,20 +4367,20 @@ bool LayoutTeclaPanelActivo(int tecla) {
         Outliner* out = (Outliner*)viewPortActive;
         // MODO MOVER (sin mouse, N95): las flechas reordenan/reparentan el objeto
         // activo en vez de navegar; OK confirma; C/backspace/Esc cancela.
-        if (out->ModoMover()) {
+        if (out->IsKeyboardMoveActive()) {
             switch (tecla) {
-                case LayoutKey::Up:     out->MoverPaso(0);      return true;
-                case LayoutKey::Down:   out->MoverPaso(1);      return true;
-                case LayoutKey::Left:   out->MoverPaso(2);      return true; // izquierda = SACAR (unparent)
-                case LayoutKey::Right:  out->MoverPaso(3);      return true; // derecha = METER (parent)
-                case LayoutKey::Enter:  out->MoverConfirmar();  return true;
-                case LayoutKey::Cancel: out->MoverCancelar();   return true;
+                case LayoutKey::Up:     out->StepKeyboardMove(0);      return true;
+                case LayoutKey::Down:   out->StepKeyboardMove(1);      return true;
+                case LayoutKey::Left:   out->StepKeyboardMove(2);      return true; // izquierda = SACAR (unparent)
+                case LayoutKey::Right:  out->StepKeyboardMove(3);      return true; // derecha = METER (parent)
+                case LayoutKey::Enter:  out->ConfirmKeyboardMove();  return true;
+                case LayoutKey::Cancel: out->CancelKeyboardMove();   return true;
             }
             return true; // en modo mover se traga todo (que nada mas se cuele)
         }
         switch (tecla) {
-            case LayoutKey::Up:    changeSelect(SelectMode::PrevSingle, true); out->AsegurarVisible(); return true;
-            case LayoutKey::Down:  changeSelect(SelectMode::NextSingle, true); out->AsegurarVisible(); return true;
+            case LayoutKey::Up:    changeSelect(SelectMode::PrevSingle, true); out->EnsureVisible(); return true;
+            case LayoutKey::Down:  changeSelect(SelectMode::NextSingle, true); out->EnsureVisible(); return true;
             case LayoutKey::Left:  OutlinerColapsarIzquierda(); return true; // plegar / subir al padre
             case LayoutKey::Right: SetDesplegado(true);  return true;
         }

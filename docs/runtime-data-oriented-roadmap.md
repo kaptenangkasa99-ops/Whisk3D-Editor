@@ -410,3 +410,131 @@ Integration record (2026-10-26):
 Phase 6 is **Done for the available Windows target**, with Linux, Web, Android,
 macOS, and generated-Windows-game gaps explicitly recorded above with reasons
 and follow-ups. These excluded targets are untested, not passing.
+
+## Phase 7 — Deterministic parallel runtime scheduling
+
+**Status: Pending**
+
+Introduce parallel execution only for runtime work whose inputs, outputs, and
+ordering can be made explicit. Preserve the current serial runtime as a
+first-class fallback on every platform. Prioritize Windows and Android for
+implementation and validation. Keep the implementation portable so other
+platforms can use it when their toolchains and threading configuration support
+it; other platforms are not required validation targets for this phase, and
+must remain on the serial path unless explicitly enabled and tested.
+
+The current dependency boundary is:
+
+1. **Scripts and animation:** May mutate the shared object graph and other
+   script-visible state. Run them in their established order before building
+   runtime snapshots; do not run them concurrently with systems reading or
+   writing the same objects.
+2. **Transform propagation:** Consume a stable hierarchy and transform input.
+   Parent results must be available before child world transforms are computed.
+   Parallelize only independent nodes or hierarchy levels with explicit
+   barriers and disjoint output ranges.
+3. **Visibility decisions:** Consume completed transforms and stable visibility
+   inputs. Do not race object mutation or depend on traversal-order side effects.
+4. **Packet creation:** Consume finalized visibility/transforms. Use worker-local
+   packet storage or disjoint ranges; do not share mutable packet vectors or
+   renderer state between workers.
+5. **Packet ordering:** Merge worker output deterministically and preserve
+   existing opaque grouping, transparent back-to-front ordering, and ordered-PVS
+   behavior. Any parallel sort must preserve the same tie-breaking/submission
+   semantics as the serial path.
+6. **Drawing:** Remains on the render/context-owning thread unless a backend
+   explicitly supports a separate submission model. Do not issue graphics API
+   calls from general worker threads.
+
+### Work
+
+- Record serial baseline behavior and benchmark representative scenes before
+  introducing scheduler work.
+- Define ownership and synchronization for each scheduled system, including
+  how parent/child transform dependencies and stable packet ordering are
+  represented.
+- Keep script and animation mutation before the parallel read/derived-data
+  stages unless a future phase proves a narrower, race-free schedule.
+- Implement the scheduler and runtime stages behind a portable platform layer.
+  Windows and Android are the initial enabled targets; all other platform
+  builds must retain a compiling serial fallback.
+- Provide an explicit way to select/force the serial path, and fall back to
+  serial execution when parallel execution is disabled or unavailable.
+- Keep graphics submission on the owning render thread.
+- Add feature tests, serial-versus-parallel parity tests, and representative
+  performance/memory measurements. Enable the parallel path by default only
+  when the target's measurements justify it and all required checks pass.
+
+### Pass criteria
+
+Phase 7 may be marked **Done** only when every applicable item below is checked
+and its evidence is recorded here:
+
+- [ ] Windows and Android builds compile with parallel support and with the
+  serial fallback forced.
+- [ ] The shared implementation remains portable for other targets, with
+  unsupported or unconfigured targets selecting the serial path. Other
+  platforms are explicitly recorded as untested, not passed.
+- [ ] Script and animation mutation is completed before parallel consumers
+  start; tests verify no scheduled worker races those mutations.
+- [ ] Transform results match the serial reference for parent/child hierarchies,
+  reparenting, repeated frames, and script/animation changes.
+- [ ] Visibility results and packet contents match serial output for supported
+  opaque, translucent, ordered-PVS, and visibility-change scenarios.
+- [ ] Packet order and rendered output are deterministic and match the serial
+  reference, including transparent ordering and existing legacy-render
+  fallbacks.
+- [ ] Drawing remains on the graphics-context-owning thread; thread-safety
+  checks or instrumentation confirm workers do not issue graphics calls.
+- [ ] Forcing serial mode produces the existing behavior and output on Windows
+  and Android. A worker/scheduler failure or unsupported configuration cannot
+  leave partially updated runtime data; it cleanly uses serial execution or
+  reports a surfaced fatal error rather than rendering success-shaped stale
+  data.
+- [ ] Existing editor, project save/load, transform, synchronization, packet,
+  culling/LOD, material, PVS, and mirror regressions pass on Windows and
+  Android, together with the new concurrency tests.
+- [ ] Benchmarks include warm-up, repeated representative scenes, frame/system
+  timings, and memory/thread overhead on both Windows and Android. Results
+  demonstrate a justified benefit on each target where parallel execution is
+  enabled; otherwise that target remains serial.
+- [ ] Exact build targets, devices/toolchains, test scenarios, benchmark
+  measurements, enabled targets, and untested platforms are recorded below.
+- [ ] `git diff --check` passes.
+
+### Current blockers and required resolution
+
+- **Mutable object graph:** Scripts and animation can change shared objects.
+  Resolve by keeping those updates before scheduled consumers and snapshotting
+  or otherwise stabilizing each system's inputs; do not parallelize across
+  mutation boundaries without proven ownership and tests.
+- **Parent/child dependencies:** A child world transform depends on its parent.
+  Resolve with dependency-aware levels/barriers or another proven topological
+  schedule, and compare every result to the serial implementation.
+- **Traversal side effects:** Visibility and current packet capture are tied to
+  hierarchy traversal. Resolve by extracting pure per-item inputs and using
+  worker-local/disjoint outputs before scheduling this work.
+- **Renderer state and graphics context:** Drawing and state changes are
+  order-sensitive and backend/context-bound. Keep draw submission serial on
+  the owning thread; parallelize preparation only unless a backend-specific
+  design and tests demonstrate otherwise.
+- **Platform threading/runtime setup:** Windows and Android need supported
+  worker configuration without imposing unavailable threading support or
+  mandatory runtime cost on other targets. Resolve with portable build guards,
+  explicit target configuration, and a serial fallback that compiles across
+  platforms.
+- **Unproven performance benefit:** Existing measurements are small Windows
+  editor scenes and do not establish a benefit from parallelism or on Android.
+  Resolve with representative Windows and Android benchmarks; do not enable a
+  slower or memory-regressive parallel path by default.
+- **Concurrency validation availability:** Data races, nondeterminism, or
+  device-specific behavior may not appear in ordinary scene tests. Resolve
+  with repeatable stress/parity tests on both priority targets and record any
+  unavailable validation as a blocker; do not mark the phase done while a
+  required criterion is unverified.
+
+### Validation record
+
+No scheduler implementation or Phase 7 validation is claimed yet. Record
+results here as work is completed; leave criteria unchecked and the phase
+Pending until all required pass criteria have evidence.

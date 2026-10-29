@@ -11,7 +11,7 @@
 //  su propio array de scripts. El .w3d v2 admite VARIOS nodos "ui" -> conviven N
 //  escenas en SceneCollection. El nombre de la escena = el campo "nombre" del UI.
 //
-//  El cambio de escena se pide con cambiarEscena(nombre) desde el lua; se APLICA
+//  El cambio de escena se pide con changeScene(name) desde Lua; se APLICA
 //  al FINAL del frame (no en el callback, para no mutar la iteracion de actualizar).
 //  Al aplicarse: oculta la activa anterior, muestra la nueva, y hace init PEREZOSO
 //  (si la nueva nunca corrio inicio() se le cargan+resuelven+inicio() sus scripts;
@@ -75,7 +75,7 @@ Object* W3dEscenaRaizDe(Object* o);
 // limpia TODO (mapa/activa/inited/pendiente); NO borra la escena inicial. Lo llama el STOP.
 void W3dEscenaLimpiar();
 
-// registra el bind lua cambiarEscena(nombre[,reiniciar]). Lo llama el punto de binds
+// registra el bind Lua changeScene(name[, restart]). Lo llama el punto de binds
 // COMPARTIDO (BindsJuegoRegistrar), asi el editor y el runtime lo exponen identico.
 void W3dEscenaRegistrarBind(void* L);
 

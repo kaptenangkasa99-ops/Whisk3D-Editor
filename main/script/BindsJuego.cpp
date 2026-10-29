@@ -6,7 +6,7 @@
 #include "script/BindsJuego.h"
 #include "script/W3dScript.h"          // W3dScriptParamObjeto
 #include "physics/W3dFisica.h"         // adaptador 2D de la fisica del Core (lienzo + tamano del elemento)
-#include "W3dEscena.h"                 // cambiarEscena(): el bind multi-escena COMPARTIDO
+#include "W3dEscena.h"                 // changeScene(): shared multi-scene binding
 #include "objects/Objects.h"
 #include "objects/UI.h"
 #include "objects/Texto2D.h"
@@ -1007,7 +1007,7 @@ void BindsJuegoRegistrar(void* Lv) {
     lua_pushcfunction(L, LCamaraXZ);    lua_setglobal(L, "cameraXZ");
     lua_pushcfunction(L, LObjetivo);    lua_setglobal(L, "target");
     lua_pushcfunction(L, LParametro);   lua_setglobal(L, "parameter");
-    // multi-escena: cambiarEscena(nombre[,reiniciar]) — mismo bind en editor y runtime
+    // Multi-scene: changeScene(name[, restart]) is shared by editor and runtime.
     W3dEscenaRegistrarBind(Lv);
 }
 

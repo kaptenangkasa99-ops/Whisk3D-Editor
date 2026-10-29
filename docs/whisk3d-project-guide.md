@@ -39,7 +39,10 @@ Whisk3D-Editor/
 ├── CMakeLists.txt                 # root build definition
 ├── README.md                      # project overview
 ├── guide.md                       # user docs
-├── beginner-locomotion.md
+├── docs/
+│   ├── engine-architecture.md
+│   ├── sample-game-guide.md
+│   └── whisk3d-project-guide.md
 ├── platform/
 │   ├── windows/
 │   │   ├── build_windows.bat
@@ -101,8 +104,6 @@ Whisk3D-Editor/
 │   ├── build_fuente_bitmap.py
 │   ├── genlang.py
 │   └── pruebas/
-├── docs/
-│   └── ...
 ├── W3D Examples/
 │   └── sample .w3d projects
 └── CMakeLists.txt
@@ -247,7 +248,7 @@ Important concepts:
 
 - any object can have Lua scripts attached
 - scripts can expose object refs, dropdown options, values
-- scripts can run `inicio()` and `actualizar(dt)`
+- scripts can run `start()` and `update(dt)`
 - there is a shared state map for cross-script communication
 - keyboard, gamepad and touch are bridged to Lua
 
@@ -519,7 +520,7 @@ This system:
 - allows object-bound scripts
 - exposes object references as properties
 - supports dropdowns, numbers, booleans, and strings as script attributes
-- supports `inicio()` and `actualizar(dt)` lifecycle functions
+- supports `start()` and `update(dt)` lifecycle functions
 - bridges keyboard, touch, mouse, and gamepad input to Lua
 - allows script-to-script shared state
 
