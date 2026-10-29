@@ -32,7 +32,7 @@
         "tipo": "camara",
         "nombre": "Camera",
         "pos": [-5.367255, 0.026420008, 4.2770367],
-        "rot": [-0.4353494, -57.063114, -0.36537775],
+        "rot": [10.963674, -35.40339, 6.403458],
         "escala": [1, 1, 1],
         "fov": 45,
         "orto": false,
@@ -60,7 +60,7 @@
       {
         "tipo": "malla",
         "nombre": "Player",
-        "pos": [0, 0, 0.8],
+        "pos": [-2.8499994, 0.7, 0.8],
         "rot": [0, 0, 0],
         "escala": [1, 1, 1],
         "geometria": "mallas/player.w3dm"
@@ -91,7 +91,7 @@
       "flags": { "textura": true, "filtrado": true, "repetir": true, "transparente": false, "luz": true, "colorVertice": false, "culling": true, "profundidad": true, "escribeProfundidad": true, "reflejo": false, "normalMap": false, "uv8bit": false } }
   ],
   "sesion": {
-    "frame": 1,
+    "frame": 1200,
     "activo": "Light",
     "seleccion": ["Light"]
   },

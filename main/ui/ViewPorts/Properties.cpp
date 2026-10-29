@@ -357,6 +357,8 @@ static TextField    g_renameField;         // el texto que se edita (se dibuja D
 static Button*      g_renameBoton = NULL;  // el boton que se volvio input
 static std::string (*g_renameUniq)(const std::string&, std::string*) = NULL; // uniquificador del scope (o NULL)
 static void (*g_renameDespues)() = NULL;   // hook POST-commit (ej: hueso -> renombrar su vertex group junto)
+static Object* g_sceneRenameObject = NULL;
+static void (*g_sceneRenameAfter)() = NULL;
 // IDENTIDAD del destino PARA EL UNDO (ver W3dRenameDest en Undo.h): casi todos los renames
 // de esta tarjeta escriben en un dueno del heap (Object/Material/UVMap*/grupo*), pero el de
 // MESH PART apunta DENTRO de Mesh::materialsGroup, que es un vector POR VALOR: guardar ahi un
@@ -376,6 +378,8 @@ static void RenameLimpiar(){
     g_renameBoton = NULL;
     g_renameUniq = NULL;
     g_renameDespues = NULL;
+    g_sceneRenameObject = NULL;
+    g_sceneRenameAfter = NULL;
     g_textFieldActivo = NULL;
 }
 // el nombre que TENIA el destino antes del commit (lo leen los hooks post-commit que
@@ -384,6 +388,17 @@ static std::string g_renameViejo;
 void RenameCommit(){ // ACEPTAR: escribe el texto (uniquificado) en el nombre destino
     void (*despues)() = NULL;
     if (g_renameTarget) {
+        if (g_sceneRenameObject && g_renameTarget == &g_sceneRenameObject->name) {
+            Object* escena = g_sceneRenameObject;
+            void (*despuesEscena)() = g_sceneRenameAfter;
+            const std::string pedido = g_renameField.text;
+            RenameLimpiar();
+            W3dRenombrarObjeto(escena, pedido, true);
+            if (despuesEscena) despuesEscena();
+            RebindMaterialMeshPart();
+            g_redraw = true;
+            return;
+        }
         g_renameViejo = *g_renameTarget;
         UndoCapturarRename(g_renameDest);   // Ctrl+Z: guarda el nombre PREVIO antes de escribir
         // el uniquificador YA normaliza (trim + fallback): un campo vacio o con solo
@@ -427,6 +442,29 @@ static void RenameIniciar(Button* boton, std::string* destino, std::string (*uni
     { extern bool g_uiTapEnCurso; void QwertyAbrir(); if (g_uiTapEnCurso) QwertyAbrir(); }
 #endif
 }
+
+void PropsIniciarRenombreEscena(Object* escena, void (*despues)()) {
+    if (!escena || escena->Parent != SceneCollection ||
+        (escena->getType() != ObjectType::scene && escena->getType() != ObjectType::ui))
+        return;
+    if (RenameActivo()) RenameCommit();
+    g_sceneRenameObject = escena;
+    g_sceneRenameAfter = despues;
+    g_renameTarget = &escena->name;
+    g_renameDest = W3dDestNombre(&escena->name);
+    g_renameField.SetText(escena->name);
+    g_renameField.SelectAll();
+    g_textFieldActivo = &g_renameField;
+#if !defined(__EMSCRIPTEN__)
+    { extern bool g_uiTapEnCurso; void QwertyAbrir(); if (g_uiTapEnCurso) QwertyAbrir(); }
+#endif
+    g_redraw = true;
+}
+
+TextField* PropsCampoRenombreEscena(Object* escena) {
+    return escena && g_sceneRenameObject == escena ? &g_renameField : NULL;
+}
+
 static void AccionRenameMeshPart(){ // las PARTES tambien son unicas dentro de la malla
     Mesh* m = MaterialMesh(); int idx = MeshPartActivoIdx(m); if (idx < 0 || !PropsActivo) return;
     if (!PropsActivo->propRowDelRen || PropsActivo->propRowDelRen->botones.size() < 2) return;

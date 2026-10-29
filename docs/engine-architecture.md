@@ -35,6 +35,18 @@ Core, and the game build excludes editor-only portions where required.
 ## 2. Authoring model and project data
 
 The editor's object hierarchy is the source of truth for authored scenes.
+New logical scenes use a distinct `SceneData` root (`tipo: "escena"` in the
+project JSON). World objects and independent UI canvas roots are children of
+that scene root; the `UI` object now represents only a 2D canvas and its layout,
+palette, and rendering settings. The existing editor collection remains the
+project-wide container and is not itself a game scene.
+
+Older projects whose top-level `tipo: "ui"` records act as scenes continue to
+load as legacy UI-root scenes. They are not silently rewritten into the new
+hierarchy when opened or saved. New scenes use the separate scene/UI model,
+and loaded legacy projects retain their original structure unless the user
+explicitly recreates their content in new scene roots. This preserves existing
+`.w3dui` references and the old single-canvas scene workflow.
 Objects carry transforms and may reference meshes, materials, scripts, and
 other resources. Parent/child relationships determine inherited transforms.
 This is an object-graph authoring model; Whisk3D does not replace it with an
@@ -59,11 +71,12 @@ resource model. The game exporter selects the runtime source set and packages
 the project assets for a target rather than using the editor UI as the game
 runtime.
 
-The editor Outliner can unload a UI scene's content while retaining a small
-file-backed placeholder, so other scenes remain editable without keeping every
-UI tree in memory. Reload restores the saved scene; unloading offers Save,
-Discard, or Cancel. Runtime scene switching still requires its destination
-scene to be loaded in the project.
+The editor Outliner can unload legacy UI-root scene content while retaining a
+small file-backed placeholder, so other scenes remain editable without keeping
+every UI tree in memory. Reload restores the saved scene; unloading offers Save,
+Discard, or Cancel. New `SceneData` roots currently remain resident because
+their world hierarchy is stored inline in the project JSON; runtime scene
+switching still requires its destination scene to be loaded in the project.
 
 ## 3. Runtime frame flow
 

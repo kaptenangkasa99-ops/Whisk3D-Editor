@@ -84,8 +84,8 @@ static void StartSubtree(Object* object, bool restart) {
         StartSubtree(object->Childrens[i], restart);
 }
 
-static void StartSceneScripts(class UI* scene, bool restart) {
-    StartSubtree((Object*)scene, restart);
+static void StartSceneScripts(Object* scene, bool restart) {
+    StartSubtree(scene, restart);
 }
 
 static void PixelLayout(int width, int height, float* x, float* y,
@@ -181,7 +181,8 @@ void W3dGameInicio() {
     for (size_t i = 0; i < g_scripts.size(); ++i) {
         Object* scriptObject = g_scripts[i];
         Object* root = W3dEscenaRaizDe(scriptObject);
-        if (hasScenes && root && root->getType() == ObjectType::ui) continue;
+        if (hasScenes && root &&
+            (root->getType() == ObjectType::ui || root->getType() == ObjectType::scene)) continue;
             if (scriptObject->scriptDatos && W3dScriptCargar(scriptObject)) {
                 for (size_t scriptIndex = 0;
                      scriptIndex < scriptObject->scriptDatos->scripts.size(); ++scriptIndex) {

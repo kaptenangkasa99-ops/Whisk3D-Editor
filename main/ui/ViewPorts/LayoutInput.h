@@ -79,6 +79,13 @@ bool LayoutClickBarraUV(UVEditor* uv, int mx, int my);
 class IDE;
 bool LayoutClickBarraIDE(IDE* ide, int mx, int my);
 
+class SceneData;
+// Authoring operations shared by the Scenes menu and the scene regression test.
+SceneData* W3dSceneCreateBlankRoot();
+void W3dSceneRemoveLoadedRoots();
+bool W3dSceneLoadLegacyAdditive(const std::string& path);
+bool W3dSceneLoadDataAdditive(const std::string& path);
+
 // hover de menus/barras + viewport 3D activo; true = lo consumio un menu
 bool LayoutMotionUI(int mx, int my);
 

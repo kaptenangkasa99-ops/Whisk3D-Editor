@@ -1,4 +1,5 @@
 #include "Undo.h"
+#include "W3dEscena.h"
 #include "variables.h"           // InteractionMode, ObjActivo, ObjSelects
 #include "objects/Objects.h"     // Object (pos/rot/scale)
 #include "objects/Mesh.h"        // Mesh (edit move: vertex/normals/CalcularBordes)
@@ -358,7 +359,10 @@ public:
                 w3dLogfW("[nombres] undo: '%s' ya estaba tomado (%s) -> vuelve como '%s'",
                          guardado.c_str(), etq ? etq : "?", vuelve.c_str());
         }
+        Object* sceneRoot = W3dEscenaBuscar(cur);
+        const bool sceneRootName = sceneRoot && &sceneRoot->name == t;
         *t = vuelve;
+        if (sceneRootName) W3dEscenaNombreCambiado(sceneRoot, cur, vuelve);
         guardado = cur;
     }
     // la lista corrio sus indices: el destino sigue a SU elemento (ver UndoMoverCapaMalla /

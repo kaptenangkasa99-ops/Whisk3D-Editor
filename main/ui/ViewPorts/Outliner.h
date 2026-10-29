@@ -17,6 +17,10 @@
 #include "WhiskUI/text/bitmapText.h"
 
 class Mesh; // Virtual "Armature 2D" row; its 2D bones belong to the mesh, not the scene.
+class LegacyUIScene;
+
+bool W3dLegacySceneUnloadData(LegacyUIScene* scene);
+bool W3dLegacySceneLoadData(LegacyUIScene* placeholder);
 
 class Outliner : public ViewportBase, public WithBorder, public Scrollable {
     public:

@@ -33,6 +33,8 @@
 #endif
 #include "w3dlog.h"              // avisos de layout tambien al log (los ve la Console)
 #include "objects/UI.h"          // la UI del proyecto (rama UI { archivo: ... })
+#include "objects/SceneData.h"   // logical scene roots (type "escena")
+#include "objects/LegacyUIScene.h"
 #include "objects/Empty.h"       // el nodo generico ("tipo": "objeto") vuelve como Empty
 #include "objects/Instance.h"    // Instance ("tipo": "Instance"): usado antes del include de mas abajo
 #include "objects/LOD.h"         // objeto LOD (un hijo por distancia a la camara)
@@ -592,7 +594,7 @@ static UI* CargarUIProyecto(const std::string& ruta, const std::string& refRel =
                   W3dNombreCorto(ruta).c_str());
         return NULL;
     }
-    UI* u = UI2DCargar(ruta);
+    UI* u = UI2DCargar(ruta, true);
     if (!u) {
         w3dLogfE("[W3D] la escena UI %s no parsea: se omite", ruta.c_str());
         if (g_w3dUINoCargo.empty()) g_w3dUINoCargo = ruta;
@@ -2343,6 +2345,11 @@ static void JsonObjeto(JVal* j, Object* parent, const std::string& base);
 static Object* JsonObjetoCrear(JVal* j, Object* parent, const std::string& base) {
     std::string tipo = JS(j, "tipo", "");
 
+    if (tipo == "escena") {
+        SceneData* escena = new SceneData(parent);
+        JsonComunes(j, escena);
+        return escena;
+    }
     if (tipo == "coleccion") {
         Collection* c = new Collection(parent);
         // JsonComunes y no solo el nombre: el guardado nuevo escribe visible/pos/rot/
@@ -3286,6 +3293,149 @@ static bool AbrirEscenaJson(const char* datos, size_t n, const std::string& base
 #endif
     AplicarLayoutTexto(JS(raiz, "layout", "2d"));
     delete raiz;
+    return true;
+}
+
+static void CargarAnimacionesImportadas(JVal* raiz) {
+    if (!JHijo(raiz, "animaciones", 4)) return;
+
+    InitSceneAnimations();
+    int animacionAnterior = SceneAnimActiva;
+    SceneAnimations[(size_t)animacionAnterior]->objetos.swap(AnimationObjects);
+    std::vector<SceneAnimation*> animacionesAnteriores;
+    animacionesAnteriores.swap(SceneAnimations);
+
+    const int inicioAnterior = StartFrame;
+    const int finAnterior = EndFrame;
+    const int fpsAnterior = AnimFPS;
+    const int frameAnterior = CurrentFrame;
+    CargarAnimacionesEscena(raiz);
+
+    int animacionImportadaActiva = SceneAnimActiva;
+    std::vector<AnimationObject> curvasImportadas;
+    std::vector<SceneAnimation*> animacionesImportadas;
+    if (animacionImportadaActiva >= 0 &&
+        animacionImportadaActiva < (int)SceneAnimations.size())
+        SceneAnimations[(size_t)animacionImportadaActiva]->objetos.swap(AnimationObjects);
+    curvasImportadas.swap(AnimationObjects);
+    animacionesImportadas.swap(SceneAnimations);
+
+    SceneAnimations.swap(animacionesAnteriores);
+    SceneAnimActiva = animacionAnterior;
+    AnimationObjects.swap(SceneAnimations[(size_t)animacionAnterior]->objetos);
+    for (size_t i = 0; i < animacionesImportadas.size(); ++i) {
+        if (!animacionesImportadas[i]) continue;
+        animacionesImportadas[i]->name =
+            SceneAnimNombreLibre(animacionesImportadas[i]->name, -1);
+        SceneAnimations.push_back(animacionesImportadas[i]);
+    }
+    if (animacionImportadaActiva >= 0 &&
+        animacionImportadaActiva < (int)animacionesImportadas.size())
+        animacionesImportadas[(size_t)animacionImportadaActiva] = NULL;
+    for (size_t i = 0; i < animacionesImportadas.size(); ++i)
+        delete animacionesImportadas[i];
+
+    StartFrame = inicioAnterior;
+    EndFrame = finAnterior;
+    AnimFPS = fpsAnterior;
+    CurrentFrame = frameAnterior;
+}
+
+bool W3dSceneLoadDataAdditive(const std::string& path) {
+    if (!SceneCollection || W3dEscenaActiva()) {
+        Notificar("Stop Play before loading a scene file.", true);
+        return false;
+    }
+    std::vector<unsigned char> bytes;
+    if (!w3dFileSystem::ReadFileBytes(path, bytes) || bytes.empty()) {
+        Notificar("Could not read the scene file.", true);
+        return false;
+    }
+
+    JParser parser((const char*)&bytes[0], bytes.size());
+    JVal* raiz = parser.Valor();
+    if (parser.error || !raiz || raiz->tipo != 4 ||
+        JS(raiz, "formato", "") != "whisk3d-scene") {
+        delete raiz;
+        Notificar("Unsupported scene file data.", true);
+        return false;
+    }
+    JVal* escena = JHijo(raiz, "escena", 4);
+    JVal* objetos = escena ? JHijo(escena, "objetos", 5) : NULL;
+    if (!objetos || objetos->lista.size() != 1 || !objetos->lista[0] ||
+        objetos->lista[0]->tipo != 4 ||
+        JS(objetos->lista[0], "tipo", "") != "escena") {
+        delete raiz;
+        Notificar("The scene file does not contain one valid scene root.", true);
+        return false;
+    }
+
+    JVal* rootObject = objetos->lista[0];
+    JVal* rootName = JHijo(rootObject, "nombre", 2);
+    if (rootName && rootName->tipo == 2) {
+        rootName->str = SceneCollection->NombreLibre(rootName->str);
+    }
+
+    struct SceneFileContext {
+        std::string dir;
+        std::string projectDir;
+        bool projectV4;
+        bool projectV5;
+        bool refsEntries;
+        W3dRefExtFn markExternal;
+        bool namesLoading;
+        SceneFileContext(const std::string& filePath)
+            : dir(gDirProyecto), projectDir(g_w3dDirProyecto),
+              projectV4(gProyectoV4), projectV5(gProyectoV5),
+              refsEntries(g_w3dRefsEntradas), markExternal(g_w3dRefExtMarcar),
+              namesLoading(W3dNombresCargando) {
+            gDirProyecto = w3dFileSystem::ParentPath(filePath);
+            g_w3dDirProyecto = gDirProyecto;
+            gProyectoV4 = false;
+            gProyectoV5 = true;
+            g_w3dRefsEntradas = false;
+            g_w3dRefExtMarcar = W3dRefExternaMarcar;
+            W3dNombresCargando = true;
+        }
+        ~SceneFileContext() {
+            gDirProyecto = dir;
+            g_w3dDirProyecto = projectDir;
+            gProyectoV4 = projectV4;
+            gProyectoV5 = projectV5;
+            g_w3dRefsEntradas = refsEntries;
+            g_w3dRefExtMarcar = markExternal;
+            W3dNombresCargando = namesLoading;
+        }
+    } context(path);
+
+    CargarMateriales(raiz, gDirProyecto);
+    const size_t rootsBefore = SceneCollection->Childrens.size();
+    JsonObjeto(rootObject, SceneCollection, gDirProyecto);
+    if (SceneCollection->Childrens.size() != rootsBefore + 1) {
+        delete raiz;
+        Notificar("The scene data could not be loaded.", true);
+        return false;
+    }
+    Object* loadedScene = SceneCollection->Childrens.back();
+    if (!loadedScene || loadedScene->getType() != ObjectType::scene) {
+        delete raiz;
+        Notificar("The scene data did not create a scene root.", true);
+        return false;
+    }
+
+    ResolverModArmaturePendientes();
+    SearchLoop();
+    SceneCollection->ReloadAll();
+    W3dConstraintsResolverNombres(SceneCollection);
+    CargarAnimacionesImportadas(raiz);
+    W3dNombresCargando = false;
+    W3dNombresRepararEscena(true);
+    W3dEscenaRegistrarTodas();
+    DeseleccionarTodo();
+    loadedScene->Seleccionar();
+    CargarTodasTexturasPendientes();
+    delete raiz;
+    g_redraw = true;
     return true;
 }
 

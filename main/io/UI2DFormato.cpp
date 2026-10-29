@@ -11,6 +11,7 @@
 #include "script/W3dScript.h"    // script lua + refs expuestas (se guardan con el arbol)
 #include "objects/Objects.h"
 #include "objects/UI.h"
+#include "objects/LegacyUIScene.h"
 #include "objects/Elemento2D.h"
 #include "objects/Texto2D.h"
 #include "objects/Imagen2D.h"
@@ -635,7 +636,7 @@ static void CargarElemento(JVal* j, Object* padre, const std::string& base) {
     CargarHijos(j, e, base);
 }
 
-UI* UI2DCargar(const std::string& ruta) {
+UI* UI2DCargar(const std::string& ruta, bool legacySceneRoot) {
     std::vector<unsigned char> datos;
     if (!w3dFileSystem::ReadFileBytes(ruta, datos) || datos.empty()) {
         w3dLogfE("UI2D: no pude leer %s", ruta.c_str());
@@ -653,7 +654,11 @@ UI* UI2DCargar(const std::string& ruta) {
     // durante la carga los nombres entran crudos (ver SetNameCrudo mas abajo)
     struct CargaGuard { bool prev; CargaGuard(){ prev = W3dNombresCargando; W3dNombresCargando = true; }
                         ~CargaGuard(){ W3dNombresCargando = prev; } } cargaGuard;
-    UI* u = new UI(NULL, Vector3(0, 0, 0));
+    UI* u = legacySceneRoot
+        ? (UI*)new LegacyUIScene(NULL, Vector3(0, 0, 0))
+        : (UI*)new UI(NULL, Vector3(0, 0, 0));
+    if (legacySceneRoot && SceneCollection)
+        u->Parent = SceneCollection;
     u->SetNameCrudo(JS(raiz, "nombre", u->name));   // idem: crudo + reparacion del caller
     // recordar de QUE archivo vino (solo el nombre): GuardarW3D re-escribe ese
     // mismo .w3dui hermano al guardar el proyecto (ver UI::archivoW3dui)

@@ -64,17 +64,12 @@ public:
     float padIzq, padDer;   // margen interior POR LADO: encoge el area de anclaje
     float padArr, padAba;
     bool  padUni;           // el panel edita los 4 lados con UN solo valor
-    // el NOMBRE DE ARCHIVO .w3dui del que vino esta escena (solo el nombre, sin
-    // carpeta: "menu.w3dui"). Lo fija UI2DCargar; GuardarW3D lo usa para volver a
-    // escribir el MISMO archivo hermano al guardar el proyecto (formato .w3d JSON:
-    // las escenas UI viven como .w3dui externos al lado del .w3d). Vacio = UI nueva
-    // que nunca se guardo: al guardar toma "<nombre>.w3dui".
+    // Source path of this canvas document. The project serializer preserves its
+    // relative location when saving the .w3d project.
     std::string archivoW3dui;
-    bool cargada;         // false = Outliner conserva solo el placeholder de una escena descargada
 
     UI(Object* parent = NULL, Vector3 pos = Vector3(0,0,0))
         : Object(parent, "UI", pos) {
-        cargada = true;
         verEn3D = false;
         igualQueRender = true;
         ancho = 640.0f; alto = 480.0f;

@@ -42,6 +42,8 @@ bool LayoutAbrirMenuDeBarra(ViewportBase* vp, int mx, int my); // LayoutInput.cp
 #include "importers/import_obj.h"   // ExportOBJ
 #include "importers/import_fbx.h"  // ImportFBX
 #include "objects/UI.h"        // compilarjuego: la UI raiz que compila la tarjeta Juego
+#include "objects/LegacyUIScene.h"
+#include "objects/SceneData.h"
 #include "objects/LOD.h"       // lodinfo: los objetos LOD del arbol (umbrales + hijo elegido)
 #include "objects/Culling.h"   // lodinfo: los objetos Culling (soloCamaraActiva)
 #include "objects/Particulas.h" // partinfo: los emisores de particulas (config + vivas)
@@ -1298,6 +1300,291 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
     std::istringstream ss(linea);
     std::string cmd; ss >> cmd;
     if (cmd.empty()) return true;
+
+    // ---- scene-architecture-test: legacy UI scene load/unload, additive/new
+    //      authoring, async progress, and explicit activation. ----
+    if (cmd == "scene-architecture-test") {
+        if (W3dEscenaActivaObjeto()) {
+            err = "scene-architecture-test: stop Play before running this test";
+            return false;
+        }
+
+        struct TestSceneCollection {
+            Object* original;
+            Object* temporary;
+            TestSceneCollection() : original(SceneCollection), temporary(NULL) {
+                temporary = new Object(original, "__SceneArchitectureTestCollection");
+                if (original) {
+                    for (size_t i = 0; i < original->Childrens.size(); ++i)
+                        if (original->Childrens[i] == temporary) {
+                            original->Childrens.erase(original->Childrens.begin() + i);
+                            break;
+                        }
+                }
+                temporary->Parent = NULL;
+                SceneCollection = temporary;
+            }
+            ~TestSceneCollection() {
+                W3dEscenaLimpiar();
+                SceneCollection = original;
+                W3dLiberarSubarbol(temporary);
+                W3dEscenaRegistrarTodas();
+            }
+        } sceneCollectionScope;
+
+        struct TestLuaState {
+            lua_State* state;
+            TestLuaState() : state(luaL_newstate()) {
+                if (state) luaL_openlibs(state);
+            }
+            ~TestLuaState() {
+                if (state) {
+                    W3dEscenaLimpiar();
+                    lua_close(state);
+                }
+            }
+        };
+
+        const std::string baseName = "__SceneArchitectureTest_" +
+            std::to_string((unsigned long long)std::chrono::steady_clock::now()
+                               .time_since_epoch().count());
+        const std::string tempDir = std::filesystem::temp_directory_path().string();
+        const std::string legacyPath = w3dFileSystem::JoinPath(tempDir, baseName + "_legacy.w3dui");
+        const std::string additivePath = w3dFileSystem::JoinPath(tempDir, baseName + "_additive.w3dui");
+        const std::string sceneProjectDir = w3dFileSystem::JoinPath(tempDir, baseName + "_saved_scene");
+        const std::string sceneProjectPath = w3dFileSystem::JoinPath(sceneProjectDir, "scene.w3dscene");
+        struct TestFiles {
+            std::string first;
+            std::string second;
+            std::string directory;
+            ~TestFiles() {
+                std::remove(first.c_str());
+                std::remove(second.c_str());
+                std::error_code ec;
+                std::filesystem::remove_all(directory, ec);
+            }
+        } testFiles = { legacyPath, additivePath, sceneProjectDir };
+
+        LegacyUIScene* legacy = new LegacyUIScene(SceneCollection);
+        legacy->SetNameCrudo(baseName + "_legacy");
+        new Rect2D(legacy);
+        legacy->archivoW3dui = legacyPath;
+        if (!UI2DGuardar(legacy, legacyPath)) {
+            err = "scene-architecture-test: could not write the legacy UI fixture";
+            return false;
+        }
+        W3dEscenaRegistrarTodas();
+        if (W3dEscenaBuscar(legacy->name) != legacy ||
+            !W3dLegacySceneUnloadData(legacy) || legacy->cargada ||
+            !legacy->Childrens.empty() || W3dEscenaBuscar(legacy->name)) {
+            err = "scene-architecture-test: unload invariant failed (loaded=" +
+                std::to_string(legacy->cargada) + ", children=" +
+                std::to_string(legacy->Childrens.size()) + ", registered=" +
+                std::to_string(W3dEscenaBuscar(legacy->name) != NULL) + ")";
+            return false;
+        }
+        const std::string legacyName = legacy->name;
+        if (!W3dLegacySceneLoadData(legacy)) {
+            err = "scene-architecture-test: reload failed";
+            return false;
+        }
+        LegacyUIScene* reloaded = NULL;
+        size_t matchingRoots = 0;
+        for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
+            Object* root = SceneCollection->Childrens[i];
+            if (root && root->name == legacyName) {
+                ++matchingRoots;
+                reloaded = dynamic_cast<LegacyUIScene*>(root);
+            }
+        }
+        if (matchingRoots != 1 || !reloaded || !reloaded->cargada ||
+            reloaded->Childrens.size() != 1 ||
+            reloaded->Childrens[0]->getType() != ObjectType::rect2d ||
+            W3dEscenaBuscar(legacyName) != reloaded) {
+            err = "scene-architecture-test: reload lost data, duplicated the root, or failed to register it";
+            return false;
+        }
+
+        LegacyUIScene* additiveSource = new LegacyUIScene(SceneCollection);
+        additiveSource->SetNameCrudo(baseName + "_additive");
+        new Rect2D(additiveSource);
+        if (!UI2DGuardar(additiveSource, additivePath)) {
+            err = "scene-architecture-test: could not write the additive fixture";
+            return false;
+        }
+        Object* parent = additiveSource->Parent;
+        if (parent) {
+            for (size_t i = 0; i < parent->Childrens.size(); ++i)
+                if (parent->Childrens[i] == additiveSource) {
+                    parent->Childrens.erase(parent->Childrens.begin() + i);
+                    break;
+                }
+        }
+        additiveSource->Parent = NULL;
+        W3dLiberarSubarbol(additiveSource);
+        if (!W3dSceneLoadLegacyAdditive(additivePath) ||
+            W3dEscenaBuscar(legacyName) != reloaded ||
+            !W3dEscenaBuscar(baseName + "_additive")) {
+            err = "scene-architecture-test: additive load replaced or failed to add a scene";
+            return false;
+        }
+
+        Empty* globalObject = new Empty(SceneCollection);
+        SceneData* newScene = W3dSceneCreateBlankRoot();
+        if (!newScene || W3dEscenaBuscar(legacyName) != reloaded ||
+            W3dEscenaBuscar(newScene->name) != newScene) {
+            err = "scene-architecture-test: additive scene creation replaced existing scenes";
+            return false;
+        }
+        UndoLimpiar();
+        const std::string sceneName = newScene->name;
+        const std::string renamedScene = W3dRenombrarObjeto(
+            newScene, baseName + "_renamed", false);
+        if (renamedScene == sceneName || W3dEscenaBuscar(renamedScene) != newScene ||
+            W3dEscenaBuscar(sceneName)) {
+            err = "scene-architecture-test: scene rename did not update the registry";
+            return false;
+        }
+        UndoDeshacer();
+        if (newScene->name != sceneName || W3dEscenaBuscar(sceneName) != newScene ||
+            W3dEscenaBuscar(renamedScene)) {
+            err = "scene-architecture-test: scene rename undo did not restore the registry";
+            return false;
+        }
+        Empty* scenePayload = new Empty(newScene);
+        scenePayload->SetNameCrudo(baseName + "_payload");
+        std::error_code sceneDirError;
+        std::filesystem::create_directories(sceneProjectDir, sceneDirError);
+        const std::string sourceProjectDir = g_w3dDirProyecto;
+        const std::string sourceProjectIcon = g_proyIcono;
+        const std::string sourceProjectPath = w3dPath;
+        if (sceneDirError || !GuardarW3DEscena(sceneProjectPath, newScene)) {
+            err = "scene-architecture-test: standalone scene save failed";
+            return false;
+        }
+        std::vector<unsigned char> standaloneBytes;
+        if (!w3dFileSystem::ReadFileBytes(sceneProjectPath, standaloneBytes) ||
+            standaloneBytes.empty()) {
+            err = "scene-architecture-test: standalone scene project was not written";
+            return false;
+        }
+        const std::string standaloneJson(standaloneBytes.begin(), standaloneBytes.end());
+        JParser sceneParser(standaloneJson.c_str(), standaloneJson.size());
+        JVal* sceneRoot = sceneParser.Valor();
+        const bool sceneJsonValid = !sceneParser.error && sceneRoot && sceneRoot->tipo == 4;
+        delete sceneRoot;
+        if (!sceneJsonValid ||
+            standaloneJson.find("\"formato\": \"whisk3d-scene\"") == std::string::npos ||
+            standaloneJson.find(newScene->name) == std::string::npos ||
+            standaloneJson.find(scenePayload->name) == std::string::npos ||
+            standaloneJson.find(legacyName) != std::string::npos ||
+            standaloneJson.find(globalObject->name) != std::string::npos ||
+            standaloneJson.find("\"compilar\"") != std::string::npos ||
+            standaloneJson.find("\"layout\"") != std::string::npos ||
+            standaloneJson.find("\"sesion\"") != std::string::npos ||
+            std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "scripts")) ||
+            std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "proyecto.json")) ||
+            g_w3dDirProyecto != sourceProjectDir || g_proyIcono != sourceProjectIcon ||
+            w3dPath != sourceProjectPath) {
+            err = "scene-architecture-test: scene save included project data or changed project state";
+            return false;
+        }
+        const size_t rootsBeforeSceneLoad = SceneCollection->Childrens.size();
+        if (!W3dSceneLoadDataAdditive(sceneProjectPath) ||
+            SceneCollection->Childrens.size() != rootsBeforeSceneLoad + 1 ||
+            W3dEscenaBuscar(legacyName) != reloaded) {
+            err = "scene-architecture-test: additive scene-data load replaced existing scene roots";
+            return false;
+        }
+        Object* importedScene = NULL;
+        bool importedPayloadFound = false;
+        for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
+            Object* root = SceneCollection->Childrens[i];
+            if (!root || root == newScene || root == reloaded ||
+                root->getType() != ObjectType::scene) continue;
+            for (size_t child = 0; child < root->Childrens.size(); ++child)
+                if (root->Childrens[child] &&
+                    root->Childrens[child]->name.find(baseName + "_payload") == 0)
+                    importedPayloadFound = true;
+            if (importedPayloadFound) importedScene = root;
+        }
+        if (!importedScene || !importedPayloadFound) {
+            err = "scene-architecture-test: additive scene-data load lost the scene root or its objects";
+            return false;
+        }
+        W3dSceneRemoveLoadedRoots();
+        if (!globalObject->Parent || globalObject->Parent != SceneCollection) {
+            err = "scene-architecture-test: New removed project-global data";
+            return false;
+        }
+        for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
+            Object* root = SceneCollection->Childrens[i];
+            if (root && (root->getType() == ObjectType::scene ||
+                         (root->getType() == ObjectType::ui && root->Parent == SceneCollection))) {
+                err = "scene-architecture-test: New left a loaded scene root in memory";
+                return false;
+            }
+        }
+
+        SceneData* manualScene = new SceneData(SceneCollection);
+        manualScene->SetNameCrudo(baseName + "_manual");
+        SceneData* autoScene = new SceneData(SceneCollection);
+        autoScene->SetNameCrudo(baseName + "_auto");
+        W3dEscenaRegistrarTodas();
+
+        TestLuaState luaScope;
+        if (!luaScope.state) {
+            err = "scene-architecture-test: could not create Lua state";
+            return false;
+        }
+        W3dEscenaRegistrarBind(luaScope.state);
+        std::string lua = "events={}; last=-1; assert(changeSceneAsync('" + manualScene->name +
+            "', false, function(n,p,s) assert(p>=last); last=p; table.insert(events,s) end))";
+        if (luaL_dostring(luaScope.state, lua.c_str()) != 0) {
+            err = "scene-architecture-test: changeSceneAsync rejected a registered scene";
+            return false;
+        }
+        W3dEscenaAplicarPendiente();
+        if (W3dEscenaActivaObjeto()) {
+            err = "scene-architecture-test: async scene activated before preparation completed";
+            return false;
+        }
+        W3dEscenaAplicarPendiente();
+        if (W3dEscenaActivaObjeto()) {
+            err = "scene-architecture-test: manual activation occurred before sceneAsyncReadyLoad";
+            return false;
+        }
+        lua = "assert(sceneAsycReadyLoad('" + manualScene->name + "'))";
+        if (luaL_dostring(luaScope.state, lua.c_str()) != 0) {
+            err = "scene-architecture-test: sceneAsycReadyLoad did not accept a ready scene";
+            return false;
+        }
+        W3dEscenaAplicarPendiente();
+        if (W3dEscenaActivaObjeto() != manualScene ||
+            luaL_dostring(luaScope.state,
+                "assert(table.concat(events, ','):find('ready')); assert(table.concat(events, ','):find('active'))") != 0) {
+            err = "scene-architecture-test: manual activation or progress callbacks failed";
+            return false;
+        }
+
+        lua = "autoEvents={}; assert(changeSceneAsync('" + autoScene->name +
+            "', true, function(n,p,s) table.insert(autoEvents,s) end))";
+        if (luaL_dostring(luaScope.state, lua.c_str()) != 0) {
+            err = "scene-architecture-test: automatic async request failed";
+            return false;
+        }
+        W3dEscenaAplicarPendiente();
+        W3dEscenaAplicarPendiente();
+        if (W3dEscenaActivaObjeto() != autoScene ||
+            luaL_dostring(luaScope.state,
+                "assert(table.concat(autoEvents, ','):find('ready')); assert(table.concat(autoEvents, ','):find('active'))") != 0) {
+            err = "scene-architecture-test: automatic activation did not wait for readiness";
+            return false;
+        }
+
+        printf("      [scene-architecture-test] legacy lifecycle, scene rename/undo/save/load, additive/new roots, and async activation OK\n");
+        return true;
+    }
 
     // ---- runtime-transform-test: packed hierarchy, cached local/world matrices,
     //      stable parent links for the snapshot, and rebuild after live edits. ----

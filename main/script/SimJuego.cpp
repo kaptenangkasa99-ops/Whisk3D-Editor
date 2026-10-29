@@ -238,7 +238,7 @@ static void EditorInitSubtree(Object* o, bool reiniciar) {
 }
 // callback de init de UNA escena (lo registra W3dEscenaSetInit): el motor multi-escena
 // lo llama al arrancar la inicial y al hacer el init perezoso de cada escena destino.
-static void EditorInitEscena(UI* u, bool reiniciar) { EditorInitSubtree((Object*)u, reiniciar); }
+static void EditorInitEscena(Object* escena, bool reiniciar) { EditorInitSubtree(escena, reiniciar); }
 
 static void SimPlay() {
     // volcar a disco/overlay los .lua editados en el IDE (sucios) ANTES de leerlos: sino Play corre el .lua VIEJO
@@ -262,7 +262,8 @@ static void SimPlay() {
     for (size_t i = 0; i < gScripted.size(); i++) {
         Object* s = gScripted[i];
         Object* raiz = W3dEscenaRaizDe(s);
-        bool enEscena = hayEscenas && raiz && raiz->getType() == ObjectType::ui;
+        bool enEscena = hayEscenas && raiz &&
+            (raiz->getType() == ObjectType::ui || raiz->getType() == ObjectType::scene);
         if (enEscena) continue;
         if (!W3dScriptCargar(s)) continue;
         SimReresolver(s);

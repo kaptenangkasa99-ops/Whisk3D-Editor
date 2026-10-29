@@ -5,17 +5,21 @@
 
 #include "Outliner.h"
 #include "W3dLang.h"
+#include "ViewPorts/Properties.h"
 #include "WhiskUI/draw/glesdraw.h"
 #include "render/OpcionesRender.h" // g_redraw (CenterSelection requests a redraw).
 #include "objects/ObjectMode.h" // Reparenting for drag and drop.
 #include "objects/Instance.h"   // ObjectIcon: array, mirror, or instance depending on the mode.
 #include "objects/Mesh.h"       // Mesh::armatures2d (one virtual blue row per 2D rig beneath its mesh).
 #include "objects/UI.h"
+#include "objects/LegacyUIScene.h"
 #include "W3dEscena.h"
 #include "io/GuardarW3D.h"
 #include "io/UI2DFormato.h"
+#include "io/W3dContenedor.h"
 #include "script/W3dScript.h"
 #include "w3dFilesystem.h"
+#include "ViewPorts/PopUp/FileBrowser.h"
 #include "variables.h"
 #include "ViewPorts/PopUp/ConfirmarPopup.h" // AbrirConfirmarBorrado (confirm before deleting).
 #include "ViewPorts/Notificaciones.h"       // Notificar (keyboard-move rename notifications).
@@ -31,9 +35,77 @@
     #include <GL/gl.h>
 #endif
 
-static UI* gEscenaAccionOutliner = NULL;
+static LegacyUIScene* gEscenaAccionOutliner = NULL;
+static Object* gSceneSaveTarget = NULL;
+static std::string gSceneSavePath;
 
-static bool FindSavedScenePath(UI* scene, std::string& path, bool& isContainerEntry) {
+static bool IsSceneRoot(Object* object) {
+    return object && object->Parent == SceneCollection &&
+           (object->getType() == ObjectType::scene || object->getType() == ObjectType::ui);
+}
+
+static void SaveSceneOverwrite();
+static void PromptSceneSaveConflict();
+
+static void SaveSceneRenameComplete() {
+    Object* scene = gSceneSaveTarget;
+    if (!scene || gSceneSavePath.empty()) return;
+    const std::string folder = w3dFileSystem::ParentPath(gSceneSavePath);
+    gSceneSavePath = W3dRutaEnCarpeta(folder, W3dSlugEntrada(scene->name), ".w3dscene");
+    if (w3dFileSystem::FileExists(gSceneSavePath)) {
+        PromptSceneSaveConflict();
+        return;
+    }
+    SaveSceneOverwrite();
+}
+
+static void SaveSceneRename() {
+    if (gSceneSaveTarget)
+        PropsIniciarRenombreEscena(gSceneSaveTarget, SaveSceneRenameComplete);
+}
+
+static void SaveSceneOverwrite() {
+    Object* scene = gSceneSaveTarget;
+    const std::string path = gSceneSavePath;
+    gSceneSaveTarget = NULL;
+    gSceneSavePath.clear();
+    if (!scene || path.empty()) return;
+    GuardarW3DEscena(path, scene);
+}
+
+static void PromptSceneSaveConflict() {
+    Object* scene = gSceneSaveTarget;
+    if (!scene || gSceneSavePath.empty()) return;
+    if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
+    confirmarPopup->AbrirTresOpciones(
+        "A scene file named \"" + W3dSlugEntrada(scene->name) +
+            "\" already exists. Rename this scene, overwrite the file, or cancel.",
+        T("Rename"), SaveSceneRename, T("Overwrite"), SaveSceneOverwrite);
+}
+
+static void SaveSceneChosen(const std::string& chosen) {
+    Object* scene = gSceneSaveTarget;
+    if (!scene || !IsSceneRoot(scene)) {
+        gSceneSaveTarget = NULL;
+        return;
+    }
+    gSceneSavePath = W3dRutaDeSalida(chosen, W3dSlugEntrada(scene->name), ".w3dscene");
+    if (w3dFileSystem::FileExists(gSceneSavePath)) {
+        PromptSceneSaveConflict();
+        return;
+    }
+    SaveSceneOverwrite();
+}
+
+static void StartSaveScene(Object* scene) {
+    if (!IsSceneRoot(scene)) return;
+    gSceneSaveTarget = scene;
+    gSceneSavePath.clear();
+    AbrirFileBrowser(T("Save Scene"), T("Save"), ".w3dscene", SaveSceneChosen,
+                     true, W3dCarpetaBaseSalida());
+}
+
+static bool FindSavedScenePath(LegacyUIScene* scene, std::string& path, bool& isContainerEntry) {
     if (!scene || scene->archivoW3dui.empty()) return false;
     const std::string& ref = scene->archivoW3dui;
     const bool absoluta = ref[0] == '/' || ref[0] == '\\' ||
@@ -65,8 +137,8 @@ static void DestroySceneChildren(Object* parent) {
     }
 }
 
-static void UnloadScene(UI* scene) {
-    if (!scene || !scene->cargada) return;
+bool W3dLegacySceneUnloadData(LegacyUIScene* scene) {
+    if (!scene || !scene->cargada) return false;
     UndoLimpiar();
     DeseleccionarTodo(true);
     DestroySceneChildren(scene);
@@ -74,10 +146,11 @@ static void UnloadScene(UI* scene) {
     scene->scriptDatos = NULL;
     scene->cargada = false;
     W3dEscenaRegistrarTodas();
+    return true;
 }
 
 static void SaveAndUnloadScene() {
-    UI* scene = gEscenaAccionOutliner;
+    LegacyUIScene* scene = gEscenaAccionOutliner;
     gEscenaAccionOutliner = NULL;
     if (!scene || w3dPath.empty()) {
         Notificar(T("Save the project before unloading this scene."), true);
@@ -87,11 +160,11 @@ static void SaveAndUnloadScene() {
         Notificar(T("The project could not be saved; the scene remains loaded."), true);
         return;
     }
-    UnloadScene(scene);
+    W3dLegacySceneUnloadData(scene);
 }
 
 static void DiscardAndUnloadScene() {
-    UI* scene = gEscenaAccionOutliner;
+    LegacyUIScene* scene = gEscenaAccionOutliner;
     gEscenaAccionOutliner = NULL;
     std::string path;
     bool isContainerEntry = false;
@@ -100,38 +173,63 @@ static void DiscardAndUnloadScene() {
         return;
     }
     (void)isContainerEntry;
-    UnloadScene(scene);
+    W3dLegacySceneUnloadData(scene);
 }
 
-static void LoadUnloadedScene(UI* placeholder) {
-    if (!placeholder || placeholder->cargada || !SceneCollection) return;
+bool W3dLegacySceneLoadData(LegacyUIScene* placeholder) {
+    if (!placeholder || placeholder->cargada || !SceneCollection) return false;
     std::string path;
     bool isContainerEntry = false;
     if (!FindSavedScenePath(placeholder, path, isContainerEntry)) {
         Notificar(T("The saved scene file could not be found."), true);
-        return;
+        return false;
     }
     const bool refsAntes = g_w3dRefsEntradas;
     g_w3dRefsEntradas = isContainerEntry;
-    UI* loadedScene = UI2DCargar(path);
+    UI* loadedDocument = UI2DCargar(path, true);
     g_w3dRefsEntradas = refsAntes;
+    LegacyUIScene* loadedScene = dynamic_cast<LegacyUIScene*>(loadedDocument);
     if (!loadedScene) {
+        if (loadedDocument) {
+            Object* parent = loadedDocument->Parent;
+            if (parent) {
+                for (size_t i = parent->Childrens.size(); i > 0; --i)
+                    if (parent->Childrens[i - 1] == loadedDocument)
+                        parent->Childrens.erase(parent->Childrens.begin() + i - 1);
+            } else if (SceneCollection) {
+                for (size_t i = SceneCollection->Childrens.size(); i > 0; --i)
+                    if (SceneCollection->Childrens[i - 1] == loadedDocument)
+                        SceneCollection->Childrens.erase(SceneCollection->Childrens.begin() + i - 1);
+            }
+            DestroySceneChildren(loadedDocument);
+            loadedDocument->Parent = NULL;
+            delete loadedDocument;
+        }
         Notificar(T("The saved scene could not be loaded."), true);
-        return;
+        return false;
+    }
+
+    Object* loadedParent = loadedScene->Parent;
+    if (loadedParent) {
+        for (size_t i = loadedParent->Childrens.size(); i > 0; --i)
+            if (loadedParent->Childrens[i - 1] == loadedScene)
+                loadedParent->Childrens.erase(loadedParent->Childrens.begin() + i - 1);
+    }
+    if (SceneCollection && SceneCollection != loadedParent) {
+        for (size_t i = SceneCollection->Childrens.size(); i > 0; --i)
+            if (SceneCollection->Childrens[i - 1] == loadedScene)
+                SceneCollection->Childrens.erase(SceneCollection->Childrens.begin() + i - 1);
     }
 
     size_t indice = SceneCollection->Childrens.size();
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++)
         if (SceneCollection->Childrens[i] == placeholder) { indice = i; break; }
     if (indice == SceneCollection->Childrens.size()) {
-        loadedScene->Parent = SceneCollection;
-        SceneCollection->Childrens.push_back(loadedScene);
         DestroySceneChildren(loadedScene);
-        SceneCollection->Childrens.pop_back();
         loadedScene->Parent = NULL;
         delete loadedScene;
         Notificar(T("The scene placeholder is no longer in the project."), true);
-        return;
+        return false;
     }
 
     loadedScene->Parent = SceneCollection;
@@ -145,12 +243,13 @@ static void LoadUnloadedScene(UI* placeholder) {
     delete placeholder;
     UndoLimpiar();
     W3dEscenaRegistrarTodas();
+    return true;
 }
 
-static void ToggleSceneLoadedState(UI* scene) {
+static void ToggleSceneLoadedState(LegacyUIScene* scene) {
     if (!scene) return;
     if (!scene->cargada) {
-        LoadUnloadedScene(scene);
+        W3dLegacySceneLoadData(scene);
         return;
     }
     if (W3dEscenaActiva()) {
@@ -169,6 +268,7 @@ static void ToggleSceneLoadedState(UI* scene) {
 // Map object types to IconType; the icon catalog belongs to the UI layer.
 size_t ObjectIcon(Object* o) {
     switch (o->getType().v) {
+        case ObjectType::scene:      return (size_t)IconType::archive;
         case ObjectType::mesh:       return (size_t)IconType::mesh;
         case ObjectType::light:      return (size_t)IconType::light;
         case ObjectType::camera:     return (size_t)IconType::camera;
@@ -412,15 +512,15 @@ void Outliner::Render(){
     SetColorID(ColorID::grisUI);
 
     // Clip the text so it does not draw over the toggles on the right.
-    int anchoNombres = width - 3*IconSizeGS - 2*gapGS - marginGS - borderGS -
+    int anchoNombres = width - 4*IconSizeGS - 3*gapGS - marginGS - borderGS -
                        gapGS - (scrollY ? (GlobalScale*9 + gapGS) : 0);
     if (anchoNombres < 0) anchoNombres = 0;
     w3dEngine::Enable(w3dEngine::ScissorTest);
     if (scrollX){
-        w3dEngine::Scissor(x, glY + marginGS, anchoNombres, height - marginGS); // Exclude load, eye, camera, and scrollbar columns.
+        w3dEngine::Scissor(x, glY + marginGS, anchoNombres, height - marginGS); // Exclude save, load, eye, camera, and scrollbar columns.
     }
     else {
-        w3dEngine::Scissor(x, glY, anchoNombres, height); // Exclude load, eye, camera, and scrollbar columns.
+        w3dEngine::Scissor(x, glY, anchoNombres, height); // Exclude save, load, eye, camera, and scrollbar columns.
     }
 
     RenglonesY = 0;
@@ -439,7 +539,7 @@ void Outliner::Render(){
     w3dEngine::PushMatrix();
     // Do not use PosX: the toggles stay at a fixed X position at the right edge.
     int reservaBarra = scrollY ? (GlobalScale * 9 + gapGS) : 0;   // Only the scrollbar width plus a small gap.
-    w3dEngine::Translatef(width - 3*IconSizeGS - 2*gapGS - marginGS - borderGS - reservaBarra,
+    w3dEngine::Translatef(width - 4*IconSizeGS - 3*gapGS - marginGS - borderGS - reservaBarra,
                           GlobalScale + PosY + borderGS + BarTopOffset(), 0);
 
     if (scrollX){
@@ -534,9 +634,22 @@ void Outliner::DrawRow(Object* obj, bool hidden){
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
     W3dDrawStrip4(IconMesh, IconsUV[ObjectIcon(obj)]->uvs);
 
-    // Render text.
+    // Render text, or the active inline scene-name editor.
     w3dEngine::Translatef(IconSizeGS + gapGS, 0, 0);
-    RenderBitmapText(obj->name);
+    TextField* renameField = PropsCampoRenombreEscena(obj);
+    if (renameField && g_textFieldActivo == renameField) {
+        std::string shown = renameField->text;
+        if (!renameField->selectAll && renameField->caret >= 0 &&
+            renameField->caret <= (int)shown.size())
+            shown.insert((size_t)renameField->caret, "|");
+        if (renameField->selectAll)
+            w3dEngine::Color4fv(ListaColores[static_cast<int>(ColorID::accent)]);
+        RenderBitmapText(shown);
+        if (renameField->selectAll)
+            w3dEngine::Color4fv(ListaColores[static_cast<int>(ColorID::blanco)]);
+    } else {
+        RenderBitmapText(obj->name);
+    }
 
     w3dEngine::PopMatrix();
     } // End of row drawing (culling); the child traversal below always runs.
@@ -613,8 +726,15 @@ void Outliner::DrawSceneToggles(Object* obj, bool hidden, bool noRender){
     int myY = cullBaseY + (int)filaDFS * (int)RenglonHeightGS; filaDFS++;
     if ((myY + (int)RenglonHeightGS * 2 > 0) && (myY < (int)height + (int)RenglonHeightGS)) {
         w3dEngine::PushMatrix();
-        if (obj->getType() == ObjectType::ui) {
-            UI* escena = (UI*)obj;
+        LegacyUIScene* escena = obj->getType() == ObjectType::ui &&
+                               obj->Parent == SceneCollection
+                                   ? dynamic_cast<LegacyUIScene*>(obj) : NULL;
+        if (IsSceneRoot(obj)) {
+            SetColorID(ColorID::grisUI);
+            W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(IconType::guardar)]->uvs);
+        }
+        w3dEngine::Translatef((GLfloat)(IconSizeGS + gapGS), 0, 0);
+        if (escena) {
             SetColorID(ColorID::grisUI, escena->cargada ? 1.0f : 0.5f);
             W3dDrawStrip4(IconMesh, IconsUV[static_cast<size_t>(
                 escena->cargada ? IconType::archive : IconType::mas)]->uvs);
@@ -765,6 +885,12 @@ void Outliner::event_key_down(int tecla, bool repeticion){
                 break;
             case W3dK_H:
                 ChangeVisibilityObj();
+                break;
+            case W3dK_R:
+                if (IsSceneRoot(ObjActivo)) PropsIniciarRenombreEscena(ObjActivo);
+                break;
+            case W3dK_S:
+                if (IsSceneRoot(ObjActivo)) StartSaveScene(ObjActivo);
                 break;
             case W3dK_X:
             case W3dK_DELETE:   // Delete behaves like X.
@@ -1101,11 +1227,13 @@ void Outliner::SelectRowAt(int mx, int my) {
     if (rel < 0) return;   // Ignore the border; dividing a small negative value would yield row 0.
     int fila = rel / RenglonHeightGS;
     int filaClick = fila; // The traversal below consumes "fila".
-    // Right-side columns: camera, visibility, and scene loading, shifted
+    // Right-side columns: camera, visibility, scene loading, and scene save, shifted
     // by the vertical scrollbar when it is present.
     int reservaBarra = scrollY ? (GlobalScale * 9 + gapGS) : 0;
     bool enCamara = (mx - x) >= (width - IconSizeGS - marginGS - borderGS - reservaBarra) &&
                     (mx - x) <  (width - marginGS - borderGS - reservaBarra);
+    bool enGuardar = (mx - x) >= (width - 4*IconSizeGS - 3*gapGS - marginGS - borderGS - reservaBarra) &&
+                     (mx - x) <  (width - 3*IconSizeGS - 3*gapGS - marginGS - borderGS - reservaBarra);
     bool enOjo = !enCamara && (mx - x) >= (width - 2*IconSizeGS - gapGS - marginGS - borderGS - reservaBarra) &&
                  (mx - x) < (width - IconSizeGS - gapGS - marginGS - borderGS - reservaBarra);
     bool enCarga = !enCamara && !enOjo &&
@@ -1132,8 +1260,15 @@ void Outliner::SelectRowAt(int mx, int my) {
                 Resize(width, height); // Recalculate scrolling.
                 return;
             }
-            if (enCarga && hit->getType() == ObjectType::ui) {
-                ToggleSceneLoadedState((UI*)hit);
+            LegacyUIScene* legacyScene = hit->getType() == ObjectType::ui &&
+                                         hit->Parent == SceneCollection
+                                             ? dynamic_cast<LegacyUIScene*>(hit) : NULL;
+            if (enGuardar) {
+                if (IsSceneRoot(hit)) StartSaveScene(hit);
+                return;
+            }
+            if (enCarga && legacyScene) {
+                ToggleSceneLoadedState(legacyScene);
                 Resize(width, height);
                 return;
             }

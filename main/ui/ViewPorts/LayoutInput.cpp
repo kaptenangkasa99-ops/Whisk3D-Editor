@@ -31,6 +31,8 @@
 #include "objects/Culling.h" // Add > Culling (frustum culling de sus hijos)
 #include "objects/Particulas.h" // Add > Particles (emisor de particulas del Core)
 #include "objects/UI.h"
+#include "objects/SceneData.h"
+#include "objects/LegacyUIScene.h"
 #include "objects/Texto2D.h"
 #include "objects/Imagen2D.h"
 #include "objects/Rect2D.h"
@@ -41,6 +43,8 @@
 #include "objects/Video2D.h"
 #include "objects/Gamepad.h"   // entrada cruda del mando + el objeto Script
 #include "io/UI2DFormato.h"     // cargar interfaces .w3dui
+#include "io/GuardarW3D.h"      // guardar el proyecto antes de reemplazar escenas
+#include "W3dEscena.h"          // actualizar el registro de escenas
 #include "W3dPaletas.h"         // paletas del proyecto (AddUI adopta la default)
 #include "PopUp/FileBrowser.h"  // AbrirFileBrowser (elegir el archivo)
 #include "io/Textura2D.h"       // tamano real de la imagen elegida al crearla
@@ -715,25 +719,44 @@ static void TrasCrearAdd(Object* nuevo){
         AbrirRedoMeshPanel((Mesh*)nuevo);
 }
 
-void AddPlane(){    TrasCrearAdd(NewMesh(MeshType::plane, NULL, false)); }
-void AddCube(){     TrasCrearAdd(NewMesh(MeshType::cube, NULL, false)); }
-void AddCircle(){   TrasCrearAdd(NewMesh(MeshType::circle, NULL, false)); }
-void AddUVSphere(){ TrasCrearAdd(NewMesh(MeshType::UVsphere, NULL, false)); }
-void AddCone(){     TrasCrearAdd(NewMesh(MeshType::cone, NULL, false)); }
-void AddCylinder(){ TrasCrearAdd(NewMesh(MeshType::cylinder, NULL, false)); }
-void AddEmpty(){    TrasCrearAdd(new Empty(NULL, cursor3D.pos)); }
+static Object* SceneRootForObject(Object* object) {
+    for (Object* p = object; p; p = p->Parent)
+        if (p->getType() == ObjectType::scene) return p;
+    return NULL;
+}
+
+static Object* SceneCreationParent() {
+    Object* sceneRoot = SceneRootForObject(ObjActivo);
+    if (!sceneRoot) sceneRoot = SceneRootForObject(CollectionActive);
+    if (!sceneRoot) return NULL;
+    if (CollectionActive && SceneRootForObject(CollectionActive) == sceneRoot)
+        return CollectionActive;
+    return sceneRoot;
+}
+
+void AddPlane(){    TrasCrearAdd(NewMesh(MeshType::plane, SceneCreationParent(), false)); }
+void AddCube(){     TrasCrearAdd(NewMesh(MeshType::cube, SceneCreationParent(), false)); }
+void AddCircle(){   TrasCrearAdd(NewMesh(MeshType::circle, SceneCreationParent(), false)); }
+void AddUVSphere(){ TrasCrearAdd(NewMesh(MeshType::UVsphere, SceneCreationParent(), false)); }
+void AddCone(){     TrasCrearAdd(NewMesh(MeshType::cone, SceneCreationParent(), false)); }
+void AddCylinder(){ TrasCrearAdd(NewMesh(MeshType::cylinder, SceneCreationParent(), false)); }
+void AddEmpty(){    TrasCrearAdd(new Empty(SceneCreationParent(), cursor3D.pos)); }
 // LOD: nace sin umbrales (dibuja el ultimo hijo siempre); se cargan en el panel
-void AddLOD(){      TrasCrearAdd(new LOD(NULL, cursor3D.pos)); }
-void AddCulling(){  TrasCrearAdd(new Culling(NULL, cursor3D.pos)); }
+void AddLOD(){      TrasCrearAdd(new LOD(SceneCreationParent(), cursor3D.pos)); }
+void AddCulling(){  TrasCrearAdd(new Culling(SceneCreationParent(), cursor3D.pos)); }
 // Particulas: nace emitiendo (cantidad 10/s) pero SIN textura -> no dibuja nada
 // hasta que el usuario le carga un PNG en el panel
-void AddParticulas(){ TrasCrearAdd(new Particulas(NULL, cursor3D.pos)); }
+void AddParticulas(){ TrasCrearAdd(new Particulas(SceneCreationParent(), cursor3D.pos)); }
 // interfaz 2D (se edita en el Editor 2D). Si el proyecto aun no tiene
 // PALETAS, la default del UI ("Whisk3D") pasa a ser la del proyecto y queda
 // seleccionada en la raiz nueva; con paletas ya cargadas no se mezclan
 // (el usuario elige desde la tarjeta Paleta del objeto).
 void AddUI(){
-    UI* u = new UI(NULL, cursor3D.pos);
+    Object* sceneRoot = SceneRootForObject(ObjActivo);
+    if (!sceneRoot) sceneRoot = SceneRootForObject(CollectionActive);
+    UI* u = sceneRoot
+        ? (UI*)new UI(sceneRoot, cursor3D.pos)
+        : (UI*)new LegacyUIScene(NULL, cursor3D.pos);
     if (W3dPaletas().empty()) {
         W3dPaletasAdoptar(u->paletas);
         if (u->paletaActiva >= 0 && u->paletaActiva < (int)u->paletas.size())
@@ -742,17 +765,80 @@ void AddUI(){
     TrasCrearAdd(u);
 }
 
+SceneData* W3dSceneCreateBlankRoot() {
+    SceneData* scene = new SceneData(NULL, cursor3D.pos);
+    scene->SetNameObj("Scene");
+    W3dEscenaRegistrarTodas();
+    return scene;
+}
+
 static void SceneCrearNueva() {
-    UI* u = new UI(NULL, cursor3D.pos);
-    u->SetNameObj("Scene");
-    if (W3dPaletas().empty()) {
-        W3dPaletasAdoptar(u->paletas);
-        if (u->paletaActiva >= 0 && u->paletaActiva < (int)u->paletas.size())
-            u->paleta = u->paletas[u->paletaActiva].nombre;
-    }
+    SceneData* scene = W3dSceneCreateBlankRoot();
     DeseleccionarTodo();
-    u->Seleccionar();
+    scene->Seleccionar();
     g_redraw = true;
+}
+
+static bool SceneTieneRaicesCargadas() {
+    if (!SceneCollection) return false;
+    for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
+        Object* root = SceneCollection->Childrens[i];
+        LegacyUIScene* legacy = root ? dynamic_cast<LegacyUIScene*>(root) : NULL;
+        if (root && (root->getType() == ObjectType::scene ||
+                     (root->getType() == ObjectType::ui && (!legacy || legacy->cargada))))
+            return true;
+    }
+    return false;
+}
+
+void W3dSceneRemoveLoadedRoots() {
+    if (!SceneCollection) return;
+    UndoLimpiar();
+    DeseleccionarTodo(true);
+    for (int i = (int)SceneCollection->Childrens.size() - 1; i >= 0; --i) {
+        Object* root = SceneCollection->Childrens[i];
+        if (!root || (root->getType() != ObjectType::ui &&
+                      root->getType() != ObjectType::scene)) continue;
+        SceneCollection->Childrens.erase(SceneCollection->Childrens.begin() + i);
+        root->Parent = NULL;
+        W3dLiberarSubarbol(root);
+    }
+    W3dEscenaRegistrarTodas();
+}
+
+static void SceneReemplazarConNueva();
+
+static void SceneCompletarReemplazo() {
+    W3dSceneRemoveLoadedRoots();
+    SceneCrearNueva();
+}
+
+static void SceneReemplazarGuardando() {
+    if (w3dPath.empty()) {
+        Notificar(T("Save the project before replacing its scenes."), true);
+        return;
+    }
+    if (!GuardarW3D(w3dPath)) {
+        Notificar(T("The project could not be saved; the current scenes remain loaded."), true);
+        return;
+    }
+    SceneCompletarReemplazo();
+}
+
+static void SceneReemplazarConNueva() {
+    if (!SceneCollection) return;
+    if (W3dEscenaActiva()) {
+        Notificar(T("Stop play mode before replacing scenes."), true);
+        return;
+    }
+    if (!SceneTieneRaicesCargadas()) {
+        SceneCompletarReemplazo();
+        return;
+    }
+    if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
+    confirmarPopup->AbrirTresOpciones(
+        T("Replace loaded scenes with a new blank scene? Save the project, discard changes, or cancel."),
+        T("Discard"), SceneCompletarReemplazo, T("Save"), SceneReemplazarGuardando);
 }
 
 static bool SceneFileSupported(const std::string& path) {
@@ -761,24 +847,32 @@ static bool SceneFileSupported(const std::string& path) {
     std::string ext = path.substr(dot);
     for (size_t i = 0; i < ext.size(); ++i)
         if (ext[i] >= 'A' && ext[i] <= 'Z') ext[i] = (char)(ext[i] - 'A' + 'a');
-    return ext == ".w3dui" || ext == ".json";
+    return ext == ".w3dui" || ext == ".json" || ext == ".w3dscene";
 }
 
-static void SceneLoadElegida(const std::string& ruta) {
-    if (!SceneFileSupported(ruta)) {
-        Notificar(T("Unsupported scene file. Choose a .w3dui or .json file."), true);
-        return;
+bool W3dSceneLoadLegacyAdditive(const std::string& path) {
+    if (!SceneFileSupported(path)) {
+        Notificar(T("Unsupported scene file. Choose a .w3dui, .json, or .w3dscene file."), true);
+        return false;
     }
-    UI* u = UI2DCargar(ruta);
-    if (!u) { Notificar(T("Could not read the file"), true); return; }
+    const size_t dot = path.find_last_of('.');
+    std::string ext = dot == std::string::npos ? std::string() : path.substr(dot);
+    for (size_t i = 0; i < ext.size(); ++i)
+        if (ext[i] >= 'A' && ext[i] <= 'Z') ext[i] = (char)(ext[i] - 'A' + 'a');
+    if (ext == ".w3dscene")
+        return W3dSceneLoadDataAdditive(path);
+
+    UI* u = UI2DCargar(path, true);
+    if (!u) { Notificar(T("Could not read the file"), true); return false; }
     if (!w3dPath.empty()) {
         size_t s = w3dPath.find_last_of("/\\");
         std::string dir = (s == std::string::npos) ? std::string() : w3dPath.substr(0, s + 1);
-        if (!dir.empty() && ruta.size() > dir.size() && ruta.compare(0, dir.size(), dir) == 0)
-            u->archivoW3dui = ruta.substr(dir.size());
+        if (!dir.empty() && path.size() > dir.size() && path.compare(0, dir.size(), dir) == 0)
+            u->archivoW3dui = path.substr(dir.size());
     }
     const std::string originalName = u->name;
     W3dNombresRepararEscena(true);
+    W3dEscenaRegistrarTodas();
     if (u->name != originalName) {
         Notificar("Scene '" + originalName + "' already exists; the imported scene is now '" + u->name +
                   "'. Update changeScene(\"" + originalName +
@@ -787,12 +881,28 @@ static void SceneLoadElegida(const std::string& ruta) {
     DeseleccionarTodo();
     u->Seleccionar();
     g_redraw = true;
+    return true;
+}
+
+static void SceneLoadElegida(const std::string& ruta) {
+    W3dSceneLoadLegacyAdditive(ruta);
+}
+
+static void SceneAbrirCargaAditiva() {
+    AbrirFileBrowser(T("Additive Load Scene"), T("Open"), ".w3dui .json .w3dscene", SceneLoadElegida);
+}
+
+static void SceneElegirTipoNueva() {
+    if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
+    confirmarPopup->AbrirTresOpciones(
+        T("Add a scene to the current project or replace its loaded scenes?"),
+        T("Additive Load"), SceneAbrirCargaAditiva, T("New"), SceneReemplazarConNueva);
 }
 
 static void LayoutAccionScenes(int id) {
-    if (id == 0) SceneCrearNueva();
+    if (id == 0) SceneElegirTipoNueva();
     else if (id == 1)
-        AbrirFileBrowser(T("Load Scene"), T("Open"), ".w3dui .json", SceneLoadElegida);
+        SceneAbrirCargaAditiva();
 }
 
 void LayoutConstruirMenuScenes() {
@@ -808,10 +918,10 @@ void LayoutConstruirMenuScenes() {
 //  unica razon de ser era llevar un .lua ya no tiene sentido. Los .w3d que traigan uno
 //  siguen abriendo: el importador lo MIGRA a un Empty con los mismos scripts colgados.
 //  Ver import_w3d.cpp.)
-void AddCamera(){   TrasCrearAdd(new Camera(NULL, cursor3D.pos, Vector3(-35.0f, -45.0f, 0.0f))); }
+void AddCamera(){   TrasCrearAdd(new Camera(SceneCreationParent(), cursor3D.pos, Vector3(-35.0f, -45.0f, 0.0f))); }
 
 void AddLight(){
-    Light* l = Light::Create(NULL, 0, 0, 0);
+    Light* l = Light::Create(SceneCreationParent(), 0, 0, 0);
     // el nombre se pone ACA y no en el constructor: la Light vive en el Core, y el Core no sabe -ni tiene por que
     // saber- que existen los idiomas. El editor la crea, el editor la nombra.
     if (l){ l->pos = cursor3D.pos; l->SetNameObj(T("Light")); }
@@ -819,38 +929,39 @@ void AddLight(){
 }
 void AddArmature(){
     // un solo hueso desde el origen, 0.3 hacia arriba (Y), en el cursor 3D.
-    Armature* arm = new Armature(NULL, cursor3D.pos);
+    Armature* arm = new Armature(SceneCreationParent(), cursor3D.pos);
     W3dBone b; b.name = BoneNombreLibre(arm, "Bone", -1); b.parent = -1;
     b.head = Vector3(0.0f, 0.0f, 0.0f); b.tail = Vector3(0.0f, 0.3f, 0.0f);
     arm->bones.push_back(b);
     TrasCrearAdd(arm);
 }
 void AddCollection(){
-    TrasCrearAdd(new Collection(CollectionActive ? CollectionActive : SceneCollection));
+    TrasCrearAdd(new Collection(SceneCreationParent() ? SceneCreationParent() :
+                                (CollectionActive ? CollectionActive : SceneCollection)));
 }
 // objetos LINKEADOS a un target (el activo, o NULL): renderizan a ese target una vez / N veces / espejado.
 void AddDuplicateLinked(){
-    Instance* inst = new Instance(NULL, ObjActivo); inst->pos = cursor3D.pos; TrasCrearAdd(inst);
+    Instance* inst = new Instance(SceneCreationParent(), ObjActivo); inst->pos = cursor3D.pos; TrasCrearAdd(inst);
 }
 void AddArray(){
-    Instance* inst = new Instance(NULL, ObjActivo);
+    Instance* inst = new Instance(SceneCreationParent(), ObjActivo);
     inst->count = 3; inst->pos = Vector3(2, 0, 0); inst->SetNameObj("Array"); TrasCrearAdd(inst);
 }
 void AddMirror(){
-    Instance* inst = new Instance(NULL, ObjActivo);
+    Instance* inst = new Instance(SceneCreationParent(), ObjActivo);
     inst->mirror = true; inst->mirrorEje = 0; inst->SetNameObj("Mirror"); TrasCrearAdd(inst);
 }
 void AddVertex(){
     // se crea y ya entras a EDITARLO, con el vertice elegido. Un vert suelto es lo unico que no se puede tocar
     // desde Object Mode (ni se ve): crearlo y tener que entrar a mano cada vez era un paso al pedo.
-    Mesh* m = (Mesh*)NewMesh(MeshType::vertice, NULL, false);
+    Mesh* m = (Mesh*)NewMesh(MeshType::vertice, SceneCreationParent(), false);
     TrasCrearAdd(m);
     if (m){ if (InteractionMode != EditMode) LayoutToggleEditMode(); m->EditSeleccionarTodo(true); }
 }
 void AddReference(){
     // un plano PARADO (90 en X) = de frente en la vista, con su material y el selector de textura ya abierto:
     // imagen de referencia en un paso. NO abre el panel "Add Plane" (el selector ocupa la pantalla).
-    Mesh* m = (Mesh*)NewMesh(MeshType::plane, NULL, false);
+    Mesh* m = (Mesh*)NewMesh(MeshType::plane, SceneCreationParent(), false);
     if (!m) return;
     m->SetNameObj("Reference");
     m->SetRotEuler(Vector3(90.0f, 0.0f, 0.0f));
@@ -868,7 +979,7 @@ void AddImportGlb(){  if (LayoutImportGlb)  LayoutImportGlb(); }
 
 // importar una INTERFAZ 2D (.w3dui): el arbol entero aparece en la escena, seleccionado
 static void UIImportElegido(const std::string& ruta){
-    UI* u = UI2DCargar(ruta);
+    UI* u = UI2DCargar(ruta, true);
     if (!u) { Notificar(T("Could not read the file"), true); return; }
     // si el archivo vive DENTRO del proyecto abierto, recordarlo con su ruta
     // relativa al .w3d (con subcarpeta, ej "contenido/menu.w3dui"): el guardado

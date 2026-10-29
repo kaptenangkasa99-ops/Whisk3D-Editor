@@ -11,6 +11,7 @@
 #include "io/LuaCompilar.h"           // produccion: .lua del staging -> bytecode stripped
 #include "objects/Objects.h"
 #include "objects/UI.h"
+#include "objects/LegacyUIScene.h"
 #include "objects/Gamepad.h"
 #include "script/W3dScript.h"
 #include "W3dEscena.h"                // escena inicial (multi-escena) al compilar
@@ -559,14 +560,15 @@ static bool GenerarIconos(const std::string& rutaPng, const std::string& out,
     return mayor > 0;
 }
 
-// las ESCENAS del proyecto = los UI raiz colgados de SceneCollection (tipo ui). Cada uno
-// es una escena con su propio arbol + scripts embebidos (multi-escena). Mismo criterio que
-// W3dEscenaRegistrarTodas() del motor. El nombre de la escena = el "nombre" del UI.
+// Legacy scenes are top-level UI roots. SceneData roots are carried by the
+// project JSON and handled by the shared 3D-capable runtime instead.
 static void RecolectarEscenas(std::vector<UI*>* out) {
     if (!SceneCollection) return;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
         Object* o = SceneCollection->Childrens[i];
-        if (o && o->getType() == ObjectType::ui) out->push_back((UI*)o);
+        if (!o || o->getType() != ObjectType::ui || o->Parent != SceneCollection) continue;
+        LegacyUIScene* legacy = dynamic_cast<LegacyUIScene*>(o);
+        if (!legacy || legacy->cargada) out->push_back((UI*)o);
     }
 }
 
@@ -2039,6 +2041,7 @@ static bool EsObjeto3D(Object* o) {
         case ObjectType::collection: case ObjectType::lod:
         case ObjectType::culling:    case ObjectType::viszona:
         case ObjectType::particulas: case ObjectType::armature:
+        case ObjectType::scene:
             return true;
         default: return false;
     }

@@ -2,6 +2,8 @@
 #define GUARDARW3D_H
 #include <string>
 
+class Object;
+
 // ============================================================================
 //  GuardarW3D — guarda el PROYECTO como .w3d.
 //
@@ -56,6 +58,8 @@
 //  reemplazar su archivo y despues se conmuta el resolvedor al layout v5.
 // ============================================================================
 bool GuardarW3D(const std::string& ruta);
+// Writes one logical scene and its referenced data as a standalone .w3dscene file.
+bool GuardarW3DEscena(const std::string& ruta, Object* escena);
 
 // Ctrl+S: guarda a w3dPath, o abre el explorador en modo guardar si no hay
 void GuardarProyecto();

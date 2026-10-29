@@ -73,8 +73,12 @@ void UI2D_TamanoVentana(float* w, float* h) {
 UI* UI2D_UIDelEditor() {
     // con un juego CORRIENDO (Play o runtime) manda la escena ACTIVA: su lienzo/tamano es
     // el que ven el script (pantalla/posPx) y el dibujo. Sin juego, gActiva es NULL.
-    UI* act = W3dEscenaActiva();
-    if (act) return act;
+    Object* activeScene = W3dEscenaActivaObjeto();
+    if (activeScene) {
+        std::vector<UI*> canvases;
+        W3dEscenaUIEn(activeScene, canvases);
+        return canvases.empty() ? NULL : canvases[0];
+    }
 #ifndef W3D_GAME_RUNTIME
     // el UI de la cadena del activo gana (estas trabajando en el); sino el primero en escena
     for (Object* o = ObjActivo; o; o = o->Parent)
@@ -83,7 +87,13 @@ UI* UI2D_UIDelEditor() {
     if (!SceneCollection) return NULL;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
         Object* o = SceneCollection->Childrens[i];
-        if (o && o->getType() == ObjectType::ui) return (UI*)o;
+        if (!o) continue;
+        std::vector<UI*> canvases;
+        if (o->getType() == ObjectType::ui)
+            canvases.push_back((UI*)o);
+        else if (o->getType() == ObjectType::scene)
+            W3dEscenaUIEn(o, canvases);
+        if (!canvases.empty()) return canvases[0];
     }
     return NULL;
 }
@@ -101,6 +111,24 @@ bool UI2D_EsElemento2D(Object* o) {
            t == ObjectType::rect2d  || t == ObjectType::cont2d ||
            t == ObjectType::slice9  || t == ObjectType::boton2d ||
            t == ObjectType::expandir2d || t == ObjectType::video2d;
+}
+
+static void UI2D_ColectarDocumentos(Object* raiz, std::vector<UI*>& documentos) {
+    if (!raiz) return;
+    if (raiz->getType() == ObjectType::ui) {
+        documentos.push_back((UI*)raiz);
+        return;
+    }
+    if (raiz->getType() != ObjectType::scene &&
+        raiz->getType() != ObjectType::collection) return;
+    for (size_t i = 0; i < raiz->Childrens.size(); ++i)
+        UI2D_ColectarDocumentos(raiz->Childrens[i], documentos);
+}
+
+static bool UI2D_VisibleEnJerarquia(Object* objeto) {
+    for (Object* p = objeto; p; p = p->Parent)
+        if (!p->visible) return false;
+    return true;
 }
 
 // cast comodo: valido despues de chequear UI2D_EsElemento2D (comparten la base Elemento2D)
@@ -1014,12 +1042,21 @@ void UI2D_DibujarOverlay(float x0, float y0, float w, float h, float escala,
     // ese comportamiento SIN romper el multi-escena: en Play la elegida ES la activa, la unica
     // visible igual (el resto las oculta MostrarSolo).
     UI* soloEsta = UI2D_UIDelEditor();
-    for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
-        Object* o = SceneCollection->Childrens[i];
-        if (!o || o->getType() != ObjectType::ui || !o->visible) continue;
-        if (soloEsta && (UI*)o != soloEsta) continue;       // solo la escena elegida (multi-escena)
-        if (saltarVerEn3D && ((UI*)o)->verEn3D) continue;   // ese se esta viendo EN el mundo
-        UI* u = (UI*)o;
+    Object* activeScene = W3dEscenaActivaObjeto();
+    std::vector<UI*> documentos;
+    for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i)
+        UI2D_ColectarDocumentos(SceneCollection->Childrens[i], documentos);
+    for (size_t i = 0; i < documentos.size(); ++i) {
+        UI* u = documentos[i];
+        if (!u || !UI2D_VisibleEnJerarquia(u)) continue;
+        Object* sceneRoot = W3dEscenaRaizDe(u);
+        if (activeScene) {
+            if (sceneRoot != activeScene) continue;
+        } else if (soloEsta && u != soloEsta) {
+            continue;
+        }
+        if (saltarVerEn3D && u->verEn3D) continue;
+        Object* o = (Object*)u;
         if (u->color[3] > 0.0f) {   // fondo de la ventana (transparente por defecto)
             EstadoQuad(0, false);
             gfx::Color4f(u->color[0], u->color[1], u->color[2], u->color[3] * u->opacidad);
@@ -1038,9 +1075,15 @@ void UI2D_DibujarOverlay(float x0, float y0, float w, float h, float escala,
 
 bool UI2D_HayVerEn3D() {
     if (!SceneCollection) return false;
+    Object* activeScene = W3dEscenaActivaObjeto();
+    std::vector<UI*> documentos;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
-        Object* o = SceneCollection->Childrens[i];
-        if (o && o->getType() == ObjectType::ui && o->visible && ((UI*)o)->verEn3D) return true;
+        UI2D_ColectarDocumentos(SceneCollection->Childrens[i], documentos);
+    }
+    for (size_t i = 0; i < documentos.size(); ++i) {
+        UI* u = documentos[i];
+        if (!UI2D_VisibleEnJerarquia(u) || !u->verEn3D) continue;
+        if (!activeScene || W3dEscenaRaizDe(u) == activeScene) return true;
     }
     return false;
 }
@@ -1173,10 +1216,16 @@ static void DibujarElemMundoRec(Object* o, float rx0, float ry0, float rw, float
 
 void UI2D_DibujarEnMundo() {
     if (!SceneCollection) return;
+    Object* activeScene = W3dEscenaActivaObjeto();
+    std::vector<UI*> documentos;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
-        Object* o = SceneCollection->Childrens[i];
-        if (!o || o->getType() != ObjectType::ui || !o->visible || !((UI*)o)->verEn3D) continue;
-        UI* u = (UI*)o;
+        UI2D_ColectarDocumentos(SceneCollection->Childrens[i], documentos);
+    }
+    for (size_t i = 0; i < documentos.size(); ++i) {
+        UI* u = documentos[i];
+        if (!UI2D_VisibleEnJerarquia(u) || !u->verEn3D) continue;
+        if (activeScene && W3dEscenaRaizDe(u) != activeScene) continue;
+        Object* o = (Object*)u;
         float vw, vh;
         if (!u->igualQueRender) { vw = u->ancho; vh = u->alto; }
         else UI2D_TamanoVentana(&vw, &vh);

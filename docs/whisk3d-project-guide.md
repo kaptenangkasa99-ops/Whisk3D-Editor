@@ -462,7 +462,17 @@ It supports:
 
 This is more than a simple object tree: it manages runtime scene changes and activation state so the editor and runtime can behave consistently.
 
-### 9.2 `main/app/main.cpp`
+### 9.2 Outliner scene actions
+
+Top-level scene roots can be renamed with **R** or saved from the save icon in
+their row. Scene saving writes a `.w3dscene` data file containing only that
+scene's object tree, animations, materials, and referenced assets; it does not
+create a project file or include project settings, layout, or session state. If
+the destination already exists, choose Rename, Overwrite, or Cancel. Choosing
+Rename opens the inline name editor and retries the save with the new scene name.
+The existing load/unload action remains available for legacy UI scene roots.
+
+### 9.3 `main/app/main.cpp`
 This is the primary app bootstrap for the desktop/editor app. It includes:
 
 - graphics setup

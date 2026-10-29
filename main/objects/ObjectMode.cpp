@@ -2362,12 +2362,15 @@ std::string W3dRenombrarObjeto(Object* o, const std::string& pedido, bool avisar
     JuntarTargetsPorNombre(SceneCollection, viejo, aRenombrar);
     const int ntgt = (int)aRenombrar.size() - ntgt0;
     // escena INICIAL del proyecto (el nombre de la escena es la clave)
-    const bool esEscenaInicial = (o->getType() == ObjectType::ui && W3dEscenaInicial() == viejo);
+    const bool esRaizEscena = o->Parent == SceneCollection &&
+        (o->getType() == ObjectType::scene || o->getType() == ObjectType::ui);
+    const bool esEscenaInicial = (esRaizEscena && W3dEscenaInicial() == viejo);
 
     UndoCapturarRenames(aRenombrar);
     for (size_t k = 0; k < aRenombrar.size(); k++)
         if (std::string* p = W3dDestResolver(aRenombrar[k])) *p = nuevo;
     if (esEscenaInicial) W3dEscenaSetInicial(nuevo);
+    if (esRaizEscena) W3dEscenaNombreCambiado(o, viejo, nuevo);
 
     // El .w3d ya conserva el nuevo nombre en W3dScriptEntrada::refs, pero si
     // estamos jugando el lua_State tiene su propia tabla de Object*. Re-resolver
@@ -2387,7 +2390,7 @@ std::string W3dRenombrarObjeto(Object* o, const std::string& pedido, bool avisar
         if (nuevo != norm) W3dAvisoYaExiste(norm, nuevo);
         if (nrefs > 0 || ntgt > 0)
             W3dAvisof(false, "%d referencia(s) de script y %d target(s) actualizados", nrefs, ntgt);
-        if (o->getType() == ObjectType::ui)
+        if (esRaizEscena)
             W3dAvisof(true, "scene '%s' -> '%s': check changeScene(\"%s\") calls in your Lua scripts",
                       W3dNombreCorto(viejo).c_str(), W3dNombreCorto(nuevo).c_str(),
                       W3dNombreCorto(viejo).c_str());

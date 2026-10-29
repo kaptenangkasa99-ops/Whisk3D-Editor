@@ -37,6 +37,8 @@
 #include "objects/Objects.h"
 #include "objects/ObjectMode.h"        // W3dAplicarCurvasEnFrame: el objeto se guarda EN REPOSO
 #include "objects/UI.h"
+#include "objects/LegacyUIScene.h"
+#include "objects/SceneData.h"
 #include "objects/Camera.h"
 #include "objects/Light.h"
 #include "objects/Gamepad.h"
@@ -102,6 +104,18 @@ std::string g_proyIcono;
 // TEST del harness (ver GuardarW3D.h): fallo de escritura inyectado. Siempre
 // false en el editor real.
 bool g_w3dFallarEscritura = false;
+static Object* g_w3dEscenaUnica = NULL;
+static std::string g_w3dEscenaDirOrigen;
+
+static const std::string& DirectorioProyectoFuente() {
+    return g_w3dEscenaUnica ? g_w3dEscenaDirOrigen : g_w3dDirProyecto;
+}
+
+static bool ObjetoDentroDeEscena(Object* object, Object* scene) {
+    for (Object* current = object; current; current = current->Parent)
+        if (current == scene) return true;
+    return false;
+}
 
 // ESCENA UI QUE NO CARGO en la apertura actual (import_w3d.cpp). Vacio = ninguna.
 // Freno de guardado: ver el chequeo al entrar a GuardarW3D.
@@ -121,6 +135,30 @@ void W3dCompilarReset() {
     g_proyCompilar.modoDebug   = false;  // produccion
     g_proyCompilar.uid         = 0;       // sin UID: un proyecto sin "uid" no hereda el del anterior. El save/load lo persiste.
     g_proyCompilar.volumen     = 100;     // volumen del gameplay al maximo por defecto
+}
+
+bool GuardarW3DEscena(const std::string& ruta, Object* escena) {
+    if (!SceneCollection || !escena ||
+        escena->Parent != SceneCollection ||
+        (escena->getType() != ObjectType::scene &&
+         !(escena->getType() == ObjectType::ui && escena->Parent == SceneCollection))) {
+        Notificar("Save Scene: select a top-level scene.", true);
+        return false;
+    }
+    if (g_w3dEscenaUnica) {
+        Notificar("Save Scene is already in progress.", true);
+        return false;
+    }
+    g_w3dEscenaUnica = escena;
+    const std::string projectDir = g_w3dDirProyecto;
+    g_w3dEscenaDirOrigen = projectDir;
+    W3dRefEmitFn refEmitAnterior = g_w3dRefEmit;
+    const bool saved = GuardarW3D(ruta);
+    g_w3dDirProyecto = projectDir;
+    g_w3dRefEmit = refEmitAnterior;
+    g_w3dEscenaDirOrigen.clear();
+    g_w3dEscenaUnica = NULL;
+    return saved;
 }
 
 // int <-> string legible del bloque "compilar" (el JSON se edita a mano: nada
@@ -278,6 +316,15 @@ static std::string gQuien;
 
 static std::string W3dRefEmitir(std::string& ruta, bool actualizarRuta) {
     if (!gEsc) return ruta;
+    if (g_w3dEscenaUnica) {
+        std::string fuente = ruta;
+        if (!fuente.empty() && fuente[0] != '/' &&
+            !(fuente.size() > 2 && fuente[1] == ':') &&
+            !W3dContenedorHayMontado() && !g_w3dEscenaDirOrigen.empty() &&
+            W3dEsNombreDeEntrada(fuente))
+            fuente = g_w3dEscenaDirOrigen + "/" + fuente;
+        return gEsc->Ingerir(fuente, NULL, gQuien);
+    }
     if (gEsc->EsCarpeta()) {
         std::string fuente = ruta;
         std::string emitida = gEsc->Ingerir(fuente, NULL, gQuien);
@@ -298,6 +345,15 @@ static std::string W3dRefEmitir(std::string& ruta, bool actualizarRuta) {
 // (el nombre de entrada para los internos), que es lo que resuelve ReadFileBytes.
 static std::string Asset(CtxGuardar* cx, std::string& rutaDisco) {
     if (rutaDisco.empty()) return rutaDisco;
+    if (g_w3dEscenaUnica) {
+        std::string fuente = rutaDisco;
+        if (!fuente.empty() && fuente[0] != '/' &&
+            !(fuente.size() > 2 && fuente[1] == ':') &&
+            !W3dContenedorHayMontado() && !g_w3dEscenaDirOrigen.empty() &&
+            W3dEsNombreDeEntrada(fuente))
+            fuente = g_w3dEscenaDirOrigen + "/" + fuente;
+        return cx->esc->Ingerir(fuente, NULL, gQuien);
+    }
     if (cx->esc->EsCarpeta()) {
         std::string fuente = rutaDisco;
         std::string emitida = cx->esc->Ingerir(fuente, NULL, gQuien);
@@ -1406,12 +1462,16 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
     // en todos los demas nodos -> el archivo sale byte a byte igual que antes.
     if (padre2d && !padre2d->empty()) { JSang(s, ind + 1); s += "\"padre2d\": "; JEsc(s, *padre2d); s += ",\n"; }
 
-    if (t == ObjectType::ui) {
+    if (t == ObjectType::scene) {
+        JSang(s, ind + 1); s += "\"tipo\": \"escena\",\n";
+        CamposComunes(s, ind + 1, o);
+    }
+    else if (t == ObjectType::ui) {
         // cada escena UI es OTRO json (.w3dui) EXTERNO, referenciado por ruta
-        // relativa al .w3d: se pisa el archivo del que vino (UI::archivoW3dui,
-        // que conserva la subcarpeta, ej "contenido/menu.w3dui"). Una UI nueva
-        // toma "<nombre>.w3dui", bajo contenido/ con la estructura nueva.
+        // relative to the .w3d project. UI::archivoW3dui retains its source path;
+        // new canvases receive a project-local .w3dui entry.
         UI* u = (UI*)o;
+        LegacyUIScene* legacy = dynamic_cast<LegacyUIScene*>(u);
         // la escena es una ENTRADA del contenedor (escenas/<slug>.w3dui). El nombre
         // sale del nombre VISIBLE de la escena, slugueado; el nombre visible no se
         // toca nunca (vive en el .w3dui) y el de entrada es un derivado.
@@ -1424,8 +1484,8 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
             char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
             nom = "escenas/" + W3dSlugEntrada(visible) + sf + ".w3dui";
         }
-        u->archivoW3dui = nom;
-        if (u->cargada) {
+        if (!g_w3dEscenaUnica) u->archivoW3dui = nom;
+        if (!legacy || legacy->cargada) {
             // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
             // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
             std::string tmpUi = cx->esc->RutaTemporal("e");
@@ -1447,7 +1507,7 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
             if (!rutaUi.empty() && rutaUi[0] != '/' &&
                 !(rutaUi.size() > 1 && rutaUi[1] == ':') &&
                 !g_w3dDirProyecto.empty()) {
-                std::string enProyecto = g_w3dDirProyecto + "/" + rutaUi;
+                std::string enProyecto = DirectorioProyectoFuente() + "/" + rutaUi;
                 leida = w3dFileSystem::ReadFileBytes(enProyecto, uiGuardada);
                 if (leida)
                     rutaUi = enProyecto;
@@ -1855,13 +1915,16 @@ static void EscribirAnimacionesEscena(std::string& s) {
         const std::vector<AnimationObject>& objs = CurvasDeEscena((int)si);
         bool hayAlguno = false;
         for (size_t i = 0; i < objs.size() && !hayAlguno; i++)
-            if (objs[i].obj && AnimObjTieneKeys(objs[i])) hayAlguno = true;
+            if (objs[i].obj && AnimObjTieneKeys(objs[i]) &&
+                (!g_w3dEscenaUnica || ObjetoDentroDeEscena(objs[i].obj, g_w3dEscenaUnica)))
+                hayAlguno = true;
         if (hayAlguno) {
             s += ",\n        \"objetos\": [\n";
             bool primero = true;
             for (size_t i = 0; i < objs.size(); i++) {
                 const AnimationObject& ao = objs[i];
-                if (!ao.obj || !AnimObjTieneKeys(ao)) continue;
+                if (!ao.obj || !AnimObjTieneKeys(ao) ||
+                    (g_w3dEscenaUnica && !ObjetoDentroDeEscena(ao.obj, g_w3dEscenaUnica))) continue;
                 if (!primero) s += ",\n";
                 primero = false;
                 s += "          { \"objeto\": "; JEsc(s, ao.obj->name);
@@ -2064,13 +2127,14 @@ class ReposoAnimObjetos {
 // ---------------------------------------------------------------------------
 bool GuardarW3D(const std::string& ruta) {
     if (!SceneCollection) return false;
+    const bool soloEscena = g_w3dEscenaUnica != NULL;
     // ---- FRENO: UNA ESCENA UI DEL PROYECTO NO CARGO --------------------------------------
     //  El .w3dui faltaba o no parseaba, asi que su nodo NO se creo. Guardar escribe un
     //  proyecto.json SIN esa escena: los bytes del .w3dui sobreviven (PreservarPasajeras) pero
     //  ya no los referencia nadie, o sea que el usuario pierde la escena de vista y no se
     //  entera. Mismo criterio que una malla o una vertex anim que no cargo: no se guarda
     //  encima y se dice por que. Reabrir el proyecto arreglado limpia el freno.
-    if (!g_w3dUINoCargo.empty()) {
+    if (!soloEscena && !g_w3dUINoCargo.empty()) {
         w3dLogfE("[W3D] la escena UI '%s' no cargo al abrir: NO guardo encima (se perderia del proyecto)",
                  g_w3dUINoCargo.c_str());
         W3dAvisof(true, "No guardo: la escena UI '%s' no se pudo leer al abrir y guardar la sacaria del proyecto",
@@ -2084,7 +2148,7 @@ bool GuardarW3D(const std::string& ruta) {
     // projects remain readable and migrate on their next save.
     const bool v5Carpeta = true;
     W3dContenedorEscritor esc;
-    esc.Iniciar(ruta, W3dContenedorLector(), v5Carpeta);
+    esc.Iniciar(ruta, g_w3dEscenaUnica ? NULL : W3dContenedorLector(), v5Carpeta);
     gEsc = &esc;
     gQuien.clear();
     g_w3dRefEmit = W3dRefEmitir;      // el .w3dui emite nombres de entrada (ver UI2DFormato.h)
@@ -2099,6 +2163,8 @@ bool GuardarW3D(const std::string& ruta) {
 
     std::string s;
     s += "{\n";
+    if (soloEscena)
+        s += "  \"formato\": \"whisk3d-scene\",\n";
     // "version" es el esquema de DATOS; "contenedor.formato" es la version del
     // LAYOUT DE CARPETAS. Separados a proposito: un cambio de esquema no obliga a
     // mover archivos y al reves. PROHIBIDO meter aca fecha, usuario, hostname o
@@ -2106,7 +2172,7 @@ bool GuardarW3D(const std::string& ruta) {
     s += "  \"version\": 5,\n";
     // ICONO del juego: entra bajo proyecto/ (el PNG en maxima
     // definicion; Compilar juego genera de ahi los tamanos chicos)
-    if (!g_proyIcono.empty()) {
+    if (!soloEscena && !g_proyIcono.empty()) {
         gQuien = "icono del proyecto";
         // EL ARTE FUENTE DEL ICONO VIAJA CON EL: al lado de icono.png suele haber un
         // icono.svg que NO lo referencia NADIE (es de donde sale el png). Una
@@ -2119,12 +2185,13 @@ bool GuardarW3D(const std::string& ruta) {
         bool eraDeDisco = !W3dEsNombreDeEntrada(g_proyIcono) &&
                           w3dFileSystem::FileExists(g_proyIcono);
         std::string ref;
+        std::string icono = g_proyIcono;
         if (v5Carpeta) {
-            std::string fuente = g_proyIcono;
+            std::string fuente = icono;
             ref = esc.Ingerir(fuente, "proyecto", gQuien);
-            esc.RegistrarRutaV5(&g_proyIcono, ref);
+            if (!g_w3dEscenaUnica) esc.RegistrarRutaV5(&g_proyIcono, ref);
         } else {
-            ref = esc.Ingerir(g_proyIcono, "proyecto", gQuien);
+            ref = esc.Ingerir(icono, "proyecto", gQuien);
         }
         if (eraDeDisco && ref.compare(0, 4, "ext:") != 0) {
             std::vector<w3dFileSystem::DirEntry> ents;
@@ -2144,16 +2211,17 @@ bool GuardarW3D(const std::string& ruta) {
     }
     // MULTI-ESCENA: la escena que ARRANCA + el modo (antes NO se guardaban en el
     // v2 zip y se perdian al re-guardar un proyecto de texto viejo)
-    if (!W3dEscenaInicial().empty()) {
+    if (!soloEscena && !W3dEscenaInicial().empty()) {
         s += "  \"escenaInicial\": "; JEsc(s, W3dEscenaInicial()); s += ",\n";
     }
-    if (W3dEscenaModo()) s += "  \"modoEscenas\": true,\n";
+    if (!soloEscena && W3dEscenaModo()) s += "  \"modoEscenas\": true,\n";
     // PIXELADO GLOBAL: solo se escribe si esta PRENDIDO (los .w3d que ya existen
     // no cambian ni un byte al re-guardarlos).
-    if (w3dEngine::PixeladoGlobal()) s += "  \"pixelado\": true,\n";
+    if (!soloEscena && w3dEngine::PixeladoGlobal()) s += "  \"pixelado\": true,\n";
     // CONFIG de la tarjeta Juego (Compilar juego): los valores VIGENTES del
     // editor, con strings legibles para editarlos a mano. Un .w3d viejo sin el
     // bloque abre con los defaults (W3dCompilarReset, ver import_w3d).
+    if (!soloEscena) {
     s += "  \"compilar\": {\n";
     s += "    \"modoVentana\": "; JEsc(s, W3dCompilarModoVentanaStr(g_proyCompilar.modoVentana)); s += ",\n";
     s += "    \"orientacion\": "; JEsc(s, W3dCompilarOrientacionStr(g_proyCompilar.orientacion)); s += ",\n";
@@ -2171,7 +2239,7 @@ bool GuardarW3D(const std::string& ruta) {
     // de cada .w3dui (UI2DGuardar) para el runtime standalone.
     {
         std::vector<Paleta>& ps = W3dPaletas();
-        if (!ps.empty()) {
+        if (!soloEscena && !ps.empty()) {
             s += "  \"paletas\": [\n";
             for (size_t i = 0; i < ps.size(); i++) {
                 s += "    { \"nombre\": "; JEsc(s, ps[i].nombre);
@@ -2193,12 +2261,15 @@ bool GuardarW3D(const std::string& ruta) {
             s += "  ],\n";
         }
     }
+    }
+    if (!soloEscena) {
     s += "  \"fps\": "; JNum(s, (float)AnimFPS); s += ",\n";
     s += "  \"fullscreen\": "; s += cfg.fullscreen ? "true" : "false"; s += ",\n";
     // estado de REPRODUCCION al guardar (v3): reabrir el proyecto respeta si estaba
     // en PLAY o en PAUSA (guardado en pausa -> abre en pausa). En archivos viejos el
     // campo no existe y AbrirW3D cae al auto-play de siempre (retrocompat).
     s += "  \"reproduciendo\": "; s += PlayAnimation ? "true" : "false"; s += ",\n";
+    }
     s += "  \"escena\": {\n";
     s += "    \"objetos\": [\n";
     {
@@ -2207,8 +2278,12 @@ bool GuardarW3D(const std::string& ruta) {
         // pose EXACTA (ver el comentario grande de ReposoAnimObjetos).
         ReposoAnimObjetos reposo;
         bool primero = true;
-        for (size_t i = 0; i < SceneCollection->Childrens.size(); i++)
-            EscribirObjeto(s, SceneCollection->Childrens[i], 3, &cx, &primero);
+        if (g_w3dEscenaUnica) {
+            EscribirObjeto(s, g_w3dEscenaUnica, 3, &cx, &primero);
+        } else {
+            for (size_t i = 0; i < SceneCollection->Childrens.size(); i++)
+                EscribirObjeto(s, SceneCollection->Childrens[i], 3, &cx, &primero);
+        }
     }
     s += "\n    ]\n";
     s += "  },\n";
@@ -2221,13 +2296,17 @@ bool GuardarW3D(const std::string& ruta) {
     EscribirMateriales(s, &cx);
     // SESION: donde estaba trabajando el usuario EN ESTE proyecto. Va DESPUES de la escena
     // porque nombra objetos (ver el comentario grande de EscribirSesion).
-    EscribirSesion(s);
+    if (!g_w3dEscenaUnica) EscribirSesion(s);
     // LAYOUT: el arbol VIVO (tipos + splits). Los .w3d guardados con el literal
     // "2d" siguen abriendo por el template estandar (ver AplicarLayoutTexto).
-    {
+    if (!soloEscena) {
         std::string lay = LayoutSerializarVivo();
         s += "  \"layout\": ";
         JEsc(s, lay.empty() ? std::string("2d") : lay);
+        s += "\n";
+    }
+    else if (s.size() >= 2 && s.compare(s.size() - 2, 2, ",\n") == 0) {
+        s.erase(s.size() - 2);
         s += "\n";
     }
     s += "}\n";
@@ -2254,9 +2333,9 @@ bool GuardarW3D(const std::string& ruta) {
         if (ok && !v5Carpeta) esc.EscribirCabeceraOdf();
         // lo que el editor no referencia y venia en el .w3d se preserva VERBATIM
         // (alguien pudo meter un notas.txt a mano con un descompresor)
-        if (ok) esc.PreservarPasajeras();
-        if (ok && v5Carpeta) esc.AsegurarEstructura();
-        if (ok) esc.EscribirExternos();
+        if (ok && !soloEscena) esc.PreservarPasajeras();
+        if (ok && v5Carpeta && !soloEscena) esc.AsegurarEstructura();
+        if (ok && !soloEscena) esc.EscribirExternos();
         std::string falta;
         if (ok && !esc.Verificar(falta)) {
             w3dLogfE("[W3D] el guardado se ABORTA: la referencia interna '%s' no tiene entrada en el .w3d",
@@ -2287,20 +2366,33 @@ bool GuardarW3D(const std::string& ruta) {
             Notificar("Save: could not replace " + Base(ruta) + " (old version remains)", true);
             return false;
         }
-        esc.AplicarRutasV5();
-        W3dProyectoMarcarV5(ruta);
+        if (!g_w3dEscenaUnica) {
+            esc.AplicarRutasV5();
+            W3dProyectoMarcarV5(ruta);
+        } else if (estabaMontado && !w3dPath.empty() && !W3dContenedorMontar(w3dPath)) {
+            Notificar("The scene was saved, but the open project container could not be remounted.", true);
+            return false;
+        }
         size_t nExt = esc.CantidadExternos(), nFaltan = esc.CantidadExternosQueFaltan();
         char b[256];
         if (nFaltan > 0) {
-            // EL AVISO TIENE QUE DECIR COMO APAGARLO. El caso comun de lejos es el .obj/.fbx
-            // del que se importo una malla: la geometria ya viaja horneada adentro, o sea que
-            // ese renglon es SOLO procedencia y el aviso, sin salida, era ruido para siempre.
-            snprintf(b, sizeof(b), "Saved, but %d external reference(s) are MISSING (see EXTERNOS.txt). "
-                     "If it is the original from an imported mesh:Object > Set Origin > Clear Original File",
-                     (int)nFaltan);
-            Notificar(b, true);
+            if (soloEscena) {
+                snprintf(b, sizeof(b), "Scene saved, but %d external reference(s) are MISSING.",
+                         (int)nFaltan);
+                Notificar(b, true);
+            } else {
+                // EL AVISO TIENE QUE DECIR COMO APAGARLO. El caso comun de lejos es el .obj/.fbx
+                // del que se importo una malla: la geometria ya viaja horneada adentro, o sea que
+                // ese renglon es SOLO procedencia y el aviso, sin salida, era ruido para siempre.
+                snprintf(b, sizeof(b), "Saved, but %d external reference(s) are MISSING (see EXTERNOS.txt). "
+                         "If it is the original from an imported mesh:Object > Set Origin > Clear Original File",
+                         (int)nFaltan);
+                Notificar(b, true);
+            }
         } else if (nExt > 0) {
-            snprintf(b, sizeof(b), "Project saved:: %s (%d external reference(s), see EXTERNOS.txt)",
+            snprintf(b, sizeof(b), soloEscena
+                         ? "Scene saved:: %s (%d external reference(s))"
+                         : "Project saved:: %s (%d external reference(s), see EXTERNOS.txt)",
                      Base(ruta).c_str(), (int)nExt);
             Notificar(b, false);
         } else if (gNoCubiertos > 0) {
@@ -2308,10 +2400,12 @@ bool GuardarW3D(const std::string& ruta) {
                      gNoCubiertos);
             Notificar(b, true);
         } else {
-            Notificar("Project saved:: " + Base(ruta), false);
+            Notificar(std::string(soloEscena ? "Scene saved:: " : "Project saved:: ") +
+                      Base(ruta), false);
         }
-        w3dLogf("[W3D] guardado %s (proyecto v5: proyecto JSON + carpetas de assets)",
-                ruta.c_str());
+        w3dLogf("[W3D] guardado %s (%s)", ruta.c_str(),
+                soloEscena ? "scene data + referenced assets" :
+                             "proyecto v5: proyecto JSON + carpetas de assets");
         return true;
     }
 }

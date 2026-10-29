@@ -66,6 +66,8 @@ class Properties;
 // el panel de propiedades con el que se INTERACTUO por ultima vez: las
 // acciones globales (menus de material/textura, rebind) operan sobre el
 extern Properties* PropsActivo;
+void PropsIniciarRenombreEscena(Object* escena, void (*despues)() = NULL);
+TextField* PropsCampoRenombreEscena(Object* escena);
 void W3dScriptPropiedadesInvalidar();
 // lleva el panel ACTIVO a la pestania "ARMATURE 2D" (tab 6, huesos 2D del mesh). La llama el editor
 // UV al ENTRAR a la edicion de huesos (Tab, menu Add > Armature 2D, selector de Modo): el dueno

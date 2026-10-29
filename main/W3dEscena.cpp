@@ -7,24 +7,28 @@
 #include "W3dNombres.h"   // LA regla de nombres unicos (compartida por todo el editor)
 #include "objects/Objects.h"
 #include "objects/UI.h"
+#include "objects/LegacyUIScene.h"
 #include "objects/Texto2D.h"    // los tipos con campos pal* (fix de referencias
 #include "objects/Imagen2D.h"   // al borrar un color de las paletas)
 #include "objects/Rect2D.h"
 #include "objects/Slice9.h"
 #include "objects/Boton2D.h"
+#include "base/w3dlog.h"
 
 extern "C" {
 #include "lua.h"
+#include "lauxlib.h"
 }
 
 #include <map>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 //  ESTADO del sistema (una sola simulacion/juego a la vez).
 // ---------------------------------------------------------------------------
-static std::map<std::string, UI*> gEscenas;   // nombre -> raiz UI (todas las escenas)
-static UI*  gEscActiva = 0;                    // la escena que corre y se ve
-static std::map<UI*, bool> gInited;            // escenas que YA corrieron inicio() (init perezoso)
+static std::map<std::string, Object*> gEscenas; // name -> logical scene root
+static Object* gEscActiva = 0;                   // active logical scene
+static std::map<Object*, bool> gInited;           // scenes that already ran init()
 static std::string gInicial;                   // nombre de la escena que arranca (ajuste del proyecto)
 static bool gModoMulti = false;                // modo multi-escena declarado (informativo)
 static W3dEscenaInitFn gInitFn = 0;            // el init de una escena (lo pone cada build)
@@ -32,28 +36,165 @@ static W3dEscenaInitFn gInitFn = 0;            // el init de una escena (lo pone
 static bool gHayCambio = false;
 static bool gReiniciarPend = false;
 static std::string gCambioNombre;
+static bool gCambioAsync = false;
+
+struct W3dAsyncSceneRequest {
+    bool active;
+    bool started;
+    bool ready;
+    bool activateWhenReady;
+    Object* root;
+    std::string name;
+    size_t total;
+    size_t completed;
+    lua_State* callbackState;
+    int callbackRef;
+    unsigned long id;
+
+    W3dAsyncSceneRequest()
+        : active(false), started(false), ready(false), activateWhenReady(false), root(0),
+          total(0), completed(0), callbackState(0), callbackRef(LUA_NOREF), id(0) {}
+};
+
+static W3dAsyncSceneRequest gAsyncScene;
+static unsigned long gAsyncSceneId = 0;
 
 void W3dEscenaSetInit(W3dEscenaInitFn fn) { gInitFn = fn; }
 
+static size_t ContarNodosEscena(Object* root) {
+    if (!root) return 0;
+    size_t count = 1;
+    for (size_t i = 0; i < root->Childrens.size(); ++i)
+        count += ContarNodosEscena(root->Childrens[i]);
+    return count;
+}
+
+static void InvocarCallbackAsync(lua_State* L, int callbackRef,
+                                 const std::string& name, float progress,
+                                 const char* status) {
+    if (!L || callbackRef == LUA_NOREF || callbackRef == LUA_REFNIL) return;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, callbackRef);
+    lua_pushlstring(L, name.c_str(), name.size());
+    lua_pushnumber(L, progress);
+    lua_pushstring(L, status);
+    if (lua_pcall(L, 3, 0, 0) != 0) {
+        const char* error = lua_tostring(L, -1);
+        w3dLogfE("[scene] async progress callback failed: %s",
+                 error ? error : "unknown Lua error");
+        lua_pop(L, 1);
+    }
+}
+
+static void NotificarAsync(const char* status, float progress) {
+    if (!gAsyncScene.active) return;
+    InvocarCallbackAsync(gAsyncScene.callbackState, gAsyncScene.callbackRef,
+                         gAsyncScene.name, progress, status);
+}
+
+static void TerminarAsync(const char* status) {
+    if (!gAsyncScene.active) return;
+    lua_State* L = gAsyncScene.callbackState;
+    int callbackRef = gAsyncScene.callbackRef;
+    const std::string name = gAsyncScene.name;
+    const float progress = gAsyncScene.ready ? 1.0f :
+        (gAsyncScene.total ? (float)gAsyncScene.completed / (float)gAsyncScene.total : 0.0f);
+    gAsyncScene = W3dAsyncSceneRequest();
+    InvocarCallbackAsync(L, callbackRef, name, progress, status);
+    if (L && callbackRef != LUA_NOREF && callbackRef != LUA_REFNIL)
+        luaL_unref(L, LUA_REGISTRYINDEX, callbackRef);
+}
+
+static void CancelarAsync() {
+    if (!gAsyncScene.active) return;
+    lua_State* L = gAsyncScene.callbackState;
+    int callbackRef = gAsyncScene.callbackRef;
+    gAsyncScene = W3dAsyncSceneRequest();
+    if (L && callbackRef != LUA_NOREF && callbackRef != LUA_REFNIL)
+        luaL_unref(L, LUA_REGISTRYINDEX, callbackRef);
+}
+
+static void AsyncPrepararPaso() {
+    if (!gAsyncScene.active || gAsyncScene.ready) return;
+    if (!gAsyncScene.started) {
+        gAsyncScene.started = true;
+        return;
+    }
+    const unsigned long id = gAsyncScene.id;
+    const size_t batchSize = 32;
+    size_t remaining = gAsyncScene.total - gAsyncScene.completed;
+    size_t step = remaining < batchSize ? remaining : batchSize;
+    gAsyncScene.completed += step;
+    const float progress = gAsyncScene.total
+        ? (float)gAsyncScene.completed / (float)gAsyncScene.total : 1.0f;
+    NotificarAsync("loading", progress);
+    if (!gAsyncScene.active || gAsyncScene.id != id || gAsyncScene.completed < gAsyncScene.total)
+        return;
+    gAsyncScene.ready = true;
+    NotificarAsync("ready", 1.0f);
+    if (!gAsyncScene.active || gAsyncScene.id != id) return;
+    if (gAsyncScene.activateWhenReady) {
+        gHayCambio = true;
+        gCambioNombre = gAsyncScene.name;
+        gReiniciarPend = false;
+        gCambioAsync = true;
+    }
+}
+
 void W3dEscenaRegistrarTodas() {
+    CancelarAsync();
     gEscenas.clear();
     gInited.clear();
     gEscActiva = 0;
     gHayCambio = false; gReiniciarPend = false; gCambioNombre.clear();
+    gCambioAsync = false;
     if (!SceneCollection) return;
     for (size_t i = 0; i < SceneCollection->Childrens.size(); i++) {
         Object* o = SceneCollection->Childrens[i];
-        if (o && o->getType() == ObjectType::ui && ((UI*)o)->cargada)
-            gEscenas[o->name] = (UI*)o;
+        if (!o) continue;
+        if (o->getType() == ObjectType::scene)
+            gEscenas[o->name] = o;
+        else if (o->getType() == ObjectType::ui && o->Parent == SceneCollection) {
+            LegacyUIScene* legacy = dynamic_cast<LegacyUIScene*>(o);
+            if (!legacy || legacy->cargada) gEscenas[o->name] = o;
+        }
     }
 }
 
 bool W3dEscenaHayEscenas() { return !gEscenas.empty(); }
-UI*  W3dEscenaActiva()     { return gEscActiva; }
+Object* W3dEscenaActivaObjeto() { return gEscActiva; }
 
-UI* W3dEscenaBuscar(const std::string& nombre) {
-    std::map<std::string, UI*>::iterator it = gEscenas.find(nombre);
+Object* W3dEscenaBuscar(const std::string& nombre) {
+    std::map<std::string, Object*>::iterator it = gEscenas.find(nombre);
     return (it != gEscenas.end()) ? it->second : 0;
+}
+
+void W3dEscenaNombreCambiado(Object* escena, const std::string& nombreAnterior,
+                             const std::string& nombreNuevo) {
+    if (!escena || nombreAnterior == nombreNuevo) return;
+    std::map<std::string, Object*>::iterator old = gEscenas.find(nombreAnterior);
+    if (old != gEscenas.end() && old->second == escena)
+        gEscenas.erase(old);
+    if (escena->getType() == ObjectType::scene ||
+        (escena->getType() == ObjectType::ui && escena->Parent == SceneCollection))
+        gEscenas[nombreNuevo] = escena;
+    if (gInicial == nombreAnterior) gInicial = nombreNuevo;
+}
+
+void W3dEscenaUIEn(Object* raiz, std::vector<UI*>& lienzos) {
+    if (!raiz) return;
+    if (raiz->getType() == ObjectType::ui) {
+        lienzos.push_back((UI*)raiz);
+        return;
+    }
+    for (size_t i = 0; i < raiz->Childrens.size(); ++i)
+        W3dEscenaUIEn(raiz->Childrens[i], lienzos);
+}
+
+UI* W3dEscenaActiva() {
+    if (!gEscActiva) return 0;
+    std::vector<UI*> lienzos;
+    W3dEscenaUIEn(gEscActiva, lienzos);
+    return lienzos.empty() ? 0 : lienzos[0];
 }
 
 void W3dEscenaSetInicial(const std::string& nombre) { gInicial = nombre; }
@@ -63,16 +204,16 @@ bool W3dEscenaModo() { return gModoMulti; }
 
 // muestra SOLO 'nueva' entre las escenas registradas (el resto se oculta: dejan de
 // correr y de recibir input; el overlay no las dibuja por visible=false).
-static void MostrarSolo(UI* nueva) {
-    for (std::map<std::string, UI*>::iterator it = gEscenas.begin(); it != gEscenas.end(); ++it) {
-        Object* u = it->second;
-        if (u) u->visible = (u == (Object*)nueva);
+static void MostrarSolo(Object* nueva) {
+    for (std::map<std::string, Object*>::iterator it = gEscenas.begin(); it != gEscenas.end(); ++it) {
+        Object* raiz = it->second;
+        if (raiz) raiz->visible = raiz == nueva;
     }
 }
 
 void W3dEscenaArrancar() {
     if (gEscenas.empty()) return;
-    UI* ini = W3dEscenaBuscar(gInicial);
+    Object* ini = W3dEscenaBuscar(gInicial);
     if (!ini) ini = gEscenas.begin()->second;   // fallback: la primera escena registrada
     MostrarSolo(ini);
     gEscActiva = ini;
@@ -81,16 +222,70 @@ void W3dEscenaArrancar() {
 }
 
 void W3dEscenaPedirCambio(const std::string& nombre, bool reiniciar) {
+    CancelarAsync();
     // ignorar un nombre inexistente: no romper el juego por un typo del script
     if (!W3dEscenaBuscar(nombre)) return;
     gHayCambio = true; gCambioNombre = nombre; gReiniciarPend = reiniciar;
+    gCambioAsync = false;
+}
+
+bool W3dEscenaPedirCambioAsync(const std::string& nombre, bool activarAlTerminar,
+                               void* luaState, int callbackIndex) {
+    lua_State* L = (lua_State*)luaState;
+    int callbackRef = LUA_NOREF;
+    if (L && lua_type(L, callbackIndex) == LUA_TFUNCTION) {
+        lua_pushvalue(L, callbackIndex);
+        callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    Object* root = W3dEscenaBuscar(nombre);
+    if (!root) {
+        InvocarCallbackAsync(L, callbackRef, nombre, 0.0f, "error");
+        if (L && callbackRef != LUA_NOREF && callbackRef != LUA_REFNIL)
+            luaL_unref(L, LUA_REGISTRYINDEX, callbackRef);
+        return false;
+    }
+
+    CancelarAsync();
+    gHayCambio = false;
+    gReiniciarPend = false;
+    gCambioAsync = false;
+    gAsyncScene.active = true;
+    gAsyncScene.started = false;
+    gAsyncScene.ready = false;
+    gAsyncScene.activateWhenReady = activarAlTerminar;
+    gAsyncScene.root = root;
+    gAsyncScene.name = nombre;
+    gAsyncScene.total = ContarNodosEscena(root);
+    gAsyncScene.completed = 0;
+    gAsyncScene.callbackState = L;
+    gAsyncScene.callbackRef = callbackRef;
+    gAsyncScene.id = ++gAsyncSceneId;
+    NotificarAsync("loading", 0.0f);
+    return true;
+}
+
+bool W3dEscenaAsyncReadyLoad(const std::string& nombre) {
+    if (!gAsyncScene.active || !gAsyncScene.ready) return false;
+    if (!nombre.empty() && nombre != gAsyncScene.name) return false;
+    gHayCambio = true;
+    gCambioNombre = gAsyncScene.name;
+    gReiniciarPend = false;
+    gCambioAsync = true;
+    return true;
 }
 
 void W3dEscenaAplicarPendiente() {
+    AsyncPrepararPaso();
     if (!gHayCambio) return;
     gHayCambio = false;
-    UI* nueva = W3dEscenaBuscar(gCambioNombre);
-    if (!nueva) { gReiniciarPend = false; return; }
+    Object* nueva = W3dEscenaBuscar(gCambioNombre);
+    const bool asyncChange = gCambioAsync;
+    gCambioAsync = false;
+    if (!nueva) {
+        gReiniciarPend = false;
+        if (asyncChange) TerminarAsync("error");
+        return;
+    }
     bool yaInit = (gInited.find(nueva) != gInited.end() && gInited[nueva]);
     MostrarSolo(nueva);            // ocultar la activa anterior, mostrar la nueva
     gEscActiva = nueva;
@@ -100,34 +295,43 @@ void W3dEscenaAplicarPendiente() {
         gInited[nueva] = true;
     }
     gReiniciarPend = false;
+    if (asyncChange) TerminarAsync("active");
 }
 
 Object* W3dEscenaRaizDe(Object* o) {
-    for (Object* p = o; p; p = p->Parent)
-        if (p->getType() == ObjectType::ui) return p;
+    Object* raizUiLegacy = 0;
+    for (Object* p = o; p; p = p->Parent) {
+        if (p->getType() == ObjectType::scene) return p;
+        if (p->getType() == ObjectType::ui) raizUiLegacy = p;
+    }
+    if (raizUiLegacy && raizUiLegacy->Parent == SceneCollection)
+        return raizUiLegacy;
     return SceneCollection;   // fuera de toda escena UI (3D): la busqueda de refs sigue igual
 }
 
 bool W3dEscenaEsDeActiva(Object* o) {
     if (!o) return false;
     if (!o->visible) return false;        // invisible: no corre (regla del editor de siempre)
-    if (gEscenas.empty()) return true;    // sin multi-escena: solo importa visible
+    if (gEscenas.empty()) return true;    // without scenes, visibility is the only rule
     Object* raiz = W3dEscenaRaizDe(o);
-    if (!raiz || raiz->getType() != ObjectType::ui) return true;  // fuera de escenas UI (3D): regla vieja
-    return raiz == (Object*)gEscActiva;   // pertenece a la escena activa?
+    if (!raiz || (raiz->getType() != ObjectType::ui &&
+                  raiz->getType() != ObjectType::scene)) return true;
+    return raiz == gEscActiva;
 }
 
 void W3dEscenaLimpiar() {
+    CancelarAsync();
     // el editor vuelve a EDICION: deshacer el MostrarSolo del Play (que dejo OCULTAS las
     // escenas no-activas con visible=false). Al cargar, TODAS las ventanas UI nacen visibles
     // (el .w3dui no guarda "visible" de la ventana), asi que restaurar a visible=true deja el
     // outliner como recien abierto y el editor puede volver a mostrar/editar cualquier escena.
-    for (std::map<std::string, UI*>::iterator it = gEscenas.begin(); it != gEscenas.end(); ++it)
+    for (std::map<std::string, Object*>::iterator it = gEscenas.begin(); it != gEscenas.end(); ++it)
         if (it->second) it->second->visible = true;
     gEscenas.clear();
     gInited.clear();
     gEscActiva = 0;
     gHayCambio = false; gReiniciarPend = false; gCambioNombre.clear();
+    gCambioAsync = false;
     // OJO: NO se toca gInicial (es un ajuste del proyecto, lo fija el importador/runtime)
 }
 
@@ -385,9 +589,32 @@ static int LChangeScene(lua_State* L) {
     if (n) W3dEscenaPedirCambio(n, re);
     return 0;
 }
+
+static int LChangeSceneAsync(lua_State* L) {
+    const char* name = lua_tostring(L, 1);
+    if (!name) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    bool activateWhenReady = lua_toboolean(L, 2) != 0;
+    bool queued = W3dEscenaPedirCambioAsync(name, activateWhenReady, L, 3);
+    lua_pushboolean(L, queued ? 1 : 0);
+    return 1;
+}
+
+static int LSceneAsyncReadyLoad(lua_State* L) {
+    const char* name = lua_tostring(L, 1);
+    lua_pushboolean(L, W3dEscenaAsyncReadyLoad(name ? name : "") ? 1 : 0);
+    return 1;
+}
+
 void W3dEscenaRegistrarBind(void* Lv) {
     lua_State* L = (lua_State*)Lv;
     lua_pushcfunction(L, LChangeScene); lua_setglobal(L, "changeScene");
     // Keep existing projects working while scripts migrate to the English name.
     lua_pushcfunction(L, LChangeScene); lua_setglobal(L, "cambiarEscena");
+    lua_pushcfunction(L, LChangeSceneAsync); lua_setglobal(L, "changeSceneAsync");
+    lua_pushcfunction(L, LSceneAsyncReadyLoad); lua_setglobal(L, "sceneAsyncReadyLoad");
+    // Accept the original misspelling as an alias for scripts using the requested name.
+    lua_pushcfunction(L, LSceneAsyncReadyLoad); lua_setglobal(L, "sceneAsycReadyLoad");
 }

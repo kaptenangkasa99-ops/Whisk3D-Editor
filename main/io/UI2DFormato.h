@@ -30,7 +30,9 @@ bool UI2DGuardar(UI* u, const std::string& ruta, const std::string& baseRel);
 
 // lee un .w3dui y arma el arbol (el UI queda colgado de la escena, sin
 // seleccionar). NULL si el archivo no se pudo leer o no parsea.
-UI* UI2DCargar(const std::string& ruta);
+// Set legacySceneRoot only when loading a pre-scene-data project record or a
+// file through the old "Load Scene" workflow.
+UI* UI2DCargar(const std::string& ruta, bool legacySceneRoot = false);
 
 // ---------------------------------------------------------------------------
 //  LA regla de "esta ruta cuelga de esta carpeta?" (una sola, para todo el arbol).
