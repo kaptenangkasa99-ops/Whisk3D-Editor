@@ -26,12 +26,13 @@ LOCAL_MODULE := main
 CORE := Whisk3DCore
 
 # Archivos incluidos
-# Excluimos la suite de tests del editor (main/test): es un runner de scripts para desktop,
-# no forma parte del runtime de Android y termina trayendo W3dRunCommand/W3dRunScript al binario
-# final, donde genera el undefined symbol que vimos al linkear.
+# Excluimos tests y fuentes de runtime de juegos (main/test, main/runtime): no forman parte del
+# editor Android. Sus stubs y globals se duplican con las implementaciones reales del editor
+# (Undo.cpp, lectura-escritura.cpp, Pick3D.cpp, SimJuego.cpp, etc.) si se compilan juntos.
 SRC_FILES := $(shell find $(PROJECT_ROOT)/main $(PROJECT_ROOT)/libs/$(CORE)/objects \
 $(PROJECT_ROOT)/libs/$(CORE)/animation $(PROJECT_ROOT)/libs/WhiskUI \
-\( -path '$(PROJECT_ROOT)/main/test' -prune \) -o -name '*.cpp' -print)
+\( -path '$(PROJECT_ROOT)/main/test' -o -path '$(PROJECT_ROOT)/main/runtime' \) -prune \
+-o -name '*.cpp' -print)
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/io/w3dFilesystem.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/gfx/w3dTexture.cpp
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/io/w3dCompress.cpp
