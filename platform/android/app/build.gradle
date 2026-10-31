@@ -45,3 +45,24 @@ dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'androidx.appcompat:appcompat:1.1.0'
 }
+
+def sharedTemplatesDir = rootProject.file('../../templates')
+def templateAssetsDir = project.file('src/main/assets/templates')
+
+tasks.register('syncProjectTemplates') {
+    doLast {
+        if (!sharedTemplatesDir.isDirectory()) {
+            throw new GradleException("Project template directory is missing: ${sharedTemplatesDir}")
+        }
+
+        delete templateAssetsDir
+        copy {
+            from sharedTemplatesDir
+            into templateAssetsDir
+        }
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('syncProjectTemplates')
+}

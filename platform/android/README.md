@@ -18,9 +18,12 @@ platform/android/build_android.sh
 ```
 
 El script:
-1. Copia `res/` y los templates compartidos de `templates/` a los assets del APK.
+1. Copia `res/` a los assets del APK y refresca los templates compartidos de `templates/` (elimina los assets anteriores antes de copiarlos).
 2. Compila las librerías nativas con `ndk-build` para las ABIs (por defecto `arm64`, `amd64`, `arm32`).
 3. Empaqueta el APK con `./gradlew assembleDebug` (firmado con el keystore de debug).
+
+La tarea Gradle `preBuild` también limpia y recopia los templates, así que los builds de Gradle
+ejecutados directamente usan siempre los templates actuales.
 
 La primera vez que se abre la app, los proyectos de ejemplo se copian a su carpeta privada
 `files/Templates` y aparecen como acceso **Templates** en el explorador de archivos. Se pueden
