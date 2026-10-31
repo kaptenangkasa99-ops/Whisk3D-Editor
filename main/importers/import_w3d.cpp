@@ -990,8 +990,20 @@ Object* CreateObjectFromNode(Node* n, Object* parent){
             w3dLogfW("[W3D] nodo UI sin 'archivo': escena omitida");
             return NULL;
         }
-        return (Object*)CargarUIProyecto(GetFilePath(w3dMapAt(n->props, "archivo")),
-                                         Unquote(w3dMapAt(n->props, "archivo")));
+        UI* ui = CargarUIProyecto(GetFilePath(w3dMapAt(n->props, "archivo")),
+                                  Unquote(w3dMapAt(n->props, "archivo")));
+        if (ui && parent && parent != SceneCollection && ui->Parent != parent) {
+            Object* previousParent = ui->Parent ? ui->Parent : SceneCollection;
+            if (previousParent)
+                for (size_t i = 0; i < previousParent->Childrens.size(); ++i)
+                    if (previousParent->Childrens[i] == ui) {
+                        previousParent->Childrens.erase(previousParent->Childrens.begin() + i);
+                        break;
+                    }
+            ui->Parent = parent;
+            parent->Childrens.push_back(ui);
+        }
+        return (Object*)ui;
         // (si cargo, ya quedo colgado de la escena)
     }
 
@@ -1331,6 +1343,15 @@ void BuildObjectRecursive(Node* n, Object* parent){
 
 void BuildScene(Node* root){
     if(!root || root->type!="Escena") return;
+    Object* objectParent = SceneCollection;
+    const std::string sceneRootName = root->props.count("sceneRoot")
+        ? Unquote(w3dMapAt(root->props, "sceneRoot")) : std::string();
+    if (!sceneRootName.empty()) {
+        SceneData* logicalScene = new SceneData(SceneCollection);
+        logicalScene->SetNameCrudo(sceneRootName);
+        objectParent = logicalScene;
+        AplicarEscenaInicial(sceneRootName);
+    }
 
     // TODOS los campos del proyecto van por los MISMOS aplicadores que el JSON
     // (una sola fuente de verdad por campo). "iconApp" es el alias del formato
@@ -1405,7 +1426,10 @@ void BuildScene(Node* root){
     g_bsTotal = ContarNodos(root);
     g_bsHecho = 0;
     for(size_t _i=0;_i<root->children.size();_i++)
-        BuildObjectRecursive(root->children[_i], SceneCollection);  // el parent puede ser la escena global
+        BuildObjectRecursive(root->children[_i], objectParent);
+
+    if (!sceneRootName.empty())
+        W3dEscenaRegistrarTodas();
 
 #ifndef W3D_GAME_RUNTIME
     if(!CollectionActive) 
@@ -1636,13 +1660,14 @@ static void CargarAnimsVertex(JVal* j, Mesh* mesh, const std::string& base) {
         anim->target    = mesh;
         // FRAMES: preferir el blob binario (self-contained). Legacy: frameCount + .obj.
         std::string buffers = JS(a, "buffers", "");
+        anim->buffersArchivo = buffers.empty() ? std::string() : RutaJson(buffers, base);
         bool cargado = false;
         if (!buffers.empty()) {
             std::vector<unsigned char> datos;
             // por RutaJson como TODAS las demas referencias: en v4 el blob es la
             // entrada "animaciones/<slug>.bin" y sale del contenedor montado; en v3
             // era un archivo suelto relativo a la carpeta del proyecto/zip
-            if (w3dFileSystem::ReadFileBytes(RutaJson(buffers, base), datos) && !datos.empty())
+            if (w3dFileSystem::ReadFileBytes(anim->buffersArchivo, datos) && !datos.empty())
                 cargado = VertexAnimDeserializar(*anim, &datos[0], datos.size());
             // ---- EL BLOB ESTABA Y NO SE PUDO LEER: NI SILENCIO NI BORRARLO -------------
             //  Hermano exacto de W3dAjenos::noCargo de la malla, y quedaba abierto: aca no
@@ -2501,6 +2526,7 @@ static Object* JsonObjetoCrear(JVal* j, Object* parent, const std::string& base)
         // ==================================================================
         std::string geo = JS(j, "geometria", "");
         Mesh* mesh = new Mesh(parent, Vector3(0, 0, 0));
+        mesh->w3dmArchivo = geo.empty() ? std::string() : RutaJson(geo, base);
         std::vector<unsigned char> datos;
         W3dMallaInfo info;
         bool cargo = false;
@@ -3250,6 +3276,7 @@ static bool AbrirEscenaJson(const char* datos, size_t n, const std::string& base
     } else {
         w3dLogfW("[W3D] el proyecto no trae \"escena\": abre sin objetos");
     }
+    W3dEscenaRegistrarTodas();
     // ya existen TODOS los objetos: resolver las referencias modArmature (malla -> armature por nombre)
     ResolverModArmaturePendientes();
     // ...y las CURVAS DE ANIMACION de los objetos, que tambien los referencian por nombre
@@ -3389,12 +3416,18 @@ bool W3dSceneLoadDataAdditive(const std::string& path) {
         bool refsEntries;
         W3dRefExtFn markExternal;
         bool namesLoading;
-        SceneFileContext(const std::string& filePath)
+        SceneFileContext(const std::string& filePath, const std::string& assetBase)
             : dir(gDirProyecto), projectDir(g_w3dDirProyecto),
               projectV4(gProyectoV4), projectV5(gProyectoV5),
               refsEntries(g_w3dRefsEntradas), markExternal(g_w3dRefExtMarcar),
               namesLoading(W3dNombresCargando) {
-            gDirProyecto = w3dFileSystem::ParentPath(filePath);
+            const std::string sceneDir = w3dFileSystem::ParentPath(filePath);
+            const bool absoluteAssetBase = !assetBase.empty() &&
+                (assetBase[0] == '/' || assetBase[0] == '\\' ||
+                 (assetBase.size() > 1 && assetBase[1] == ':'));
+            gDirProyecto = assetBase.empty() || absoluteAssetBase
+                ? (assetBase.empty() ? sceneDir : assetBase)
+                : w3dFileSystem::JoinPath(sceneDir, assetBase);
             g_w3dDirProyecto = gDirProyecto;
             gProyectoV4 = false;
             gProyectoV5 = true;
@@ -3411,7 +3444,7 @@ bool W3dSceneLoadDataAdditive(const std::string& path) {
             g_w3dRefExtMarcar = markExternal;
             W3dNombresCargando = namesLoading;
         }
-    } context(path);
+    } context(path, JS(raiz, "assetBase", ""));
 
     CargarMateriales(raiz, gDirProyecto);
     const size_t rootsBefore = SceneCollection->Childrens.size();

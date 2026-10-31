@@ -1,6 +1,8 @@
 Whisk3D {
     version: 20251127
     Escena {
+        sceneRoot: "Scene"
+        escenaInicial: "Scene"
         background: "0.1, 0.12, 0.14, 1.0"
         Camera {
             name: "Camera"

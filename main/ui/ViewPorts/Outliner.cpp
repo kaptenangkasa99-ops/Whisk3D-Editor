@@ -78,6 +78,10 @@ static void SaveSceneOverwrite() {
     gSceneSavePath.clear();
     gSceneSaveUnloadAfterSave = false;
     if (!scene || path.empty()) return;
+    if (!w3dPath.empty() && !GuardarW3D(w3dPath)) {
+        Notificar(T("The project assets could not be saved; the scene remains loaded."), true);
+        return;
+    }
     if (!GuardarW3DEscena(path, scene)) {
         Notificar(T("The scene could not be saved; it remains loaded."), true);
         return;

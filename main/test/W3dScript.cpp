@@ -1353,17 +1353,22 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         const std::string additivePath = w3dFileSystem::JoinPath(tempDir, baseName + "_additive.w3dui");
         const std::string sceneProjectDir = w3dFileSystem::JoinPath(tempDir, baseName + "_saved_scene");
         const std::string sceneProjectPath = w3dFileSystem::JoinPath(sceneProjectDir, "scene.w3dscene");
+        const std::string assetProjectDir = w3dFileSystem::JoinPath(tempDir, baseName + "_assets");
+        const std::string meshAssetPath = w3dFileSystem::JoinPath(
+            w3dFileSystem::JoinPath(assetProjectDir, "mallas"), "payload.w3dm");
         struct TestFiles {
             std::string first;
             std::string second;
             std::string directory;
+            std::string assetDirectory;
             ~TestFiles() {
                 std::remove(first.c_str());
                 std::remove(second.c_str());
                 std::error_code ec;
                 std::filesystem::remove_all(directory, ec);
+                std::filesystem::remove_all(assetDirectory, ec);
             }
-        } testFiles = { legacyPath, additivePath, sceneProjectDir };
+        } testFiles = { legacyPath, additivePath, sceneProjectDir, assetProjectDir };
 
         LegacyUIScene* legacy = new LegacyUIScene(SceneCollection);
         legacy->SetNameCrudo(baseName + "_legacy");
@@ -1453,12 +1458,45 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         }
         Empty* scenePayload = new Empty(newScene);
         scenePayload->SetNameCrudo(baseName + "_payload");
+        Mesh* sceneMesh = (Mesh*)NewMesh(MeshType(MeshType::cube), newScene, false);
+        if (!sceneMesh) {
+            err = "scene-architecture-test: could not create the mesh fixture";
+            return false;
+        }
+        sceneMesh->SetNameCrudo(baseName + "_mesh");
+        std::error_code assetDirError;
+        std::filesystem::create_directories(
+            w3dFileSystem::ParentPath(meshAssetPath), assetDirError);
+        std::string meshAsset;
+        if (assetDirError || !W3dMallaEscribir(sceneMesh, meshAsset, NULL) ||
+            meshAsset.empty()) {
+            err = "scene-architecture-test: could not serialize the mesh fixture";
+            return false;
+        }
+        {
+            std::ofstream asset(meshAssetPath.c_str(), std::ios::binary);
+            if (!asset || !asset.write(meshAsset.data(), (std::streamsize)meshAsset.size())) {
+                err = "scene-architecture-test: could not write the mesh fixture";
+                return false;
+            }
+        }
+        sceneMesh->w3dmArchivo = meshAssetPath;
         std::error_code sceneDirError;
         std::filesystem::create_directories(sceneProjectDir, sceneDirError);
         const std::string sourceProjectDir = g_w3dDirProyecto;
         const std::string sourceProjectIcon = g_proyIcono;
         const std::string sourceProjectPath = w3dPath;
-        if (sceneDirError || !GuardarW3DEscena(sceneProjectPath, newScene)) {
+        bool sceneSaved = false;
+        if (!sceneDirError) {
+            struct TestProjectDirectory {
+                std::string original;
+                TestProjectDirectory(const std::string& directory)
+                    : original(g_w3dDirProyecto) { g_w3dDirProyecto = directory; }
+                ~TestProjectDirectory() { g_w3dDirProyecto = original; }
+            } projectDirectory(assetProjectDir);
+            sceneSaved = GuardarW3DEscena(sceneProjectPath, newScene);
+        }
+        if (sceneDirError || !sceneSaved) {
             err = "scene-architecture-test: standalone scene save failed";
             return false;
         }
@@ -1483,7 +1521,10 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             standaloneJson.find("\"layout\"") != std::string::npos ||
             standaloneJson.find("\"sesion\"") != std::string::npos ||
             std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "scripts")) ||
+            std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "mallas")) ||
             std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "proyecto.json")) ||
+            standaloneJson.find("\"assetBase\"") == std::string::npos ||
+            standaloneJson.find("\"geometria\": \"mallas/payload.w3dm\"") == std::string::npos ||
             g_w3dDirProyecto != sourceProjectDir || g_proyIcono != sourceProjectIcon ||
             w3dPath != sourceProjectPath) {
             err = "scene-architecture-test: scene save included project data or changed project state";
@@ -1498,18 +1539,26 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         }
         Object* importedScene = NULL;
         bool importedPayloadFound = false;
+        bool importedMeshFound = false;
         for (size_t i = 0; i < SceneCollection->Childrens.size(); ++i) {
             Object* root = SceneCollection->Childrens[i];
             if (!root || root == newScene || root == reloaded ||
                 root->getType() != ObjectType::scene) continue;
             for (size_t child = 0; child < root->Childrens.size(); ++child)
-                if (root->Childrens[child] &&
-                    root->Childrens[child]->name.find(baseName + "_payload") == 0)
-                    importedPayloadFound = true;
-            if (importedPayloadFound) importedScene = root;
+                if (root->Childrens[child]) {
+                    if (root->Childrens[child]->name.find(baseName + "_payload") == 0)
+                        importedPayloadFound = true;
+                    if (root->Childrens[child]->name.find(baseName + "_mesh") == 0 &&
+                        root->Childrens[child]->getType() == ObjectType::mesh) {
+                        Mesh* loadedMesh = (Mesh*)root->Childrens[child];
+                        importedMeshFound = !loadedMesh->w3dmAjenos.noCargo &&
+                            !loadedMesh->w3dmArchivo.empty();
+                    }
+                }
+            if (importedPayloadFound || importedMeshFound) importedScene = root;
         }
-        if (!importedScene || !importedPayloadFound) {
-            err = "scene-architecture-test: additive scene-data load lost the scene root or its objects";
+        if (!importedScene || !importedPayloadFound || !importedMeshFound) {
+            err = "scene-architecture-test: additive scene-data load lost the scene root, object, or referenced mesh";
             return false;
         }
         SceneData* importedData = dynamic_cast<SceneData*>(importedScene);
@@ -1708,6 +1757,23 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             if (!W3dRunCommand("abrirw3d " + project, openError)) {
                 err = "template-bundle-test: could not parse " + project +
                       (openError.empty() ? std::string() : ": " + openError);
+                return false;
+            }
+            Object* scene = W3dEscenaBuscar("Scene");
+            if (!scene || scene->getType() != ObjectType::scene ||
+                W3dEscenaInicial() != "Scene" || scene->Childrens.empty()) {
+                err = "template-bundle-test: " + project +
+                      " did not load an assigned logical Scene";
+                return false;
+            }
+            bool hasUI = false;
+            for (size_t child = 0; child < scene->Childrens.size(); ++child)
+                if (scene->Childrens[child] &&
+                    scene->Childrens[child]->getType() == ObjectType::ui)
+                    hasUI = true;
+            if (!hasUI) {
+                err = "template-bundle-test: " + project +
+                      " did not load its UI beneath Scene";
                 return false;
             }
         }

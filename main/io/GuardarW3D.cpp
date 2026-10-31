@@ -290,6 +290,8 @@ struct CtxGuardar {
     int  vtxN;            // desempate de nombre de los blobs de vertex anim
     bool error;           // algo no se pudo escribir: se aborta TODO el guardado
     W3dContenedorEscritor* esc;   // el contenedor que se esta armando
+    std::vector<std::pair<Mesh*, std::string> > meshPaths;
+    std::vector<std::pair<VertexAnimation*, std::string> > animationPaths;
 };
 
 // ---------------------------------------------------------------------------
@@ -314,16 +316,37 @@ struct CtxGuardar {
 static W3dContenedorEscritor* gEsc = NULL;
 static std::string gQuien;
 
+static std::string RutaRelativa(const std::string& destino, const std::string& base) {
+    std::error_code ec;
+    const std::filesystem::path relative =
+        std::filesystem::relative(std::filesystem::path(destino),
+                                  std::filesystem::path(base), ec);
+    return ec ? destino : relative.generic_string();
+}
+
+static std::string ReferenciaAssetEscena(const std::string& ruta, bool externa) {
+    if (ruta.empty()) return ruta;
+    const std::filesystem::path assetPath(ruta);
+    if (assetPath.is_absolute() || (ruta.size() > 2 && ruta[1] == ':')) {
+        const std::string relative = g_w3dDirProyecto.empty()
+            ? ruta : RutaRelativa(ruta, g_w3dDirProyecto);
+        return externa ? "ext:" + relative : relative;
+    }
+    return externa ? "ext:" + ruta : ruta;
+}
+
+static std::string BaseAssetsEscena(const std::string& rutaEscena) {
+    if (g_w3dEscenaDirOrigen.empty()) return ".";
+    std::filesystem::path sceneDir =
+        std::filesystem::path(rutaEscena).parent_path();
+    if (sceneDir.empty()) sceneDir = ".";
+    return RutaRelativa(g_w3dEscenaDirOrigen, sceneDir.string());
+}
+
 static std::string W3dRefEmitir(std::string& ruta, bool actualizarRuta) {
     if (!gEsc) return ruta;
     if (g_w3dEscenaUnica) {
-        std::string fuente = ruta;
-        if (!fuente.empty() && fuente[0] != '/' &&
-            !(fuente.size() > 2 && fuente[1] == ':') &&
-            !W3dContenedorHayMontado() && !g_w3dEscenaDirOrigen.empty() &&
-            W3dEsNombreDeEntrada(fuente))
-            fuente = g_w3dEscenaDirOrigen + "/" + fuente;
-        return gEsc->Ingerir(fuente, NULL, gQuien);
+        return ReferenciaAssetEscena(ruta, W3dRefEsExterna(ruta));
     }
     if (gEsc->EsCarpeta()) {
         std::string fuente = ruta;
@@ -346,13 +369,7 @@ static std::string W3dRefEmitir(std::string& ruta, bool actualizarRuta) {
 static std::string Asset(CtxGuardar* cx, std::string& rutaDisco) {
     if (rutaDisco.empty()) return rutaDisco;
     if (g_w3dEscenaUnica) {
-        std::string fuente = rutaDisco;
-        if (!fuente.empty() && fuente[0] != '/' &&
-            !(fuente.size() > 2 && fuente[1] == ':') &&
-            !W3dContenedorHayMontado() && !g_w3dEscenaDirOrigen.empty() &&
-            W3dEsNombreDeEntrada(fuente))
-            fuente = g_w3dEscenaDirOrigen + "/" + fuente;
-        return cx->esc->Ingerir(fuente, NULL, gQuien);
+        return ReferenciaAssetEscena(rutaDisco, W3dRefEsExterna(rutaDisco));
     }
     if (cx->esc->EsCarpeta()) {
         std::string fuente = rutaDisco;
@@ -472,7 +489,7 @@ static void IngerirSidecars(CtxGuardar* cx, Mesh* m) {
     for (int i = 0; i < 3; i++) {
         std::string ruta = base + kSufijos[i];
         if (!w3dFileSystem::FileExists(ruta)) continue;
-        std::string entrada = cx->esc->Ingerir(ruta, NULL, gQuien);
+        std::string entrada = Asset(cx, ruta);
         if (i == 0 || i == 2) {   // los datos de visibilidad los consume el modificador
             for (size_t k = 0; k < m->modificadores.size(); k++) {
                 Modifier* md = m->modificadores[k];
@@ -765,20 +782,32 @@ static void EscribirAnimsVertex(std::string& s, Mesh* m, int ind, CtxGuardar* cx
         // para saber el vertexCount; lo fijamos por las dudas (las anims del .w3d traen NULL).
         a->target = m;
         if (!a->frames.empty()) {
-            std::vector<unsigned char> blob; VertexAnimSerializar(*a, blob);
-            if (!blob.empty()) {
-                // una ENTRADA del contenedor bajo animaciones/. Se acabaron los
-                // blobs sueltos, el contador que arrancaba en 0 cada vez y la poda
-                // de huerfanos que hacia falta por eso.
-                std::string base = W3dSlugEntrada(a->name.empty() ? std::string("anim") : a->name);
-                std::string nom = "animaciones/" + base + ".bin";
-                for (int k = 2; cx->esc->Tiene(nom); k++) {
-                    char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
-                    nom = "animaciones/" + base + sf + ".bin";
+            if (g_w3dEscenaUnica) {
+                if (a->buffersArchivo.empty()) {
+                    w3dLogfE("[W3D] '%s': vertex anim '%s' has no saved project asset",
+                             m->name.c_str(), a->name.c_str());
+                    cx->error = true;
+                } else {
+                    s += ", \"buffers\": ";
+                    JEsc(s, Asset(cx, a->buffersArchivo));
                 }
-                if (cx->esc->AgregarBytes(nom, std::string(blob.begin(), blob.end()))) {
-                    s += ", \"buffers\": "; JEsc(s, nom);
-                } else cx->error = true;
+            } else {
+                std::vector<unsigned char> blob; VertexAnimSerializar(*a, blob);
+                if (!blob.empty()) {
+                    // una ENTRADA del contenedor bajo animaciones/. Se acabaron los
+                    // blobs sueltos, el contador que arrancaba en 0 cada vez y la poda
+                    // de huerfanos que hacia falta por eso.
+                    std::string base = W3dSlugEntrada(a->name.empty() ? std::string("anim") : a->name);
+                    std::string nom = "animaciones/" + base + ".bin";
+                    for (int k = 2; cx->esc->Tiene(nom); k++) {
+                        char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
+                        nom = "animaciones/" + base + sf + ".bin";
+                    }
+                    if (cx->esc->AgregarBytes(nom, std::string(blob.begin(), blob.end()))) {
+                        s += ", \"buffers\": "; JEsc(s, nom);
+                        cx->animationPaths.push_back(std::make_pair(a, nom));
+                    } else cx->error = true;
+                }
             }
         }
         // curvas de transform PROPIAS de la anim del objeto (pos/rot/escala/visible/render)
@@ -1201,7 +1230,7 @@ static const char* TipoModStr(int t) {
     return NULL;   // Armature va aparte (modArmature); un tipo nuevo se agrega aca y en el lector
 }
 
-static void EscribirModificadores(std::string& s, Mesh* m, int ind) {
+static void EscribirModificadores(std::string& s, Mesh* m, int ind, CtxGuardar* cx) {
     bool alguno = false;
     for (size_t i = 0; i < m->modificadores.size(); i++)
         if (m->modificadores[i] && TipoModStr(m->modificadores[i]->tipo)) { alguno = true; break; }
@@ -1253,8 +1282,14 @@ static void EscribirModificadores(std::string& s, Mesh* m, int ind) {
             // fallback de celda vacia (-1 = completa, N = celda N). Solo si se usa,
             // para que los proyectos que no lo declaran queden byte a byte como antes.
             if (md->sectorFallback != 0) { s += ", \"sectorFallback\": "; JNum(s, (float)md->sectorFallback); }
-            if (!md->pvsArchivo.empty()) { s += ", \"pvs\": "; JEsc(s, md->pvsArchivo); }
-            if (!md->visArchivo.empty()) { s += ", \"vis\": "; JEsc(s, md->visArchivo); }
+            if (!md->pvsArchivo.empty()) {
+                s += ", \"pvs\": ";
+                JEsc(s, g_w3dEscenaUnica ? Asset(cx, md->pvsArchivo) : md->pvsArchivo);
+            }
+            if (!md->visArchivo.empty()) {
+                s += ", \"vis\": ";
+                JEsc(s, g_w3dEscenaUnica ? Asset(cx, md->visArchivo) : md->visArchivo);
+            }
         }
         // Array y Boolean: todavia sin params ni generacion (se guarda tipo/nombre
         // para no perder el stack que armo el usuario)
@@ -1482,55 +1517,66 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
         // new canvases receive a project-local .w3dui entry.
         UI* u = (UI*)o;
         LegacyUIScene* legacy = dynamic_cast<LegacyUIScene*>(u);
-        // la escena es una ENTRADA del contenedor (escenas/<slug>.w3dui). El nombre
-        // sale del nombre VISIBLE de la escena, slugueado; el nombre visible no se
-        // toca nunca (vive en el .w3dui) y el de entrada es un derivado.
-        std::string visible = u->archivoW3dui.empty()
-                                  ? (o->name.empty() ? std::string("ui") : o->name)
-                                  : BaseSinExt(u->archivoW3dui);
         std::string uiOrigen = u->archivoW3dui;
-        std::string nom = "escenas/" + W3dSlugEntrada(visible) + ".w3dui";
-        for (int k = 2; cx->esc->Tiene(nom); k++) {
-            char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
-            nom = "escenas/" + W3dSlugEntrada(visible) + sf + ".w3dui";
-        }
-        if (!g_w3dEscenaUnica) u->archivoW3dui = nom;
-        if (!legacy || legacy->cargada) {
-            // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
-            // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
-            std::string tmpUi = cx->esc->RutaTemporal("e");
-            std::string quienAntes = gQuien;
-            gQuien = "escena \"" + o->name + "\"";
-            bool okUi = UI2DGuardar(u, tmpUi, std::string());
-            gQuien = quienAntes;
-            if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi)) {
-                remove(tmpUi.c_str());
-                w3dLogfE("GuardarW3D: no pude escribir la escena UI %s", nom.c_str());
+        std::string nom;
+        if (g_w3dEscenaUnica) {
+            if (uiOrigen.empty()) {
+                w3dLogfE("GuardarW3D: the UI scene '%s' has no saved project asset",
+                         o->name.c_str());
                 cx->error = true;
+            } else {
+                nom = Asset(cx, uiOrigen);
             }
         } else {
-            // El placeholder no contiene el arbol. Copiar el .w3dui guardado tal cual
-            // mantiene la escena persistente sin volver a cargarla en memoria.
-            std::vector<unsigned char> uiGuardada;
-            std::string rutaUi = uiOrigen;
-            bool leida = false;
-            if (!rutaUi.empty() && rutaUi[0] != '/' &&
-                !(rutaUi.size() > 1 && rutaUi[1] == ':') &&
-                !g_w3dDirProyecto.empty()) {
-                std::string enProyecto = DirectorioProyectoFuente() + "/" + rutaUi;
-                leida = w3dFileSystem::ReadFileBytes(enProyecto, uiGuardada);
-                if (leida)
-                    rutaUi = enProyecto;
+            // la escena es una ENTRADA del contenedor (escenas/<slug>.w3dui). El nombre
+            // sale del nombre VISIBLE de la escena, slugueado; el nombre visible no se
+            // toca nunca (vive en el .w3dui) y el de entrada es un derivado.
+            std::string visible = uiOrigen.empty()
+                                      ? (o->name.empty() ? std::string("ui") : o->name)
+                                      : BaseSinExt(uiOrigen);
+            nom = "escenas/" + W3dSlugEntrada(visible) + ".w3dui";
+            for (int k = 2; cx->esc->Tiene(nom); k++) {
+                char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
+                nom = "escenas/" + W3dSlugEntrada(visible) + sf + ".w3dui";
             }
-            if (!leida && !rutaUi.empty())
-                leida = w3dFileSystem::ReadFileBytes(rutaUi, uiGuardada);
-            bool okUi = leida && !uiGuardada.empty() &&
-                cx->esc->AgregarBytes(nom,
-                    std::string(uiGuardada.begin(), uiGuardada.end()), false);
-            if (!okUi) {
-                w3dLogfE("GuardarW3D: no pude preservar la escena UI descargada %s",
-                         uiOrigen.c_str());
-                cx->error = true;
+            u->archivoW3dui = nom;
+            if (!legacy || legacy->cargada) {
+                // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
+                // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
+                std::string tmpUi = cx->esc->RutaTemporal("e");
+                std::string quienAntes = gQuien;
+                gQuien = "escena \"" + o->name + "\"";
+                bool okUi = UI2DGuardar(u, tmpUi, std::string());
+                gQuien = quienAntes;
+                if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi)) {
+                    remove(tmpUi.c_str());
+                    w3dLogfE("GuardarW3D: no pude escribir la escena UI %s", nom.c_str());
+                    cx->error = true;
+                }
+            } else {
+                // El placeholder no contiene el arbol. Copiar el .w3dui guardado tal cual
+                // mantiene la escena persistente sin volver a cargarla en memoria.
+                std::vector<unsigned char> uiGuardada;
+                std::string rutaUi = uiOrigen;
+                bool leida = false;
+                if (!rutaUi.empty() && rutaUi[0] != '/' &&
+                    !(rutaUi.size() > 1 && rutaUi[1] == ':') &&
+                    !g_w3dDirProyecto.empty()) {
+                    std::string enProyecto = DirectorioProyectoFuente() + "/" + rutaUi;
+                    leida = w3dFileSystem::ReadFileBytes(enProyecto, uiGuardada);
+                    if (leida)
+                        rutaUi = enProyecto;
+                }
+                if (!leida && !rutaUi.empty())
+                    leida = w3dFileSystem::ReadFileBytes(rutaUi, uiGuardada);
+                bool okUi = leida && !uiGuardada.empty() &&
+                    cx->esc->AgregarBytes(nom,
+                        std::string(uiGuardada.begin(), uiGuardada.end()), false);
+                if (!okUi) {
+                    w3dLogfE("GuardarW3D: no pude preservar la escena UI descargada %s",
+                             uiOrigen.c_str());
+                    cx->error = true;
+                }
             }
         }
         JSang(s, ind + 1); s += "\"tipo\": \"ui\",\n";
@@ -1786,7 +1832,19 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
         // ==================================================================
         Mesh* m = (Mesh*)o;
         MatRegistrar(m);                 // sus materiales van al bloque raiz "materiales"
-        std::string nomGeo = EscribirMallaW3dm(cx, m, o->name);
+        std::string nomGeo;
+        if (g_w3dEscenaUnica) {
+            if (m->w3dmArchivo.empty()) {
+                w3dLogfE("[W3D] '%s': mesh has no saved project geometry asset",
+                         o->name.c_str());
+                cx->error = true;
+            } else {
+                nomGeo = Asset(cx, m->w3dmArchivo);
+            }
+        } else {
+            nomGeo = EscribirMallaW3dm(cx, m, o->name);
+            cx->meshPaths.push_back(std::make_pair(m, nomGeo));
+        }
         JSang(s, ind + 1); s += "\"tipo\": \"malla\",\n";
         CamposComunes(s, ind + 1, o);
         s += ",\n"; JSang(s, ind + 1); s += "\"geometria\": "; JEsc(s, nomGeo);
@@ -1813,7 +1871,7 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
         }
         EscribirAnimsVertex(s, m, ind + 1, cx);   // vertex anims (frames binarios + curvas)
         EscribirRigMesh(s, m, ind + 1);           // modificador Armature (por nombre) + armatures 2D
-        EscribirModificadores(s, m, ind + 1);     // el resto del stack (Mirror/Screw/SubSurf/...)
+        EscribirModificadores(s, m, ind + 1, cx); // el resto del stack (Mirror/Screw/SubSurf/...)
     }
     else {
         // tipo sin rama propia: al menos el nombre/transform (no rompe el abrir)
@@ -2162,7 +2220,7 @@ bool GuardarW3D(const std::string& ruta) {
     gEsc = &esc;
     gQuien.clear();
     g_w3dRefEmit = W3dRefEmitir;      // el .w3dui emite nombres de entrada (ver UI2DFormato.h)
-    g_w3dDirProyecto = Carpeta(ruta);
+    g_w3dDirProyecto = soloEscena ? g_w3dEscenaDirOrigen : Carpeta(ruta);
 
     CtxGuardar cx;
     cx.esc = &esc;
@@ -2180,6 +2238,11 @@ bool GuardarW3D(const std::string& ruta) {
     // mover archivos y al reves. PROHIBIDO meter aca fecha, usuario, hostname o
     // rutas de la maquina: cualquier campo volatil rompe el round-trip byte a byte.
     s += "  \"version\": 5,\n";
+    if (soloEscena) {
+        s += "  \"assetBase\": ";
+        JEsc(s, BaseAssetsEscena(ruta));
+        s += ",\n";
+    }
     // ICONO del juego: entra bajo proyecto/ (el PNG en maxima
     // definicion; Compilar juego genera de ahi los tamanos chicos)
     if (!soloEscena && !g_proyIcono.empty()) {
@@ -2347,7 +2410,7 @@ bool GuardarW3D(const std::string& ruta) {
         if (ok && v5Carpeta && !soloEscena) esc.AsegurarEstructura();
         if (ok && !soloEscena) esc.EscribirExternos();
         std::string falta;
-        if (ok && !esc.Verificar(falta)) {
+        if (ok && !soloEscena && !esc.Verificar(falta)) {
             w3dLogfE("[W3D] el guardado se ABORTA: la referencia interna '%s' no tiene entrada en el .w3d",
                      falta.c_str());
             Notificar("Save ABORTED: missing'" + falta + "' inside the project; it was NOT touched " + Base(ruta), true);
@@ -2379,6 +2442,12 @@ bool GuardarW3D(const std::string& ruta) {
         if (!g_w3dEscenaUnica) {
             esc.AplicarRutasV5();
             W3dProyectoMarcarV5(ruta);
+            for (size_t i = 0; i < cx.meshPaths.size(); ++i)
+                cx.meshPaths[i].first->w3dmArchivo =
+                    w3dFileSystem::JoinPath(cx.dirW3d, cx.meshPaths[i].second);
+            for (size_t i = 0; i < cx.animationPaths.size(); ++i)
+                cx.animationPaths[i].first->buffersArchivo =
+                    w3dFileSystem::JoinPath(cx.dirW3d, cx.animationPaths[i].second);
         } else if (estabaMontado && !w3dPath.empty() && !W3dContenedorMontar(w3dPath)) {
             Notificar("The scene was saved, but the open project container could not be remounted.", true);
             return false;

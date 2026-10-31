@@ -25,59 +25,65 @@
   ],
   "fps": 30,
   "fullscreen": true,
+  "escenaInicial": "Scene",
   "reproduciendo": false,
   "escena": {
     "objetos": [
       {
-        "tipo": "camara",
-        "nombre": "Camera",
-        "pos": [-5.367255, 0.026420008, 4.2770367],
-        "rot": [10.963674, -35.40339, 6.403458],
-        "escala": [1, 1, 1],
-        "fov": 45,
-        "orto": false,
-        "near": 0.01,
-        "far": 1000,
-        "target": "Player"
-      },
-      {
-        "tipo": "luz",
-        "nombre": "Light",
-        "pos": [-2, 4.3746834, 6],
-        "rot": [0, 0, 0],
-        "escala": [1, 1, 1],
-        "color": [1, 1, 1]
-      },
-      {
-        "tipo": "malla",
-        "nombre": "Ground",
-        "pos": [0, 0, 0],
-        "rot": [0, 0, 0],
-        "escala": [1, 1, 1],
-        "geometria": "mallas/ground.w3dm",
-        "origen": "ext:C:/Users/User/Documents/w3dprojects/myseconds\\platformer\\ground.obj"
-      },
-      {
-        "tipo": "malla",
-        "nombre": "Player",
-        "pos": [-2.8499994, 0.7, 0.8],
-        "rot": [0, 0, 0],
-        "escala": [1, 1, 1],
-        "geometria": "mallas/player.w3dm"
-      },
-      {
-        "tipo": "coleccion",
-        "nombre": "GameScripts",
-        "pos": [0, 0, 0],
-        "rot": [0, 0, 0],
-        "escala": [1, 1, 1],
-        "scripts": [
-          { "archivo": "scripts/platformer.lua" }
+        "tipo": "escena",
+        "nombre": "Scene",
+        "hijos": [
+          {
+            "tipo": "camara",
+            "nombre": "Camera",
+            "pos": [-5.367255, 0.026420008, 4.2770367],
+            "rot": [10.963674, -35.40339, 6.403458],
+            "escala": [1, 1, 1],
+            "fov": 45,
+            "orto": false,
+            "near": 0.01,
+            "far": 1000,
+            "target": "Player"
+          },
+          {
+            "tipo": "luz",
+            "nombre": "Light",
+            "pos": [-2, 4.3746834, 6],
+            "rot": [0, 0, 0],
+            "escala": [1, 1, 1],
+            "color": [1, 1, 1]
+          },
+          {
+            "tipo": "modelo",
+            "nombre": "Ground",
+            "pos": [0, 0, 0],
+            "rot": [0, 0, 0],
+            "escala": [1, 1, 1],
+            "archivo": "ground.obj"
+          },
+          {
+            "tipo": "modelo",
+            "nombre": "Player",
+            "pos": [-2.8499994, 0.7, 0.8],
+            "rot": [0, 0, 0],
+            "escala": [1, 1, 1],
+            "archivo": "player.obj"
+          },
+          {
+            "tipo": "coleccion",
+            "nombre": "GameScripts",
+            "pos": [0, 0, 0],
+            "rot": [0, 0, 0],
+            "escala": [1, 1, 1],
+            "scripts": [
+              { "archivo": "platformer.lua" }
+            ]
+          },
+          {
+            "tipo": "ui",
+            "archivo": "touch.w3dui"
+          }
         ]
-      },
-      {
-        "tipo": "ui",
-        "archivo": "escenas/touch.w3dui"
       }
     ]
   },
