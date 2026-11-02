@@ -19,7 +19,10 @@ enum BarRolIDE {
     BRIDE_Script = 1, // selector desplegable: los .lua del proyecto (marca el abierto)
     BRIDE_NewClass,   // crea una clase/script Lua nuevo en scripts/
     BRIDE_Guardar,    // guarda el archivo (Ctrl+S)
-    BRIDE_Refresh     // guarda + recarga los scripts EN VIVO si el juego corre
+    BRIDE_Refresh,    // guarda + recarga los scripts EN VIVO si el juego corre
+    BRIDE_File,
+    BRIDE_Edit,
+    BRIDE_Help
 };
 
 // =====================================================================
@@ -29,12 +32,12 @@ enum BarRolIDE {
 //  PgUp/PgDn/click), seleccion (Shift+flechas y arrastre del mouse),
 //  escribir (el texto entra por SDL_TEXTINPUT mientras el IDE tiene el
 //  foco por hover: NO dispara atajos globales del editor), copiar/cortar/
-//  pegar con el clipboard REAL de SDL (Ctrl+C/X/V), undo simple (Ctrl+Z,
+//  pegar con el clipboard REAL de SDL (Ctrl+C/X/V), undo/redo (Ctrl+Z/Y,
 //  snapshots del buffer agrupados por operacion), numeros de linea, y
 //  RESALTADO de sintaxis lua por linea (lexer simple, ver LexLinea).
 //
-//  Barra: [selector de script] [Save] [Refresh]. Guardar es ATOMICO
-//  (escribe a un .w3dtmp y renombra: el .lua nunca queda a medias).
+//  Barra: [selector de script] [New Lua Class] [Save] [Refresh] [File/Edit/Help].
+//  Guardar escribe primero a un temporal y despues reemplaza el .lua.
 //  Refresh con la sim corriendo recarga los lua_State de los objetos que
 //  usan el script editado (SimScriptsCambiados: sus variables arrancan
 //  de cero y corre inicio() de nuevo; el resto del juego NO se reinicia).
@@ -64,12 +67,20 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
             int curLin, curCol;
         };
         std::vector<EstadoTexto> pilaUndo;
+        std::vector<EstadoTexto> pilaRedo;
         int undoUltimaOp;                // ultima op mutante (agrupa el tipeo seguido)
 
         // metricas del ultimo calculo de scroll (recalcular SOLO si cambia algo,
         // como lastContentRows del Outliner / lastCount de la Console)
         int lastLineas, lastMaxAncho;
         bool selDrag;                    // arrastre de seleccion con boton izquierdo en curso
+        int searchMode;                  // 0=off, 1=find, 2=find query, 3=replace query
+        std::string searchQuery, replaceQuery;
+        bool searchQuerySelected;
+        std::vector<std::string> autoCompleteItems;
+        int autoCompleteSelection;
+        bool autoCompleteVisible;
+        bool forceAutoComplete;
 
         IDE();
         virtual ~IDE();
@@ -77,6 +88,8 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
         // ================= API de edicion (headless: la usa idetest) =================
         bool AbrirArchivo(const std::string& ruta); // lee el .lua al buffer (tabs -> 4 espacios, sin \r)
         bool Guardar();                             // ATOMICO: tmp + rename. false si fallo
+        bool GuardarComo(const std::string& ruta);
+        void IniciarGuardarComo();
         void Refresh();                             // guardar + recargar scripts en vivo (ver arriba)
         void SetTexto(const std::string& texto);    // reemplaza el buffer entero (resetea undo)
         std::string GetTexto() const;               // el buffer unido con '\n'
@@ -92,12 +105,18 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
         void End(bool shift);
         void PaginaArribaAbajo(int dir, bool shift); // PgUp (-1) / PgDn (+1)
         void SeleccionarTodo();                     // Ctrl+A
+        void DeseleccionarTodo();
         std::string TextoSeleccionado() const;
         void BorrarSeleccion();
         void Copiar();                              // Ctrl+C (clipboard SDL + copia interna)
         void Cortar();                              // Ctrl+X
         void Pegar();                               // Ctrl+V
         void DeshacerTexto();                       // Ctrl+Z
+        void RehacerTexto();                        // Ctrl+Y
+        void Buscar();
+        void BuscarReemplazar();
+        bool ComplecionVisible() const { return autoCompleteVisible; }
+        bool AceptarAutocompletado();
         // una tecla del editor (W3dTecla). true = consumida (el atajo global NO corre).
         bool TeclaEditor(int tecla, bool repeticion);
         // texto tipeado (UTF-8 de SDL_TEXTINPUT): inserta los imprimibles ASCII (32..126);
@@ -138,9 +157,13 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
         void NormalizarSel(int* l0, int* c0, int* l1, int* c1) const;
         void AsegurarCursorVisible();    // ajusta PosX/PosY para que el cursor se vea
         void RecalcularScroll();         // rango del scrollbar con las metricas actuales
+        int EditorTopOffset() const;
         std::vector<unsigned char> bloqueAlInicio; // estado --[[ ]] al INICIO de cada linea
         void RecalcularBloques();        // recalcula bloqueAlInicio (tras cada edicion)
         int GutterW() const;             // ancho del margen de numeros de linea (px)
+        void ActualizarAutocompletado();
+        bool BuscarSiguiente();
+        void ReemplazarCoincidencias();
 };
 
 // ---- helpers globales (los usan controles.cpp / LayoutInput.cpp / idetest) ----
@@ -155,6 +178,9 @@ void IDEColectarScripts(std::vector<std::string>* rutas);
 bool IDETecladoCaptura(int tecla, bool repeticion);
 // captura del TEXTO tipeado (PC, SDL_TEXTINPUT). true = lo consumio un IDE enfocado.
 bool IDETextoTexto(const char* utf8);
+void IDEGuardarComoDesdeUI(IDE* ide, const std::string& nombre);
+void IDEAbrirDesdeUI(IDE* ide);
+void IDENuevoDesdeUI(IDE* ide);
 
 // nombre "lindo" de una ruta de script para la UI (relativo al proyecto si se puede)
 std::string IDENombreScript(const std::string& ruta);

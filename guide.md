@@ -20,6 +20,14 @@ The Console viewport has Info, Warn, and Error filters, an optional Group toggle
 for collapsing consecutive duplicate messages, and supports drag-selection with
 Ctrl+C to copy (Ctrl+A selects the visible log).
 
+The Lua IDE toolbar includes File, Edit, and Help menus for opening/saving Lua
+scripts, loading the `start()`/`update(dt)` starter code, common editing commands,
+and links to this guide and the complete API reference. Save As asks for a
+filename, then a destination folder. Ctrl+Space opens API completion suggestions;
+use Up/Down and Tab to choose a suggestion. Ctrl+F finds the next match, and
+Ctrl+H replaces all matches after entering the search and replacement text. On
+Android, tap the code area to bring up the system keyboard.
+
 ---
 
 ## 1) Script lifecycle

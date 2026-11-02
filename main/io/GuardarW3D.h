@@ -58,7 +58,8 @@ class Object;
 //  reemplazar su archivo y despues se conmuta el resolvedor al layout v5.
 // ============================================================================
 bool GuardarW3D(const std::string& ruta);
-// Writes one logical scene and its referenced data as a standalone .w3dscene file.
+// Writes one logical scene as a standalone .w3dscene file. Project assets are
+// referenced relative to assetBase; they are not copied into the scene folder.
 bool GuardarW3DEscena(const std::string& ruta, Object* escena);
 
 // Ctrl+S: guarda a w3dPath, o abre el explorador en modo guardar si no hay

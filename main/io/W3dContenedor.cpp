@@ -793,16 +793,25 @@ std::string W3dContenedorEscritor::Ingerir(std::string& ruta, const char* catego
 }
 
 bool W3dContenedorEscritor::AgregarBytes(const std::string& nombre, const std::string& texto,
-                                         bool dedup) {
-    if (Tiene(nombre)) {
-        w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
-        return false;
-    }
+                                         bool dedup, std::string* referencia) {
     W3dEntradaPend e;
     e.nombre = nombre; e.origen = 0;
     e.bytes.assign(texto.begin(), texto.end());
     e.tam = (unsigned)e.bytes.size();
     e.crc = e.bytes.empty() ? 0u : Crc32(&e.bytes[0], e.bytes.size());
+    if (referencia) *referencia = nombre;
+    if (dedup) {
+        char h[40]; snprintf(h, sizeof(h), "%08x:%u", e.crc, e.tam);
+        const size_t existente = BuscarPorContenido(h, e.bytes);
+        if (existente != (size_t)-1) {
+            if (referencia) *referencia = pend[existente].nombre;
+            return true;
+        }
+    }
+    if (Tiene(nombre)) {
+        w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
+        return false;
+    }
     porNombre[nombre] = pend.size();
     if (dedup) {
         char h[40]; snprintf(h, sizeof(h), "%08x:%u", e.crc, e.tam);
@@ -846,13 +855,10 @@ int W3dContenedorEscritor::AsegurarEstructura() {
 }
 
 bool W3dContenedorEscritor::AgregarTemporal(const std::string& nombre, const std::string& rutaTmp,
-                                             bool dedup) {
-    if (Tiene(nombre)) {
-        w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
-        return false;
-    }
+                                             bool dedup, std::string* referencia) {
     W3dEntradaPend e;
     e.nombre = nombre; e.origen = 1; e.fuente = rutaTmp; e.temporal = true;
+    if (referencia) *referencia = nombre;
     if (dedup) {
         std::vector<unsigned char> datos;
         if (!w3dFileSystem::ReadFileBytes(rutaTmp, datos)) {
@@ -861,6 +867,16 @@ bool W3dContenedorEscritor::AgregarTemporal(const std::string& nombre, const std
         }
         e.tam = (unsigned)datos.size();
         e.crc = datos.empty() ? 0u : Crc32(&datos[0], datos.size());
+        char h[40]; snprintf(h, sizeof(h), "%08x:%u", e.crc, e.tam);
+        const size_t existente = BuscarPorContenido(h, datos);
+        if (existente != (size_t)-1) {
+            if (referencia) *referencia = pend[existente].nombre;
+            return true;
+        }
+    }
+    if (Tiene(nombre)) {
+        w3dLogfE("[W3D] entrada duplicada en el contenedor: %s", nombre.c_str());
+        return false;
     }
     porNombre[nombre] = pend.size();
     if (dedup) {

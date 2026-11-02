@@ -71,6 +71,16 @@ resource model. The game exporter selects the runtime source set and packages
 the project assets for a target rather than using the editor UI as the game
 runtime.
 
+Scenes keep their own object instances and transforms while referring to
+project-level resource entries. On save, file-backed assets such as textures,
+scripts, audio, and other media are ingested once and identical bytes reuse
+the same container entry. Generated resources follow the same rule: identical
+`.w3dm` geometry, animation buffers, and UI scene data resolve to one entry
+with multiple scene/object references. This shares stored resource data without
+merging the scene objects or their per-instance state. Individual scene saves
+write references relative to the project asset base rather than embedding a
+second copy of every referenced project resource.
+
 The editor Outliner can unload legacy UI-root and `SceneData` content while
 retaining a small file-backed placeholder, so other scenes remain editable
 without keeping every scene tree in memory. Reload restores the saved scene;
@@ -109,7 +119,58 @@ See the
 [roadmap](./runtime-data-oriented-roadmap.md) for implementation phases,
 validation scope, and target-platform limitations.
 
-## 4. Is data-oriented design fully applicable?
+## 4. Rendering and lighting paths
+
+The editor and game share scene traversal and the `w3dEngine` graphics
+abstraction, but they do not all use the same low-level graphics backend:
+
+| Target | Graphics implementation | Main implication |
+|---|---|---|
+| Windows desktop | Fixed-function backend in `libs/Whisk3DCore/gfx/w3dGraphics.cpp` | Uses the platform's fixed-function lighting and material state. |
+| Android and WebGL | GLES2 backend in `libs/Whisk3DCore/gles2/w3dGraphicsGLES2.cpp` | Emulates the supported graphics state with a GLSL ES shader, including material lighting. |
+
+This distinction helps narrow rendering bugs. A defect seen on both Windows
+and Android is less likely to be isolated to GLES2 shader compilation; shared
+scene setup, mesh/material data, or behavior common to both backends should
+also be investigated.
+
+The render mode determines which lights affect a scene:
+
+- **Material Preview** uses a fixed studio/head light and is the editor's
+  initial view mode. The game runtime also explicitly selects Material Preview
+  in `main/runtime/w3drun3d.cpp`. In this mode, project scene lights do not
+  provide the scene's illumination.
+- **Rendered** enables scene lights. The shared mode setup is in
+  `main/render/EscenaRender.cpp`; lights configure their state while the scene
+  is traversed.
+- The runtime render-packet path is restricted to supported passes. Passes
+  that depend on traversal-time scene-light state retain the legacy renderer,
+  as documented in the
+  [runtime roadmap](./runtime-data-oriented-roadmap.md).
+
+Lighting and shadows are separate features. The renderer supports explicit
+decal/blob-style shadow geometry, but it does not currently provide general
+real-time shadow mapping that automatically casts shadows from scene lights.
+Thus, changing the active light mode can change surface illumination without
+creating cast shadows.
+
+Template assets can also affect the apparent lighting independently of the
+backend. For example, the canonical platformer meshes in
+`templates/platformer/` are OBJ files without explicit vertex normals, so the
+OBJ importer generates smooth normals. That is suitable for rounded surfaces
+but can soften the edges of cube-like geometry. The Android application assets
+under `platform/android/app/src/main/assets/templates/platformer/` have
+historically included a separate, older template copy; verify that packaged
+scene and mesh assets match the canonical template before diagnosing a
+cross-platform renderer regression.
+
+When diagnosing a lighting report, check in order: the selected render mode,
+whether the mode uses studio or scene lights, the mesh normals and face
+winding, the material's lighting settings, and whether both platforms are
+rendering equivalent project assets. A platform-specific shader failure
+should be checked separately using GLES2 compile/link diagnostics.
+
+## 5. Is data-oriented design fully applicable?
 
 No. Data-oriented design is useful in Whisk3D, but it should not replace every
 part of the engine or the editor's object model.
@@ -135,7 +196,7 @@ Keep straightforward serial and legacy-render paths where packed data or
 parallel scheduling offers no demonstrated benefit. The roadmap records which
 runtime paths currently use this approach and its validation limits.
 
-## 5. Core subsystem boundaries
+## 6. Core subsystem boundaries
 
 ### Scene and geometry
 
@@ -151,7 +212,9 @@ High-level drawing goes through `w3dEngine` in
 submission. Platform-specific implementations provide the underlying
 graphics/window integration. Runtime transform snapshots and render packets
 are derived representations used by selected game-render paths; they do not
-change the editor's authoring model.
+change the editor's authoring model. The fixed-function and GLES2 rendering
+paths, render modes, and lighting limitations are described in
+[Rendering and lighting paths](#4-rendering-and-lighting-paths).
 
 ### Scripting and input
 
@@ -169,7 +232,7 @@ utilities in `libs/Whisk3DCore/io/`. Importers under `main/importers/` create
 engine resources from external files. Platform-specific startup, build
 configuration, and graphics integration live under `platform/`.
 
-## 6. Reading the code
+## 7. Reading the code
 
 For the editor-to-runtime boundary, follow this path:
 

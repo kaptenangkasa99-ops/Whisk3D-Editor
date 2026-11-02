@@ -238,12 +238,14 @@ public:
     // 'dedup' = false para las entradas de SERVICIO: si "mimetype" entrara al
     // indice por contenido, un asset del usuario con esos mismos 36 bytes se
     // aliasaria a el y el JSON terminaria apuntando a "mimetype".
-    bool AgregarBytes(const std::string& nombre, const std::string& texto, bool dedup = true);
-    // idem, pero el contenido quedo en un TEMPORAL de disco (.w3dui, .glb, .bin):
-    // se anota la ruta y se borra al final del guardado. 'dedup' puede desactivarse
-    // para temporales grandes que nunca deben aliasarse (p. ej., una malla generada).
+    bool AgregarBytes(const std::string& nombre, const std::string& texto, bool dedup = true,
+                      std::string* referencia = NULL);
+    // idem, pero el contenido quedo en un TEMPORAL de disco (.w3dui, .w3dm, .bin):
+    // se anota la ruta y se borra al final del guardado. Si deduplica con una entrada
+    // existente, 'referencia' devuelve esa ruta y el caller conserva la limpieza del
+    // temporal no registrado.
     bool AgregarTemporal(const std::string& nombre, const std::string& rutaTmp,
-                         bool dedup = true);
+                         bool dedup = true, std::string* referencia = NULL);
 
     // un temporal unico en la carpeta del destino (para el .w3dui / el .glb)
     std::string RutaTemporal(const char* etiqueta);

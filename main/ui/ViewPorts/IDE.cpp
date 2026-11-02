@@ -16,8 +16,20 @@
 #include "variables.h"                   // w3dPath (el proyecto abierto)
 #include <stdio.h>                       // guardado atomico: fopen/fwrite/rename
 #include <filesystem>
+#ifdef __ANDROID__
+#include <SDL.h>
+extern bool g_uiTapEnCurso;
+#endif
 
 namespace gfx = w3dEngine;
+
+#ifdef __ANDROID__
+static void IdeMostrarTecladoAndroid() { SDL_StartTextInput(); }
+static void IdeOcultarTecladoAndroid() { SDL_StopTextInput(); }
+#else
+static void IdeMostrarTecladoAndroid() {}
+static void IdeOcultarTecladoAndroid() {}
+#endif
 
 // ---------------------------------------------------------------------------
 //  Colores del RESALTADO (fijos, legibles sobre el fondo oscuro; la paleta del
@@ -247,15 +259,29 @@ IDE::IDE() {
     b = new Button(T("Script"), -1);
     b->rol = BRIDE_Script; b->desplegable = true; b->caretMenu = true;
     BarButtons.push_back(b);
-    b = new Button(T("New Lua Class"));
-    b->rol = BRIDE_NewClass;
+    // b = new Button(T("New Lua Class"));
+    // b->rol = BRIDE_NewClass;
+    // BarButtons.push_back(b);
+    // b = new Button(T("Save"));
+    // b->rol = BRIDE_Guardar;
+    // BarButtons.push_back(b);
+    // b = new Button(T("Refresh"));
+    // b->rol = BRIDE_Refresh;
+    // BarButtons.push_back(b);
+    b = new Button(T("File"));
+    b->rol = BRIDE_File; b->desplegable = true; b->caretMenu = true;
     BarButtons.push_back(b);
-    b = new Button(T("Save"));
-    b->rol = BRIDE_Guardar;
+    b = new Button(T("Edit"));
+    b->rol = BRIDE_Edit; b->desplegable = true; b->caretMenu = true;
     BarButtons.push_back(b);
-    b = new Button(T("Refresh"));
-    b->rol = BRIDE_Refresh;
+    b = new Button(T("Help"));
+    b->rol = BRIDE_Help; b->desplegable = true; b->caretMenu = true;
     BarButtons.push_back(b);
+    searchMode = 0;
+    searchQuerySelected = false;
+    autoCompleteSelection = 0;
+    autoCompleteVisible = false;
+    forceAutoComplete = false;
     RecalcularBloques();
     // con un proyecto cargado, abrir el PRIMER script (el IDE nace mostrando codigo)
     AbrirPrimerScript();
@@ -329,7 +355,8 @@ bool IDE::AbrirArchivo(const std::string& ruta) {
     sucio = false;
     curLin = 0; curCol = 0; haySel = false; selDrag = false;
     PosX = 0; PosY = 0;
-    pilaUndo.clear(); undoUltimaOp = 0;
+    pilaUndo.clear(); pilaRedo.clear(); undoUltimaOp = 0;
+    searchMode = 0; autoCompleteVisible = false; forceAutoComplete = false;
     lastLineas = -1; // fuerza el recalculo del scroll en el proximo Render
     RecalcularBloques();
     g_redraw = true;
@@ -348,8 +375,9 @@ std::string IDE::GetTexto() const {
 void IDE::SetTexto(const std::string& texto) {
     IdePartirEnLineas(texto, &lineas);
     curLin = 0; curCol = 0; haySel = false;
-    pilaUndo.clear(); undoUltimaOp = 0;
+    pilaUndo.clear(); pilaRedo.clear(); undoUltimaOp = 0;
     sucio = true;
+    searchMode = 0; autoCompleteVisible = false; forceAutoComplete = false;
     lastLineas = -1;
     RecalcularBloques();
     g_redraw = true;
@@ -414,6 +442,31 @@ bool IDE::Guardar() {
     return true;
 }
 
+bool IDE::GuardarComo(const std::string& ruta) {
+    if (ruta.empty()) return false;
+    const std::string anterior = archivo;
+    archivo = ruta;
+    if (Guardar()) return true;
+    archivo = anterior;
+    SincronizarBarra();
+    return false;
+}
+
+void IDE::IniciarGuardarComo() {
+    searchQuery = archivo;
+    size_t slash = searchQuery.find_last_of("/\\");
+    if (slash != std::string::npos) searchQuery = searchQuery.substr(slash + 1);
+    if (searchQuery.empty()) searchQuery = "untitled.lua";
+    replaceQuery.clear();
+    searchQuerySelected = true;
+    searchMode = 4;
+    autoCompleteVisible = false;
+    RecalcularScroll();
+    AsegurarCursorVisible();
+    IdeMostrarTecladoAndroid();
+    g_redraw = true;
+}
+
 // REFRESH: guardar + aplicar EN VIVO. Comportamiento elegido (predecible):
 //  - juego CORRIENDO (SimActiva): se recargan SOLO los objetos cuyos scripts
 //    usan el archivo editado (SimScriptsCambiados): sus lua_State se recrean
@@ -452,8 +505,8 @@ void IDE::Refresh() {
 // ---------------------------------------------------------------------------
 //  undo: snapshots del buffer entero (los .lua de un juego son chicos), en una
 //  pila AGRUPADA por operacion: una corrida de tipeo = UN undo; backspace
-//  sostenido = UN undo; pegar/cortar/enter = un undo cada uno. Sin redo
-//  (limitacion documentada; el Ctrl+Z global del editor no pasa por aca).
+//  sostenido = UN undo; pegar/cortar/enter = un undo cada uno. La pila redo
+//  conserva los estados que restaura Ctrl+Z.
 // ---------------------------------------------------------------------------
 void IDE::Mutar(int op) {
     if (op == 0 || op != undoUltimaOp || pilaUndo.empty()) {
@@ -462,12 +515,16 @@ void IDE::Mutar(int op) {
         pilaUndo.push_back(e);
         if (pilaUndo.size() > 200) pilaUndo.erase(pilaUndo.begin());
     }
+    pilaRedo.clear();
     undoUltimaOp = op;
     sucio = true;
 }
 
 void IDE::DeshacerTexto() {
     if (pilaUndo.empty()) return;
+    EstadoTexto actual;
+    actual.lineas = lineas; actual.curLin = curLin; actual.curCol = curCol;
+    pilaRedo.push_back(actual);
     EstadoTexto& e = pilaUndo.back();
     lineas = e.lineas;
     curLin = e.curLin; curCol = e.curCol;
@@ -478,6 +535,27 @@ void IDE::DeshacerTexto() {
     lastLineas = -1;
     RecalcularBloques();
     AsegurarCursorVisible();
+    ActualizarAutocompletado();
+    g_redraw = true;
+}
+
+void IDE::RehacerTexto() {
+    if (pilaRedo.empty()) return;
+    EstadoTexto actual;
+    actual.lineas = lineas; actual.curLin = curLin; actual.curCol = curCol;
+    pilaUndo.push_back(actual);
+    if (pilaUndo.size() > 200) pilaUndo.erase(pilaUndo.begin());
+    EstadoTexto e = pilaRedo.back();
+    pilaRedo.pop_back();
+    lineas = e.lineas;
+    curLin = e.curLin; curCol = e.curCol;
+    haySel = false;
+    undoUltimaOp = 0;
+    sucio = true;
+    lastLineas = -1;
+    RecalcularBloques();
+    AsegurarCursorVisible();
+    ActualizarAutocompletado();
     g_redraw = true;
 }
 
@@ -503,6 +581,7 @@ void IDE::CursorA(int lin, int col, bool shift) {
     if (haySel && selLin == curLin && selCol == curCol) haySel = false;
     undoUltimaOp = 0; // moverse corta el grupo de tipeo del undo
     AsegurarCursorVisible();
+    ActualizarAutocompletado();
     g_redraw = true;
 }
 
@@ -527,7 +606,7 @@ void IDE::End(bool shift)  { CursorA(curLin, (int)lineas[curLin].size(), shift);
 
 void IDE::PaginaArribaAbajo(int dir, bool shift) {
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
-    int visibles = (height - BarTopOffset()) / lh;
+    int visibles = (height - EditorTopOffset()) / lh;
     if (visibles < 1) visibles = 1;
     CursorA(curLin + dir * visibles, curCol, shift);
 }
@@ -539,6 +618,142 @@ void IDE::SeleccionarTodo() {
     haySel = !(curLin == 0 && curCol == 0);
     undoUltimaOp = 0;
     g_redraw = true;
+}
+
+void IDE::DeseleccionarTodo() {
+    if (!haySel) return;
+    haySel = false;
+    g_redraw = true;
+}
+
+void IDE::Buscar() {
+    searchQuery = TextoSeleccionado();
+    searchQuerySelected = !searchQuery.empty();
+    replaceQuery.clear();
+    searchMode = 1;
+    autoCompleteVisible = false;
+    RecalcularScroll();
+    AsegurarCursorVisible();
+    IdeMostrarTecladoAndroid();
+    g_redraw = true;
+}
+
+void IDE::BuscarReemplazar() {
+    searchQuery = TextoSeleccionado();
+    searchQuerySelected = !searchQuery.empty();
+    replaceQuery.clear();
+    searchMode = 2;
+    autoCompleteVisible = false;
+    RecalcularScroll();
+    AsegurarCursorVisible();
+    IdeMostrarTecladoAndroid();
+    g_redraw = true;
+}
+
+bool IDE::BuscarSiguiente() {
+    if (searchQuery.empty()) return false;
+    const std::string texto = GetTexto();
+    size_t cursor = 0;
+    for (int l = 0; l < curLin; l++) cursor += lineas[l].size() + 1;
+    cursor += curCol;
+    size_t pos = texto.find(searchQuery, cursor);
+    if (pos == std::string::npos) pos = texto.find(searchQuery);
+    if (pos == std::string::npos) return false;
+    int startLine = 0, startCol = 0;
+    for (size_t i = 0; i < pos; i++) {
+        if (texto[i] == '\n') { startLine++; startCol = 0; }
+        else startCol++;
+    }
+    CursorA(startLine, startCol, false);
+    int endLine = startLine, endCol = startCol + (int)searchQuery.size();
+    while (endCol > (int)lineas[endLine].size() && endLine + 1 < (int)lineas.size()) {
+        endCol -= (int)lineas[endLine].size() + 1;
+        endLine++;
+    }
+    CursorA(endLine, endCol, true);
+    return true;
+}
+
+void IDE::ReemplazarCoincidencias() {
+    if (searchQuery.empty()) return;
+    std::string texto = GetTexto();
+    size_t pos = 0;
+    bool changed = false;
+    while ((pos = texto.find(searchQuery, pos)) != std::string::npos) {
+        if (!changed) Mutar(0);
+        texto.replace(pos, searchQuery.size(), replaceQuery);
+        pos += replaceQuery.size();
+        changed = true;
+    }
+    if (!changed) return;
+    IdePartirEnLineas(texto, &lineas);
+    curLin = 0; curCol = 0; haySel = false;
+    lastLineas = -1;
+    RecalcularBloques();
+    AsegurarCursorVisible();
+    ActualizarAutocompletado();
+    g_redraw = true;
+}
+
+void IDE::ActualizarAutocompletado() {
+    static const char* const api[] = {
+        "key", "keyPressed", "buttonPressed", "stick", "touch", "mouse", "finger",
+        "button", "random", "print", "object", "option", "property", "parameter",
+        "shared", "setShared", "changeScene", "config", "setConfig", "saveConfig",
+        "loadConfig", "silence", "isMuted", "info", "logInfo", "error", "debug",
+        "esDebug", "logQuantity", "logLine", "type", "name", "Position",
+        "SetPosition", "mover", "rotation", "setRotation", "rotate", "scaleObject",
+        "setScale", "scale", "visible", "setVisible", "animator", "pos3", "setPos3",
+        "color", "setColor", "energy", "setEnergy", "grupoVertices", "verticePos",
+        "setVerticePos", "setVerticeColor", "setVertices", "screen", "posPx",
+        "setPosPx", "getScreenPx", "setScreenPx", "setText", "show", "setOpacity",
+        "setFontScreenSize", "sound", "stopSound", "beep", "isPressed", "isDown",
+        "isColliding", "clamp", "isInside", "getScale", "getSafeArea", "fade",
+        "getUIBox", "screenOf", "setRail", "setRailNode", "setRailLookAt", "railOf",
+        "lensOf", "setLens", "cameraXZ", "target", "controllers", "controller"
+    };
+    autoCompleteItems.clear();
+    if (searchMode) {
+        autoCompleteVisible = false;
+        return;
+    }
+    int start = curCol;
+    const std::string& line = lineas[curLin];
+    while (start > 0 && IdeEsIdent(line[start - 1])) start--;
+    const std::string prefix = line.substr(start, curCol - start);
+    forceAutoComplete = forceAutoComplete && prefix.empty();
+    if (prefix.empty() && !forceAutoComplete) {
+        autoCompleteVisible = false;
+        return;
+    }
+    bool inBlock = (curLin < (int)bloqueAlInicio.size()) ? (bloqueAlInicio[curLin] != 0) : false;
+    std::vector<unsigned char> kinds;
+    LexLinea(line, &inBlock, &kinds);
+    if (curCol > 0 && (kinds[curCol - 1] == 1 || kinds[curCol - 1] == 2)) {
+        autoCompleteVisible = false;
+        return;
+    }
+    for (size_t i = 0; i < sizeof(api) / sizeof(api[0]); i++) {
+        const std::string candidate(api[i]);
+        if (candidate.compare(0, prefix.size(), prefix) != 0) continue;
+        if (candidate == prefix) continue;
+        autoCompleteItems.push_back(candidate);
+        if (autoCompleteItems.size() == 6) break;
+    }
+    autoCompleteVisible = !autoCompleteItems.empty();
+    if (autoCompleteSelection >= (int)autoCompleteItems.size()) autoCompleteSelection = 0;
+}
+
+bool IDE::AceptarAutocompletado() {
+    if (!autoCompleteVisible || autoCompleteItems.empty()) return false;
+    int start = curCol;
+    const std::string& line = lineas[curLin];
+    while (start > 0 && IdeEsIdent(line[start - 1])) start--;
+    selLin = curLin; selCol = start; haySel = start != curCol;
+    InsertarTexto(autoCompleteItems[autoCompleteSelection]);
+    forceAutoComplete = false;
+    autoCompleteVisible = false;
+    return true;
 }
 
 std::string IDE::TextoSeleccionado() const {
@@ -592,6 +807,7 @@ void IDE::InsertarChar(char c) {
     lineas[curLin].insert((size_t)curCol, 1, c);
     curCol++;
     RecalcularBloques();
+    ActualizarAutocompletado();
     AsegurarCursorVisible();
     g_redraw = true;
 }
@@ -616,6 +832,7 @@ void IDE::InsertarTexto(const std::string& t) {
     lineas[curLin] += cola;
     lastLineas = -1;
     RecalcularBloques();
+    ActualizarAutocompletado();
     AsegurarCursorVisible();
     g_redraw = true;
 }
@@ -651,6 +868,7 @@ void IDE::Backspace() {
         lastLineas = -1;
     }
     RecalcularBloques();
+    ActualizarAutocompletado();
     AsegurarCursorVisible();
     g_redraw = true;
 }
@@ -667,6 +885,7 @@ void IDE::DelForward() {
         lastLineas = -1;
     }
     RecalcularBloques();
+    ActualizarAutocompletado();
     g_redraw = true;
 }
 
@@ -707,6 +926,53 @@ void IDE::Pegar() {
 bool IDE::TeclaEditor(int tecla, bool repeticion) {
     (void)repeticion;
     bool shift = LShiftPressed;
+    if (searchMode) {
+        if (tecla == W3dK_ESCAPE) {
+            searchMode = 0;
+            IdeOcultarTecladoAndroid();
+            RecalcularScroll();
+            AsegurarCursorVisible();
+            g_redraw = true;
+            return true;
+        }
+        if (tecla == W3dK_BACKSPACE) {
+            std::string& query = (searchMode == 3) ? replaceQuery : searchQuery;
+            if (searchMode != 3 && searchQuerySelected) {
+                query.clear();
+                searchQuerySelected = false;
+            } else if (!query.empty()) query.erase(query.size() - 1);
+            g_redraw = true;
+            return true;
+        }
+        if (tecla == W3dK_RETURN || tecla == W3dK_KP_ENTER) {
+            if (searchMode == 1) {
+                if (!BuscarSiguiente()) Notificar("Find: no match", true);
+                searchMode = 0;
+                RecalcularScroll();
+                AsegurarCursorVisible();
+            } else if (searchMode == 2) {
+                searchMode = 3;
+                searchQuerySelected = false;
+            } else if (searchMode == 4) {
+                const std::string nombre = searchQuery;
+                searchMode = 0;
+                RecalcularScroll();
+                AsegurarCursorVisible();
+                IDEGuardarComoDesdeUI(this, nombre);
+                g_redraw = true;
+                return true;
+            } else {
+                ReemplazarCoincidencias();
+                searchMode = 0;
+                RecalcularScroll();
+                AsegurarCursorVisible();
+            }
+            g_redraw = true;
+            return true;
+        }
+        if (tecla >= 32 && tecla < 127) return true;
+        return true;
+    }
     if (LCtrlPressed) {
         switch (tecla) {
             case W3dK_C: Copiar(); return true;
@@ -714,7 +980,20 @@ bool IDE::TeclaEditor(int tecla, bool repeticion) {
             case W3dK_V: Pegar(); return true;
             case W3dK_A: SeleccionarTodo(); return true;
             case W3dK_Z: DeshacerTexto(); return true;             // undo DEL TEXTO, no el global
-            case W3dK_S: Guardar(); return true;                   // guarda el .lua, no el proyecto
+            case W3dK_Y: RehacerTexto(); return true;
+            case W3dK_F: Buscar(); return true;
+            case W3dK_H: BuscarReemplazar(); return true;
+            case W3dK_N: IDENuevoDesdeUI(this); return true;
+            case W3dK_O: IDEAbrirDesdeUI(this); return true;
+            case 32:
+                forceAutoComplete = true;
+                ActualizarAutocompletado();
+                g_redraw = true;
+                return true;
+            case W3dK_S:
+                if (shift || archivo.empty()) IniciarGuardarComo();
+                else Guardar();
+                return true;                                      // guarda el .lua, no el proyecto
             case W3dK_HOME: CursorA(0, 0, shift); return true;     // inicio del archivo
             case W3dK_END:
                 CursorA((int)lineas.size() - 1, (int)lineas.back().size(), shift);
@@ -723,20 +1002,38 @@ bool IDE::TeclaEditor(int tecla, bool repeticion) {
         return false; // otros Ctrl+... siguen su camino normal
     }
     switch (tecla) {
+        case W3dK_UP:
+            if (autoCompleteVisible) {
+                autoCompleteSelection = (autoCompleteSelection + (int)autoCompleteItems.size() - 1) %
+                                        (int)autoCompleteItems.size();
+                g_redraw = true;
+                return true;
+            }
+            MoverCursor(-1, 0, shift); return true;
+        case W3dK_DOWN:
+            if (autoCompleteVisible) {
+                autoCompleteSelection = (autoCompleteSelection + 1) % (int)autoCompleteItems.size();
+                g_redraw = true;
+                return true;
+            }
+            MoverCursor(+1, 0, shift); return true;
         case W3dK_LEFT:  MoverCursor(0, -1, shift); return true;
         case W3dK_RIGHT: MoverCursor(0, +1, shift); return true;
-        case W3dK_UP:    MoverCursor(-1, 0, shift); return true;
-        case W3dK_DOWN:  MoverCursor(+1, 0, shift); return true;
         case W3dK_HOME:  Home(shift); return true;
         case W3dK_END:   End(shift); return true;
         case W3dK_PGUP:  PaginaArribaAbajo(-1, shift); return true;
         case W3dK_PGDN:  PaginaArribaAbajo(+1, shift); return true;
         case W3dK_RETURN:
         case W3dK_KP_ENTER: Enter(); return true;
-        case W3dK_TAB:      TabKey(); return true;
+        case W3dK_TAB:
+            if (AceptarAutocompletado()) return true;
+            TabKey(); return true;
         case W3dK_BACKSPACE: Backspace(); return true;
         case W3dK_DELETE:    DelForward(); return true;
         case W3dK_ESCAPE:
+            if (autoCompleteVisible) {
+                autoCompleteVisible = false; forceAutoComplete = false; g_redraw = true; return true;
+            }
             if (haySel) { haySel = false; g_redraw = true; return true; }
             return false; // sin seleccion, el ESC sigue siendo global (pausa, etc.)
     }
@@ -751,7 +1048,17 @@ void IDE::TextoTipeado(const char* utf8) {
     if (!utf8) return;
     for (const char* p = utf8; *p; ++p) {
         unsigned char c = (unsigned char)*p;
-        if (c >= 32 && c < 127) InsertarChar((char)c);
+        if (searchMode) {
+            if (c >= 32 && c < 127) {
+                std::string& query = (searchMode == 3) ? replaceQuery : searchQuery;
+                if (searchMode != 3 && searchQuerySelected) {
+                    query.clear();
+                    searchQuerySelected = false;
+                }
+                if (query.size() < 128) query += (char)c;
+                g_redraw = true;
+            }
+        } else if (c >= 32 && c < 127) InsertarChar((char)c);
         // fuera de ASCII (acentos, multibyte) se ignora: la fuente es ASCII
     }
 }
@@ -776,8 +1083,32 @@ int IDE::GutterW() const {
 void IDE::ClickContenido(int mx, int my, bool shift) {
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
     int lx = mx - x, ly = my - y;
+    if (autoCompleteVisible && !autoCompleteItems.empty()) {
+        int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
+        int popupX = GutterW() + marginGS + curCol * LetterWidthGS + PosX;
+        int popupW = 0;
+        for (size_t i = 0; i < autoCompleteItems.size(); i++)
+            if ((int)autoCompleteItems[i].size() > popupW) popupW = (int)autoCompleteItems[i].size();
+        popupW = popupW * LetterWidthGS + marginGS * 2;
+        if (popupX + popupW > width) popupX = width - popupW;
+        if (popupX < GutterW()) popupX = GutterW();
+        int popupY = EditorTopOffset() + marginGS + curLin * lh + PosY + lh;
+        if (popupY + popupH > height) popupY = EditorTopOffset() + marginGS + curLin * lh + PosY - popupH;
+        if (popupY < EditorTopOffset()) popupY = EditorTopOffset();
+        if (lx >= popupX && lx < popupX + popupW && ly >= popupY && ly < popupY + popupH) {
+            int row = (ly - popupY - marginGS) / lh;
+            if (row >= 0 && row < (int)autoCompleteItems.size()) {
+                autoCompleteSelection = row;
+                AceptarAutocompletado();
+                return;
+            }
+        }
+    }
+#ifdef __ANDROID__
+    if (g_uiTapEnCurso) SDL_StartTextInput();
+#endif
     int textX0 = GutterW() + marginGS + PosX;
-    int textY0 = BarTopOffset() + marginGS + PosY;
+    int textY0 = EditorTopOffset() + marginGS + PosY;
     int lin = (ly - textY0) / lh;
     int col = (lx - textX0 + LetterWidthGS / 2) / (LetterWidthGS > 0 ? LetterWidthGS : 1);
     CursorA(lin, col, shift);
@@ -800,7 +1131,7 @@ void IDE::event_mouse_motion(int mx, int my) {
         const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
         int lx = mx - x, ly = my - y;
         int textX0 = GutterW() + marginGS + PosX;
-        int textY0 = BarTopOffset() + marginGS + PosY;
+        int textY0 = EditorTopOffset() + marginGS + PosY;
         int lin = (ly - textY0) / lh;
         int col = (lx - textX0 + LetterWidthGS / 2) / (LetterWidthGS > 0 ? LetterWidthGS : 1);
         CursorA(lin, col, true);
@@ -847,7 +1178,7 @@ bool IDE::event_finger_scroll(int px, int py, int dx, int dy) {
 void IDE::RecalcularScroll() {
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
     int n = (int)lineas.size();
-    ResizeScrollbar(width, height, lastMaxAncho, -(n * lh + marginGS * 2), BarTopOffset());
+    ResizeScrollbar(width, height, lastMaxAncho, -(n * lh + marginGS * 2), EditorTopOffset());
 }
 
 void IDE::Resize(int newW, int newH) {
@@ -858,7 +1189,7 @@ void IDE::Resize(int newW, int newH) {
 
 void IDE::AsegurarCursorVisible() {
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
-    int visH = height - BarTopOffset() - marginGS * 2;
+    int visH = height - EditorTopOffset() - marginGS * 2;
     int visW = width - GutterW() - marginGS * 2 - GlobalScale * 9; // colchon de la barra vertical
     int cy = curLin * lh;
     if (cy + PosY < 0) PosY = -cy;
@@ -869,6 +1200,11 @@ void IDE::AsegurarCursorVisible() {
     if (visW > LetterWidthGS && cx + PosX > visW - LetterWidthGS) PosX = visW - LetterWidthGS - cx;
     if (PosX > 0) PosX = 0;
     // el clamp contra MaxPosX/MaxPosY fino lo hace ResizeScrollbar en el Render
+}
+
+int IDE::EditorTopOffset() const {
+    const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
+    return BarTopOffset() + (searchMode ? lh + marginGS * 2 : 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -930,8 +1266,8 @@ void IDE::Render() {
     gfx::EnableArray(gfx::VertexArray);
     gfx::DisableArray(gfx::TexCoordArray);
 
-    const int top = BarTopOffset();
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
+    const int top = EditorTopOffset();
     const int LW = (LetterWidthGS > 0) ? LetterWidthGS : 6;
     const int n = (int)lineas.size();
     const int gutterW = GutterW();
@@ -1020,6 +1356,43 @@ void IDE::Render() {
             while (j < s.size() && tipos[j] == tipos[i]) j++;
             IdeTexto(textX0 + (int)i * LW, py, s.substr(i, j - i), IdeColorDeTipo(tipos[i]));
             i = j;
+        }
+    }
+
+    gfx::Scissor(x, glY, width, height);
+    if (searchMode) {
+        std::string status;
+        if (searchMode == 4)
+            status = "Save as: " + searchQuery + "  (Enter to choose location)";
+        else if (searchMode == 3)
+            status = "Replace '" + searchQuery + "' with: " + replaceQuery;
+        else
+            status = "Find: " + searchQuery;
+        if (searchMode == 2) status = "Find: " + searchQuery + "  (Enter for replacement)";
+        IdeTexto(marginGS, BarTopOffset() + marginGS, status,
+                 ListaColores[static_cast<int>(ColorID::blanco)]);
+    }
+    if (autoCompleteVisible && !autoCompleteItems.empty()) {
+        int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
+        int popupX = gutterW + marginGS + curCol * LW + PosX;
+        int popupW = 0;
+        for (size_t i = 0; i < autoCompleteItems.size(); i++)
+            if ((int)autoCompleteItems[i].size() > popupW) popupW = (int)autoCompleteItems[i].size();
+        popupW = popupW * LW + marginGS * 2;
+        if (popupX + popupW > width) popupX = width - popupW;
+        if (popupX < gutterW) popupX = gutterW;
+        int popupY = top + marginGS + curLin * lh + PosY + lh;
+        if (popupY + popupH > height) popupY = top + marginGS + curLin * lh + PosY - popupH;
+        if (popupY < top) popupY = top;
+        IdeQuad((float)popupX, (float)popupY, (float)(popupX + popupW),
+                (float)(popupY + popupH), ListaColores[static_cast<int>(ColorID::gris)]);
+        for (size_t i = 0; i < autoCompleteItems.size(); i++) {
+            int rowY = popupY + marginGS + (int)i * lh;
+            if ((int)i == autoCompleteSelection)
+                IdeQuad((float)popupX, (float)rowY, (float)(popupX + popupW),
+                        (float)(rowY + lh), kIdeSeleccion);
+            IdeTexto(popupX + marginGS, rowY,
+                     autoCompleteItems[i], ListaColores[static_cast<int>(ColorID::blanco)]);
         }
     }
 

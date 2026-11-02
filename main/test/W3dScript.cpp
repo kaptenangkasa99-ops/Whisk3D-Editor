@@ -1353,6 +1353,8 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         const std::string additivePath = w3dFileSystem::JoinPath(tempDir, baseName + "_additive.w3dui");
         const std::string sceneProjectDir = w3dFileSystem::JoinPath(tempDir, baseName + "_saved_scene");
         const std::string sceneProjectPath = w3dFileSystem::JoinPath(sceneProjectDir, "scene.w3dscene");
+        const std::string secondSceneProjectPath =
+            w3dFileSystem::JoinPath(sceneProjectDir, "second-scene.w3dscene");
         const std::string assetProjectDir = w3dFileSystem::JoinPath(tempDir, baseName + "_assets");
         const std::string meshAssetPath = w3dFileSystem::JoinPath(
             w3dFileSystem::JoinPath(assetProjectDir, "mallas"), "payload.w3dm");
@@ -1528,6 +1530,43 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             g_w3dDirProyecto != sourceProjectDir || g_proyIcono != sourceProjectIcon ||
             w3dPath != sourceProjectPath) {
             err = "scene-architecture-test: scene save included project data or changed project state";
+            return false;
+        }
+        SceneData* secondScene = W3dSceneCreateBlankRoot();
+        if (!secondScene) {
+            err = "scene-architecture-test: could not create the second scene fixture";
+            return false;
+        }
+        secondScene->SetNameCrudo(baseName + "_second_scene");
+        Mesh* secondSceneMesh = (Mesh*)NewMesh(MeshType(MeshType::cube), secondScene, false);
+        if (!secondSceneMesh) {
+            err = "scene-architecture-test: could not create the second scene mesh fixture";
+            return false;
+        }
+        secondSceneMesh->SetNameCrudo(baseName + "_second_mesh");
+        secondSceneMesh->w3dmArchivo = meshAssetPath;
+        bool secondSceneSaved = false;
+        {
+            struct TestProjectDirectory {
+                std::string original;
+                TestProjectDirectory(const std::string& directory)
+                    : original(g_w3dDirProyecto) { g_w3dDirProyecto = directory; }
+                ~TestProjectDirectory() { g_w3dDirProyecto = original; }
+            } projectDirectory(assetProjectDir);
+            secondSceneSaved = GuardarW3DEscena(secondSceneProjectPath, secondScene);
+        }
+        std::vector<unsigned char> secondSceneBytes;
+        if (secondSceneSaved)
+            secondSceneSaved = w3dFileSystem::ReadFileBytes(secondSceneProjectPath, secondSceneBytes);
+        const std::string secondSceneJson(secondSceneBytes.begin(), secondSceneBytes.end());
+        const bool sharedSceneReference =
+            secondSceneSaved &&
+            secondSceneJson.find("\"geometria\": \"mallas/payload.w3dm\"") != std::string::npos &&
+            !std::filesystem::exists(w3dFileSystem::JoinPath(sceneProjectDir, "mallas")) &&
+            std::filesystem::exists(meshAssetPath);
+        const bool removedSecondScene = W3dSceneRemoveRoot(secondScene);
+        if (!sharedSceneReference || !removedSecondScene) {
+            err = "scene-architecture-test: separate scene save copied or lost its shared mesh reference";
             return false;
         }
         const size_t rootsBeforeSceneLoad = SceneCollection->Childrens.size();
@@ -23698,9 +23737,34 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         bool undo1 = (ide->GetTexto() == "a");
         ide->DeshacerTexto();                            // pila vacia: no rompe
         bool undo2 = (ide->GetTexto() == "a");
-        printf("      [idetest] undo agrupado: tipeo=%s 1 undo=%s pila vacia=%s\n",
-               antes ? "OK" : "MAL", undo1 ? "OK" : "MAL", undo2 ? "OK" : "MAL");
-        if (!antes || !undo1 || !undo2) ok = false;
+        ide->RehacerTexto();
+        bool redo1 = (ide->GetTexto() == "abcd");
+        ide->DeshacerTexto();
+        bool redo2 = (ide->GetTexto() == "a");
+        printf("      [idetest] undo/redo agrupado: tipeo=%s undo=%s redo=%s undo tras redo=%s\n",
+               antes ? "OK" : "MAL", undo1 && undo2 ? "OK" : "MAL",
+               redo1 ? "OK" : "MAL", redo2 ? "OK" : "MAL");
+        if (!antes || !undo1 || !undo2 || !redo1 || !redo2) ok = false;
+
+        // 4b) Find/replace and API completion are available without rendering a viewport.
+        ide->SetTexto("foo foo");
+        ide->BuscarReemplazar();
+        ide->TextoTipeado("foo");
+        ide->TeclaEditor(W3dK_RETURN, false);
+        ide->TextoTipeado("bar");
+        ide->TeclaEditor(W3dK_RETURN, false);
+        bool replaceAll = (ide->GetTexto() == "bar bar");
+        ide->SetTexto("");
+        ide->TextoTipeado("keyP");
+        bool completion = ide->ComplecionVisible() &&
+                          !ide->autoCompleteItems.empty() &&
+                          ide->autoCompleteItems[0] == "keyPressed";
+        bool completionAccepted = ide->AceptarAutocompletado() &&
+                                  ide->GetTexto() == "keyPressed";
+        printf("      [idetest] find/replace=%s API completion=%s accept=%s\n",
+               replaceAll ? "OK" : "MAL", completion ? "OK" : "MAL",
+               completionAccepted ? "OK" : "MAL");
+        if (!replaceAll || !completion || !completionAccepted) ok = false;
 
         // 5) GUARDADO ATOMICO verificado contra el disco
         std::string rutaLua = W3dDebugFile("idetest.lua");
@@ -23752,8 +23816,12 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         // 7) BARRA por roles + el camino REAL del click: el selector abre y MARCA el abierto
         bool roles = BarRolBtn(ide->BarButtons, BRIDE_Script) &&
                      BarRolBtn(ide->BarButtons, BRIDE_Guardar) &&
-                     BarRolBtn(ide->BarButtons, BRIDE_Refresh);
-        printf("      [idetest] barra por roles (Script/Save/Refresh): %s\n", roles ? "OK" : "FALTAN");
+                     BarRolBtn(ide->BarButtons, BRIDE_Refresh) &&
+                     BarRolBtn(ide->BarButtons, BRIDE_File) &&
+                     BarRolBtn(ide->BarButtons, BRIDE_Edit) &&
+                     BarRolBtn(ide->BarButtons, BRIDE_Help);
+        printf("      [idetest] barra por roles (Script/Save/Refresh/File/Edit/Help): %s\n",
+               roles ? "OK" : "FALTAN");
         if (!roles) ok = false;
         if (roles) {
             ide->archivo = rutaLua;
@@ -31330,6 +31398,7 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             const unsigned crcA = C::Crc(A, 25), crcB = C::Crc(B, 25);
             std::error_code ec;
             const std::string dir = pref + "_crc";
+            const std::string shareDir = dir + "/shared";
             std::filesystem::remove_all(dir, ec);
             std::filesystem::create_directories(dir, ec);
             const std::string ra = dir + "/uno.png", rb = dir + "/dos.png";
@@ -31378,11 +31447,75 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
                 if (n1 != n3) ok = false;
                 esc2.LimpiarTemporales();
             }
+            {
+                std::filesystem::create_directories(shareDir, ec);
+                W3dContenedorEscritor esc3;
+                esc3.Iniciar(shareDir + "/shared.w3d", NULL);
+                std::string bytesA, bytesB;
+                bool bytesOk = esc3.AgregarBytes("mallas/cubo.w3dm", "mesh bytes", true, &bytesA) &&
+                               esc3.AgregarBytes("mallas/cubo-copia.w3dm", "mesh bytes", true, &bytesB);
+
+                const std::string tmpA = shareDir + "/mesh-a.tmp";
+                const std::string tmpB = shareDir + "/mesh-b.tmp";
+                { FILE* f = fopen(tmpA.c_str(), "wb"); if (f) { fputs("generated mesh bytes", f); fclose(f); } }
+                { FILE* f = fopen(tmpB.c_str(), "wb"); if (f) { fputs("generated mesh bytes", f); fclose(f); } }
+                std::string tempA, tempB;
+                bool tempOk = esc3.AgregarTemporal("mallas/generated-a.w3dm", tmpA, true, &tempA) &&
+                              esc3.AgregarTemporal("mallas/generated-b.w3dm", tmpB, true, &tempB);
+                if (tempB != "mallas/generated-a.w3dm") remove(tmpB.c_str());
+                const bool sharedOk = bytesOk && bytesA == "mallas/cubo.w3dm" &&
+                                      bytesB == bytesA && !esc3.Tiene("mallas/cubo-copia.w3dm") &&
+                                      tempOk && tempA == "mallas/generated-a.w3dm" &&
+                                      tempB == tempA && !esc3.Tiene("mallas/generated-b.w3dm");
+                printf("      [perdida] F9 recursos generados identicos (.w3dm/bytes y temporales): %s\n",
+                       sharedOk ? "UNA referencia compartida OK" : "duplicados o fallo <-- MAL");
+                if (!sharedOk) ok = false;
+                esc3.LimpiarTemporales();
+            }
+            {
+                extern void ReiniciarEscena();
+                extern bool GuardarW3D(const std::string&);
+                ReiniciarEscena();
+                PlayAnimation = false;
+                Mesh* a = (Mesh*)NewMesh(MeshType(MeshType::cube), NULL, false);
+                Mesh* b = (Mesh*)NewMesh(MeshType(MeshType::cube), NULL, false);
+                a->name = "CuboA"; a->GenerarRender();
+                b->name = "CuboB"; b->GenerarRender();
+                DeseleccionarTodo(); ObjActivo = NULL;
+                const std::string proyecto = shareDir + "/mesh-share.w3d";
+                bool saved = GuardarW3D(proyecto);
+                std::vector<unsigned char> jsonDatos;
+                if (saved) saved = w3dFileSystem::ReadFileBytes(proyecto, jsonDatos);
+                std::string json(jsonDatos.begin(), jsonDatos.end());
+                std::string recurso;
+                int recursosMalla = 0;
+                std::error_code scanError;
+                std::filesystem::directory_iterator archivo(
+                    shareDir + "/mallas", scanError), fin;
+                for (; !scanError && archivo != fin; archivo.increment(scanError)) {
+                    if (archivo->is_regular_file(scanError) &&
+                        archivo->path().extension() == ".w3dm") {
+                        recurso = "mallas/" + archivo->path().filename().string();
+                        recursosMalla++;
+                    }
+                }
+                size_t referencias = 0, pos = 0;
+                while (!recurso.empty() && (pos = json.find(recurso, pos)) != std::string::npos) {
+                    referencias++;
+                    pos += recurso.size();
+                }
+                const bool projectOk = saved && recursosMalla == 1 && referencias == 2;
+                printf("      [perdida] F10 guardado de dos mallas con nombres distintos: %d recurso(s), %d referencias -> %s\n",
+                       recursosMalla, (int)referencias,
+                       projectOk ? "UNA geometria compartida OK" : "duplicacion o referencia rota <-- MAL");
+                if (!projectOk) ok = false;
+                ReiniciarEscena();
+            }
             if (ok) std::filesystem::remove_all(dir, ec);
         }
 
         if (!ok) { err = "perdida: sigue habiendo un camino de perdida SILENCIOSA (ver arriba)"; return false; }
-        printf("      [perdida] OK (los 8 caminos cerrados: o no se pierde, o se avisa; nunca en silencio)\n");
+        printf("      [perdida] OK (sin perdida silenciosa y con referencias compartidas para contenido identico)\n");
         return true;
     }
 

@@ -71,6 +71,8 @@
 #include "WhiskUI/theme/colores.h"     // ColorID
 #include "WhiskUI/widgets/PopupMenu.h"
 #include "w3dlog.h"         // las notificaciones tambien van al log
+#include <SDL.h>
+#include <SDL_misc.h>
 #include <filesystem>
 #ifdef __ANDROID__
     #include <SDL_system.h>
@@ -2307,9 +2309,184 @@ static bool LayoutClickBarra2D(Editor2D* ed, int mx, int my) {
 
 // ===== barra del IDE (editor de texto lua): selector de script + Save + Refresh =====
 static PopupMenu* gMenuIDEScript = NULL;
+static PopupMenu* gMenuIDEFile = NULL;
+static PopupMenu* gMenuIDEEdit = NULL;
+static PopupMenu* gMenuIDEHelp = NULL;
 static IDE* gIDEMenuDe = NULL;                    // el IDE cuyo selector esta abierto
 static std::vector<std::string> gIDEScriptRutas;  // rutas del menu (id = indice)
 static std::string gIDECambiarA;                  // destino pendiente del popup de confirmar
+static int gIDEConfirmarAccion = 0;
+static std::string gIDEGuardarComoNombre;
+
+enum {
+    IDE_FILE_NEW = 1, IDE_FILE_SAVE, IDE_FILE_SAVE_AS, IDE_FILE_OPEN, IDE_FILE_BASIC,
+    IDE_EDIT_COPY = 20, IDE_EDIT_CUT, IDE_EDIT_UNDO, IDE_EDIT_REDO, IDE_EDIT_FIND,
+    IDE_EDIT_REPLACE, IDE_EDIT_SELECT_ALL, IDE_EDIT_UNSELECT_ALL,
+    IDE_HELP_DOCS = 40, IDE_HELP_API
+};
+
+static void IDENuevoDocumento() {
+    if (!gIDEMenuDe) return;
+    gIDEMenuDe->archivo.clear();
+    gIDEMenuDe->SetTexto("");
+    gIDEMenuDe->SincronizarBarra();
+}
+
+static void IDECargarCodigoBasico() {
+    if (!gIDEMenuDe) return;
+    gIDEMenuDe->SetTexto(
+        "function start()\n"
+        "end\n"
+        "\n"
+        "function update(dt)\n"
+        "end\n");
+}
+
+static void IDEConfirmarCambioDocumento() {
+    if (!gIDEMenuDe) return;
+    if (gIDEConfirmarAccion == IDE_FILE_OPEN && !gIDECambiarA.empty())
+        gIDEMenuDe->AbrirArchivo(gIDECambiarA);
+    else if (gIDEConfirmarAccion == IDE_FILE_NEW)
+        IDENuevoDocumento();
+    else if (gIDEConfirmarAccion == IDE_FILE_BASIC)
+        IDECargarCodigoBasico();
+    gIDECambiarA.clear();
+    gIDEConfirmarAccion = 0;
+}
+
+static void IDEPrepararCambio(int accion, const std::string& ruta = std::string()) {
+    if (!gIDEMenuDe) return;
+    if (!gIDEMenuDe->sucio) {
+        gIDEConfirmarAccion = accion;
+        gIDECambiarA = ruta;
+        IDEConfirmarCambioDocumento();
+        return;
+    }
+    gIDEConfirmarAccion = accion;
+    gIDECambiarA = ruta;
+    if (!confirmarPopup) confirmarPopup = new ConfirmarPopup();
+    confirmarPopup->Abrir("Discard unsaved script changes?",
+                          IDEConfirmarCambioDocumento);
+}
+
+static void IDEArchivoAbierto(const std::string& ruta) {
+    IDEPrepararCambio(IDE_FILE_OPEN, ruta);
+}
+
+static void IDEGuardarComoElegido(const std::string& elegido) {
+    if (!gIDEMenuDe) return;
+    std::string nombre = gIDEGuardarComoNombre;
+    if (nombre.empty()) nombre = "untitled.lua";
+    const std::string destino = W3dRutaDeSalida(elegido, nombre, ".lua");
+    gIDEMenuDe->GuardarComo(destino);
+    gIDEGuardarComoNombre.clear();
+}
+
+static void IDEAbrirGuardarComo(const std::string& nombre) {
+    if (!gIDEMenuDe) return;
+    gIDEGuardarComoNombre = nombre;
+    SDL_StopTextInput();
+    AbrirFileBrowser("Save Lua script as", "Save", ".lua",
+                     IDEGuardarComoElegido, true);
+}
+
+void IDEGuardarComoDesdeUI(IDE* ide, const std::string& nombre) {
+    gIDEMenuDe = ide;
+    IDEAbrirGuardarComo(nombre);
+}
+
+void IDEAbrirDesdeUI(IDE* ide) {
+    gIDEMenuDe = ide;
+    SDL_StopTextInput();
+    AbrirFileBrowser("Open Lua script", "Open", ".lua", IDEArchivoAbierto);
+}
+
+void IDENuevoDesdeUI(IDE* ide) {
+    gIDEMenuDe = ide;
+    IDEPrepararCambio(IDE_FILE_NEW);
+}
+
+static void LayoutAccionIDEFile(int id) {
+    IDE* ide = gIDEMenuDe;
+    if (!ide) return;
+    switch (id) {
+        case IDE_FILE_NEW: IDENuevoDesdeUI(ide); break;
+        case IDE_FILE_SAVE:
+            if (ide->archivo.empty()) ide->IniciarGuardarComo();
+            else ide->Guardar();
+            break;
+        case IDE_FILE_SAVE_AS: ide->IniciarGuardarComo(); break;
+        case IDE_FILE_OPEN:
+            IDEAbrirDesdeUI(ide);
+            break;
+        case IDE_FILE_BASIC: IDEPrepararCambio(IDE_FILE_BASIC); break;
+    }
+}
+
+static void LayoutAccionIDEEdit(int id) {
+    IDE* ide = gIDEMenuDe;
+    if (!ide) return;
+    switch (id) {
+        case IDE_EDIT_COPY: ide->Copiar(); break;
+        case IDE_EDIT_CUT: ide->Cortar(); break;
+        case IDE_EDIT_UNDO: ide->DeshacerTexto(); break;
+        case IDE_EDIT_REDO: ide->RehacerTexto(); break;
+        case IDE_EDIT_FIND: ide->Buscar(); break;
+        case IDE_EDIT_REPLACE: ide->BuscarReemplazar(); break;
+        case IDE_EDIT_SELECT_ALL: ide->SeleccionarTodo(); break;
+        case IDE_EDIT_UNSELECT_ALL: ide->DeseleccionarTodo(); break;
+    }
+}
+
+static void LayoutAccionIDEHelp(int id) {
+    const char* url = id == IDE_HELP_API
+        ? "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/api.md"
+        : "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/guide.md";
+    if (SDL_OpenURL(url) < 0) Notificar(std::string("Could not open documentation: ") + SDL_GetError(), true);
+}
+
+static void LayoutAbrirMenuIDE(PopupMenu** menu, IDE* ide, int x, int y,
+                               void (*accion)(int), const char* const* etiquetas,
+                               const int* ids, const char* const* atajos, int n) {
+    if (!ide) return;
+    if (!*menu) {
+        *menu = new PopupMenu();
+        (*menu)->action = accion;
+    }
+    gIDEMenuDe = ide;
+    (*menu)->Limpiar();
+    for (int i = 0; i < n; i++) {
+        MenuItem* item = (*menu)->Agregar(T(etiquetas[i]), ids[i]);
+        if (atajos && atajos[i]) item->atajo = atajos[i];
+    }
+    if (MenuAbierto && MenuAbierto != *menu) MenuAbierto->Cerrar();
+    (*menu)->Abrir(x, y, MenuPantallaW, MenuPantallaH);
+    MenuAbierto = *menu;
+}
+
+static void LayoutAbrirMenuIDEFile(IDE* ide, int x, int y) {
+    static const char* const labels[] = { "New", "Save", "Save As", "Open", "Load Basic Code" };
+    static const int ids[] = { IDE_FILE_NEW, IDE_FILE_SAVE, IDE_FILE_SAVE_AS, IDE_FILE_OPEN, IDE_FILE_BASIC };
+    static const char* const shortcuts[] = { "Ctrl+N", "Ctrl+S", "Ctrl+Shift+S", "Ctrl+O", NULL };
+    LayoutAbrirMenuIDE(&gMenuIDEFile, ide, x, y, LayoutAccionIDEFile, labels, ids, shortcuts, 5);
+}
+
+static void LayoutAbrirMenuIDEEdit(IDE* ide, int x, int y) {
+    static const char* const labels[] = { "Copy", "Cut", "Undo", "Redo", "Find", "Find Replace",
+                                          "Select All", "Unselect All" };
+    static const int ids[] = { IDE_EDIT_COPY, IDE_EDIT_CUT, IDE_EDIT_UNDO, IDE_EDIT_REDO,
+                               IDE_EDIT_FIND, IDE_EDIT_REPLACE, IDE_EDIT_SELECT_ALL, IDE_EDIT_UNSELECT_ALL };
+    static const char* const shortcuts[] = { "Ctrl+C", "Ctrl+X", "Ctrl+Z", "Ctrl+Y", "Ctrl+F",
+                                             "Ctrl+H", "Ctrl+A", NULL };
+    LayoutAbrirMenuIDE(&gMenuIDEEdit, ide, x, y, LayoutAccionIDEEdit, labels, ids, shortcuts, 8);
+}
+
+static void LayoutAbrirMenuIDEHelp(IDE* ide, int x, int y) {
+    static const char* const labels[] = { "Documentation", "All API" };
+    static const int ids[] = { IDE_HELP_DOCS, IDE_HELP_API };
+    static const char* const shortcuts[] = { NULL, NULL };
+    LayoutAbrirMenuIDE(&gMenuIDEHelp, ide, x, y, LayoutAccionIDEHelp, labels, ids, shortcuts, 2);
+}
 
 // "Si" del popup: descartar los cambios y abrir el otro script
 static void IDEConfirmarCambio() {
@@ -2371,8 +2548,14 @@ bool LayoutClickBarraIDE(IDE* ide, int mx, int my) {
         switch (b->rol) {
             case BRIDE_Script:  LayoutAbrirMenuIDEScript(ide, bx, by); return true;
             case BRIDE_NewClass: ide->NuevaClaseLua(); return true;
-            case BRIDE_Guardar: ide->Guardar(); return true;
+            case BRIDE_Guardar:
+                if (ide->archivo.empty()) ide->IniciarGuardarComo();
+                else ide->Guardar();
+                return true;
             case BRIDE_Refresh: ide->Refresh(); return true;
+            case BRIDE_File: LayoutAbrirMenuIDEFile(ide, bx, by); return true;
+            case BRIDE_Edit: LayoutAbrirMenuIDEEdit(ide, bx, by); return true;
+            case BRIDE_Help: LayoutAbrirMenuIDEHelp(ide, bx, by); return true;
         }
     }
     return false;

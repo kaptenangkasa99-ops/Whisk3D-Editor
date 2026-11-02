@@ -440,10 +440,9 @@ static void EscribirCurva(std::string& s, const AnimProperty& ap) {
 //  suelta, los mesh parts, los vertex groups y los UV groups. Todo eso o se perdia o viajaba
 //  parchado en el JSON con claves geometricas.
 //
-//  El nombre sale del nombre del OBJETO, sin contador: dos guardados sin cambios dan el mismo
-//  archivo (round-trip byte a byte). Si dos objetos derivan el mismo slug, el segundo lleva "-2".
-//  dedup=false a proposito: dos mallas con geometria IDENTICA son dos entradas, porque el nombre
-//  de entrada es lo que el JSON referencia y aliasarlas haria que renombrar una pisara a la otra.
+//  El archivo guarda un nombre generico: el nombre visible de cada objeto vive
+//  en el JSON de escena. Asi, renombrar o reutilizar la misma malla en otra escena
+//  no cambia los bytes del recurso y el contenedor puede compartirlo.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 //  SIDECARS DEL MODELO: <base>.pvs.json (y <base>.grupos.json)
@@ -571,7 +570,11 @@ static std::string EscribirMallaW3dm(CtxGuardar* cx, Mesh* m, const std::string&
 
     std::string txt;
     std::vector<std::string> avisos;
-    if (!W3dMallaEscribir(m, txt, &avisos)) {
+    const std::string nombreMalla = m->name;
+    m->name = "malla";
+    const bool escrita = W3dMallaEscribir(m, txt, &avisos);
+    m->name = nombreMalla;
+    if (!escrita) {
         w3dLogfE("GuardarW3D: no pude escribir la geometria de '%s'", nombreObj.c_str());
         for (size_t i = 0; i < avisos.size(); i++)
             w3dLogfE("[W3D] '%s': %s", nombreObj.c_str(), avisos[i].c_str());
@@ -592,11 +595,15 @@ static std::string EscribirMallaW3dm(CtxGuardar* cx, Mesh* m, const std::string&
     // memoria: se aparcan como temporales y el escritor las copia al destino una
     // por una, manteniendo intacto el guardado atomico del proyecto.
     std::string tmpMalla = cx->esc->RutaTemporal("m");
+    std::string referencia;
     if (!w3dFileSystem::WriteTextFile(tmpMalla, txt) ||
-        !cx->esc->AgregarTemporal(nom, tmpMalla, false)) {
+        !cx->esc->AgregarTemporal(nom, tmpMalla, true, &referencia)) {
         remove(tmpMalla.c_str());
         w3dLogfE("GuardarW3D: no pude escribir %s como temporal", nom.c_str());
         cx->error = true;
+    } else {
+        if (referencia != nom) remove(tmpMalla.c_str());
+        nom = referencia;
     }
     return nom;
 }
@@ -803,7 +810,10 @@ static void EscribirAnimsVertex(std::string& s, Mesh* m, int ind, CtxGuardar* cx
                         char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
                         nom = "animaciones/" + base + sf + ".bin";
                     }
-                    if (cx->esc->AgregarBytes(nom, std::string(blob.begin(), blob.end()))) {
+                    std::string referencia;
+                    if (cx->esc->AgregarBytes(
+                            nom, std::string(blob.begin(), blob.end()), true, &referencia)) {
+                        nom = referencia;
                         s += ", \"buffers\": "; JEsc(s, nom);
                         cx->animationPaths.push_back(std::make_pair(a, nom));
                     } else cx->error = true;
@@ -1539,7 +1549,6 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
                 char sf[16]; snprintf(sf, sizeof(sf), "-%d", k);
                 nom = "escenas/" + W3dSlugEntrada(visible) + sf + ".w3dui";
             }
-            u->archivoW3dui = nom;
             if (!legacy || legacy->cargada) {
                 // se escribe a un temporal EN LA CARPETA DEL DESTINO y de ahi entra al zip
                 // (UI2DGuardar solo sabe escribir a un path). El temporal se borra siempre.
@@ -1548,10 +1557,14 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
                 gQuien = "escena \"" + o->name + "\"";
                 bool okUi = UI2DGuardar(u, tmpUi, std::string());
                 gQuien = quienAntes;
-                if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi)) {
+                std::string referencia;
+                if (!okUi || !cx->esc->AgregarTemporal(nom, tmpUi, true, &referencia)) {
                     remove(tmpUi.c_str());
                     w3dLogfE("GuardarW3D: no pude escribir la escena UI %s", nom.c_str());
                     cx->error = true;
+                } else {
+                    if (referencia != nom) remove(tmpUi.c_str());
+                    nom = referencia;
                 }
             } else {
                 // El placeholder no contiene el arbol. Copiar el .w3dui guardado tal cual
@@ -1569,16 +1582,19 @@ static void EscribirObjeto(std::string& s, Object* o, int ind, CtxGuardar* cx, b
                 }
                 if (!leida && !rutaUi.empty())
                     leida = w3dFileSystem::ReadFileBytes(rutaUi, uiGuardada);
+                std::string referencia;
                 bool okUi = leida && !uiGuardada.empty() &&
-                    cx->esc->AgregarBytes(nom,
-                        std::string(uiGuardada.begin(), uiGuardada.end()), false);
+                    cx->esc->AgregarBytes(
+                        nom, std::string(uiGuardada.begin(), uiGuardada.end()), true,
+                        &referencia);
                 if (!okUi) {
                     w3dLogfE("GuardarW3D: no pude preservar la escena UI descargada %s",
                              uiOrigen.c_str());
                     cx->error = true;
-                }
+                } else nom = referencia;
             }
         }
+        u->archivoW3dui = nom;
         JSang(s, ind + 1); s += "\"tipo\": \"ui\",\n";
         JSang(s, ind + 1); s += "\"archivo\": "; JEsc(s, nom);
     }
