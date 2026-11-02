@@ -2322,6 +2322,7 @@ enum {
     IDE_FILE_NEW = 1, IDE_FILE_SAVE, IDE_FILE_SAVE_AS, IDE_FILE_OPEN, IDE_FILE_BASIC,
     IDE_EDIT_COPY = 20, IDE_EDIT_CUT, IDE_EDIT_UNDO, IDE_EDIT_REDO, IDE_EDIT_FIND,
     IDE_EDIT_REPLACE, IDE_EDIT_SELECT_ALL, IDE_EDIT_UNSELECT_ALL,
+    IDE_EDIT_FORMAT,
     IDE_HELP_DOCS = 40, IDE_HELP_API
 };
 
@@ -2435,6 +2436,7 @@ static void LayoutAccionIDEEdit(int id) {
         case IDE_EDIT_REPLACE: ide->BuscarReemplazar(); break;
         case IDE_EDIT_SELECT_ALL: ide->SeleccionarTodo(); break;
         case IDE_EDIT_UNSELECT_ALL: ide->DeseleccionarTodo(); break;
+        case IDE_EDIT_FORMAT: ide->FormatearLua(); break;
     }
 }
 
@@ -2473,12 +2475,13 @@ static void LayoutAbrirMenuIDEFile(IDE* ide, int x, int y) {
 
 static void LayoutAbrirMenuIDEEdit(IDE* ide, int x, int y) {
     static const char* const labels[] = { "Copy", "Cut", "Undo", "Redo", "Find", "Find Replace",
-                                          "Select All", "Unselect All" };
+                                          "Select All", "Unselect All", "Format" };
     static const int ids[] = { IDE_EDIT_COPY, IDE_EDIT_CUT, IDE_EDIT_UNDO, IDE_EDIT_REDO,
-                               IDE_EDIT_FIND, IDE_EDIT_REPLACE, IDE_EDIT_SELECT_ALL, IDE_EDIT_UNSELECT_ALL };
+                               IDE_EDIT_FIND, IDE_EDIT_REPLACE, IDE_EDIT_SELECT_ALL, IDE_EDIT_UNSELECT_ALL,
+                               IDE_EDIT_FORMAT };
     static const char* const shortcuts[] = { "Ctrl+C", "Ctrl+X", "Ctrl+Z", "Ctrl+Y", "Ctrl+F",
-                                             "Ctrl+H", "Ctrl+A", NULL };
-    LayoutAbrirMenuIDE(&gMenuIDEEdit, ide, x, y, LayoutAccionIDEEdit, labels, ids, shortcuts, 8);
+                                             "Ctrl+H", "Ctrl+A", NULL, NULL };
+    LayoutAbrirMenuIDE(&gMenuIDEEdit, ide, x, y, LayoutAccionIDEEdit, labels, ids, shortcuts, 9);
 }
 
 static void LayoutAbrirMenuIDEHelp(IDE* ide, int x, int y) {

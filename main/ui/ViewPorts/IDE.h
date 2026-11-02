@@ -117,6 +117,8 @@ class IDE : public ViewportBase, public WithBorder, public Scrollable {
         void BuscarReemplazar();
         bool ComplecionVisible() const { return autoCompleteVisible; }
         bool AceptarAutocompletado();
+        std::string DetalleAutocompletado(size_t index) const;
+        bool FormatearLua();
         // una tecla del editor (W3dTecla). true = consumida (el atajo global NO corre).
         bool TeclaEditor(int tecla, bool repeticion);
         // texto tipeado (UTF-8 de SDL_TEXTINPUT): inserta los imprimibles ASCII (32..126);

@@ -15,6 +15,7 @@
 #include "W3dLang.h"                     // T() para los textos de la barra
 #include "variables.h"                   // w3dPath (el proyecto abierto)
 #include <stdio.h>                       // guardado atomico: fopen/fwrite/rename
+#include <string.h>
 #include <filesystem>
 #ifdef __ANDROID__
 #include <SDL.h>
@@ -240,6 +241,238 @@ void IDE::RecalcularBloques() {
         bloqueAlInicio[i] = b ? 1 : 0;
         LexLinea(lineas[i], &b, NULL); // solo avanza el estado
     }
+}
+
+struct IdeApiInfo {
+    const char* nombre;
+    const char* firma;
+    const char* descripcion;
+};
+
+static const IdeApiInfo kIdeApi[] = {
+    { "key", "key(name)", "True while a keyboard key is held." },
+    { "keyPressed", "keyPressed(name)", "True on the frame a key is pressed." },
+    { "buttonPressed", "buttonPressed(name)", "True on the frame a gamepad button is pressed." },
+    { "stick", "stick(name)", "Returns the x and y values of a controller stick." },
+    { "touch", "touch()", "Returns primary touch x, y, and active state." },
+    { "mouse", "mouse()", "Returns mouse x, y, and active state." },
+    { "finger", "finger(index)", "Returns touch x, y, and active state for a 1-based finger." },
+    { "button", "button(name)", "Returns the current gamepad button state." },
+    { "random", "random([min], [max])", "Returns a pseudo-random number in the requested range." },
+    { "print", "print(...)", "Writes values to the engine log." },
+    { "object", "object(name)", "Finds a script reference or scene object by name." },
+    { "option", "option(name)", "Reads an option field from this script instance." },
+    { "property", "property(name)", "Reads a property exposed by this script." },
+    { "parameter", "parameter(name [, default])", "Reads a numeric property with an optional fallback." },
+    { "shared", "shared(key)", "Reads a value shared between scripts." },
+    { "setShared", "setShared(key, value)", "Stores a value shared between scripts." },
+    { "changeScene", "changeScene(name [, restart])", "Switches to another project scene." },
+    { "changeSceneAsync", "changeSceneAsync(name [, activateWhenReady [, callback]])", "Loads a scene asynchronously." },
+    { "sceneAsyncReadyLoad", "sceneAsyncReadyLoad(name)", "Checks whether a scene has finished loading." },
+    { "config", "config(key [, default])", "Reads a persistent setting or its fallback." },
+    { "setConfig", "setConfig(key [, value])", "Stores a persistent setting." },
+    { "saveConfig", "saveConfig()", "Writes persistent settings to disk." },
+    { "loadConfig", "loadConfig()", "Loads persistent settings from disk." },
+    { "silence", "silence(enabled)", "Enables or disables global audio mute." },
+    { "isMuted", "isMuted()", "Returns whether global audio is muted." },
+    { "info", "info(...)", "Writes an info-level log entry." },
+    { "logInfo", "logInfo(...)", "Writes a warning-level log entry." },
+    { "error", "error(...)", "Writes an error-level log entry." },
+    { "debug", "debug(...)", "Writes a debug-level log entry." },
+    { "esDebug", "esDebug()", "Returns whether debug logging is enabled." },
+    { "logQuantity", "logQuantity(...)", "Writes a quantity/value log entry." },
+    { "logLine", "logLine(...)", "Writes a line to the engine log." },
+    { "type", "type(obj)", "Returns an object's type." },
+    { "name", "name(obj)", "Returns an object's name." },
+    { "Position", "Position(obj)", "Returns an object's world position as x, y, z." },
+    { "SetPosition", "SetPosition(obj, x, y, z)", "Sets an object's absolute position." },
+    { "mover", "mover(obj, dx, dy, dz)", "Moves an object by a relative offset." },
+    { "rotation", "rotation(obj)", "Returns an object's rotation in degrees." },
+    { "setRotation", "setRotation(obj, x, y, z)", "Sets an object's absolute rotation in degrees." },
+    { "rotate", "rotate(obj, x, y, z)", "Rotates an object by relative angles in degrees." },
+    { "rotateTowards", "rotateTowards(obj, dx, dz [, factor])", "Turns an object toward an X/Z direction." },
+    { "scaleObject", "scaleObject(obj)", "Returns an object's scale as x, y, z." },
+    { "setScale", "setScale(obj, sx, sy, sz)", "Sets an object's absolute scale." },
+    { "scale", "scale(obj, factor)", "Applies a relative uniform scale." },
+    { "visible", "visible(obj)", "Returns whether an object is visible." },
+    { "setVisible", "setVisible(obj, visible)", "Sets an object's visibility." },
+    { "animator", "animator(obj, animationId [, startFrame])", "Plays or queues a vertex animation." },
+    { "pos3", "pos3(obj)", "Returns an object's position as a 3D vector." },
+    { "setPos3", "setPos3(obj, x, y, z)", "Sets an object's position using x, y, z." },
+    { "color", "color(light)", "Returns a light's normalized RGB tint." },
+    { "setColor", "setColor(light, r, g, b)", "Sets a light's RGB tint." },
+    { "energy", "energy(light)", "Returns a light's brightness." },
+    { "setEnergy", "setEnergy(light, value)", "Sets a light's normalized brightness." },
+    { "grupoVertices", "grupoVertices(obj, groupName)", "Accesses a named mesh vertex group." },
+    { "verticePos", "verticePos(obj, groupName, index)", "Reads a vertex position from a group." },
+    { "setVerticePos", "setVerticePos(obj, groupName, index, x, y, z)", "Sets a vertex position in a group." },
+    { "setVerticeColor", "setVerticeColor(obj, groupName, index, r, g, b, a)", "Sets a vertex RGBA color." },
+    { "setVertices", "setVertices(obj, groupName, data)", "Replaces vertex data for a mesh group." },
+    { "screen", "screen()", "Returns the game UI canvas dimensions." },
+    { "posPx", "posPx(obj)", "Returns a 2D object's position in canvas pixels." },
+    { "setPosPx", "setPosPx(obj, x, y)", "Sets a 2D object's position in canvas pixels." },
+    { "getScreenPx", "getScreenPx(obj)", "Returns a 2D object's size in pixels." },
+    { "setScreenPx", "setScreenPx(obj, w, h)", "Sets a 2D object's size in pixels." },
+    { "setText", "setText(obj, text)", "Sets the text of a UI text or button object." },
+    { "setTextura", "setTextura(obj, path)", "Sets an image object's texture path." },
+    { "show", "show(obj [, visible])", "Shows an object, or sets its visibility." },
+    { "setOpacity", "setOpacity(obj, alpha)", "Sets UI opacity from 0 to 1." },
+    { "setFontScreenSize", "setFontScreenSize(obj, size)", "Sets a text object's screen-size scale." },
+    { "sound", "sound(path [, volume [, pitch [, loop]]])", "Plays a sound and returns its voice handle." },
+    { "stopSound", "stopSound(handle [, fadeSec])", "Stops a sound handle, optionally fading it out." },
+    { "beep", "beep(frequency, ms [, volume])", "Plays a synthesized tone." },
+    { "isPressed", "isPressed(obj)", "True for one frame when a UI object is pressed." },
+    { "isDown", "isDown(obj)", "True while a UI object is held." },
+    { "isColliding", "isColliding(a, b)", "Tests overlap between two UI/game regions." },
+    { "clamp", "clamp(value, min, max)", "Clamps a number to a range." },
+    { "isInside", "isInside(area [, x [, y]])", "Tests whether a point is inside an area." },
+    { "getScale", "getScale(obj)", "Returns a UI object's visual scale." },
+    { "getSafeArea", "getSafeArea()", "Returns the screen safe-area rectangle." },
+    { "fade", "fade(obj, ...)", "Applies a UI fade or transition." },
+    { "getUIBox", "getUIBox(obj)", "Returns the rendered UI box as x, y, width, height." },
+    { "screenOf", "screenOf(obj)", "Returns screen-space data for a UI object." },
+    { "setRail", "setRail(obj, railName)", "Assigns a camera rail to an object." },
+    { "setRailNode", "setRailNode(obj, nodeIndex)", "Moves an object to a rail node." },
+    { "setRailLookAt", "setRailLookAt(obj, target)", "Sets the look-at target for a rail." },
+    { "railOf", "railOf(obj)", "Returns an object's assigned rail." },
+    { "lensOf", "lensOf(obj)", "Returns an object's camera lens data." },
+    { "setLens", "setLens(obj, lensData)", "Sets an object's camera lens data." },
+    { "cameraXZ", "cameraXZ(obj)", "Returns camera X/Z orientation data." },
+    { "target", "target(obj)", "Returns camera or tracking target data." },
+    { "controllers", "controllers()", "Returns the number of connected controllers." },
+    { "controller", "controller(index)", "Returns the name and type of a 1-based controller." },
+    { "instantiate", "instantiate(name [, x, y, z])", "Clones a project prefab at an optional position." },
+    { "setSector", "setSector(obj [, sector])", "Selects a 1-based PVS sector; zero shows the full mesh." },
+    { "visibilityCell", "visibilityCell(obj)", "Returns the active visibility cell." },
+    { "setVisibilityAnchor", "setVisibilityAnchor(zone, object)", "Sets the object used to select a visibility cell." },
+    { "setVisibilityCurve", "setVisibilityCurve(zone, t [, rail])", "Sets visibility progress along a curve." },
+    { "setCollection", "setCollection(collection, mode)", "Enables or disables static collection batching." },
+    { "emitter", "emitter(obj [, count])", "Emits a particle burst immediately." },
+    { "quot", "quot()", "Exits the current game." },
+    { "velocity", "velocity(obj [, vx, vy [, vz]])", "Reads or sets an object's physics velocity." },
+    { "accelerate", "accelerate(obj, factor [, cap])", "Scales velocity and returns the resulting speed." },
+    { "collisionBox", "collisionBox(obj [, width, height [, depth]])", "Reads or sets an object's collision box." },
+    { "bounce", "bounce(obj, other [, ...])", "Bounces an object against overlapping objects." },
+    { "bounceWithin", "bounceWithin(obj, area [, sides])", "Bounces within an area or numeric bounds." },
+    { "bounceInside", "bounceInside(obj, area)", "Bounces inside all sides of an area." }
+};
+
+static const IdeApiInfo* IdeBuscarApi(const std::string& nombre) {
+    for (size_t i = 0; i < sizeof(kIdeApi) / sizeof(kIdeApi[0]); i++)
+        if (nombre == kIdeApi[i].nombre) return &kIdeApi[i];
+    return NULL;
+}
+
+static size_t IdeEspaciosIniciales(const std::string& linea) {
+    size_t i = 0;
+    while (i < linea.size() && (linea[i] == ' ' || linea[i] == '\t')) i++;
+    return i;
+}
+
+static size_t IdeAbrirCorcheteLargo(const std::string& linea, size_t inicio,
+                                    int* nivelesIgual) {
+    if (inicio >= linea.size() || linea[inicio] != '[') return std::string::npos;
+    size_t i = inicio + 1;
+    while (i < linea.size() && linea[i] == '=') i++;
+    if (i >= linea.size() || linea[i] != '[') return std::string::npos;
+    *nivelesIgual = (int)(i - inicio - 1);
+    return i + 1;
+}
+
+static size_t IdeCerrarCorcheteLargo(const std::string& linea, size_t inicio,
+                                     int nivelesIgual) {
+    std::string cierre = "]";
+    cierre.append((size_t)nivelesIgual, '=');
+    cierre += "]";
+    const size_t fin = linea.find(cierre, inicio);
+    return fin == std::string::npos ? fin : fin + cierre.size();
+}
+
+static void IdeIndentPalabras(const std::string& linea, int* comentarioEq,
+                              int* cadenaEq, std::vector<std::string>* palabras,
+                              bool* protegerLinea) {
+    palabras->clear();
+    *protegerLinea = *comentarioEq >= 0 || *cadenaEq >= 0;
+    size_t i = 0;
+    while (i < linea.size()) {
+        if (*comentarioEq >= 0 || *cadenaEq >= 0) {
+            const bool comentario = *comentarioEq >= 0;
+            const int nivelesIgual = comentario ? *comentarioEq : *cadenaEq;
+            const size_t fin = IdeCerrarCorcheteLargo(linea, i, nivelesIgual);
+            if (fin == std::string::npos) return;
+            i = fin;
+            if (comentario) *comentarioEq = -1;
+            else *cadenaEq = -1;
+            if (*protegerLinea) return;
+            continue;
+        }
+        if (linea[i] == '-' && i + 1 < linea.size() && linea[i + 1] == '-') {
+            int nivelesIgual = 0;
+            const size_t inicioComentario = IdeAbrirCorcheteLargo(linea, i + 2, &nivelesIgual);
+            if (inicioComentario != std::string::npos) {
+                *comentarioEq = nivelesIgual;
+                i = inicioComentario;
+                continue;
+            }
+            return;
+        }
+        if (linea[i] == '"' || linea[i] == '\'') {
+            const char delimiter = linea[i++];
+            while (i < linea.size()) {
+                if (linea[i] == '\\') { i += (i + 1 < linea.size()) ? 2 : 1; continue; }
+                if (linea[i++] == delimiter) break;
+            }
+            continue;
+        }
+        int nivelesIgual = 0;
+        const size_t inicioCadena = IdeAbrirCorcheteLargo(linea, i, &nivelesIgual);
+        if (inicioCadena != std::string::npos) {
+            *cadenaEq = nivelesIgual;
+            i = inicioCadena;
+            continue;
+        }
+        if ((linea[i] >= 'a' && linea[i] <= 'z') ||
+            (linea[i] >= 'A' && linea[i] <= 'Z') || linea[i] == '_') {
+            const size_t inicio = i++;
+            while (i < linea.size() && IdeEsIdent(linea[i])) i++;
+            const std::string palabra = linea.substr(inicio, i - inicio);
+            if (IdeEsKeyword(palabra)) palabras->push_back(palabra);
+            continue;
+        }
+        i++;
+    }
+}
+
+static std::string IdeDetalleApi(const std::string& nombre) {
+    const IdeApiInfo* info = IdeBuscarApi(nombre);
+    if (!info) return std::string();
+    std::string firma(info->firma);
+    const size_t inicioArgs = firma.find('(');
+    const size_t nombreLen = strlen(info->nombre);
+    if (inicioArgs != std::string::npos && inicioArgs >= nombreLen)
+        firma.erase(0, nombreLen);
+    return firma + " - " + info->descripcion;
+}
+
+static std::string IdeTruncar(const std::string& texto, size_t maximo) {
+    if (texto.size() <= maximo) return texto;
+    if (maximo <= 3) return texto.substr(0, maximo);
+    return texto.substr(0, maximo - 3) + "...";
+}
+
+static int IdeAnchoComplecion(const IDE* ide, int letraW, int gutterW) {
+    if (!ide || letraW <= 0) return 0;
+    int maxChars = 0;
+    for (size_t i = 0; i < ide->autoCompleteItems.size(); i++) {
+        const std::string& nombre = ide->autoCompleteItems[i];
+        const int chars = (int)(nombre.size() + 2 + IdeDetalleApi(nombre).size());
+        if (chars > maxChars) maxChars = chars;
+    }
+    const int available = ide->width - gutterW - 2 * marginGS;
+    const int maxAvailableChars = available > 0 ? available / letraW : 1;
+    if (maxChars > maxAvailableChars) maxChars = maxAvailableChars;
+    if (maxChars < 1) maxChars = 1;
+    return maxChars * letraW + 2 * marginGS;
 }
 
 // ---------------------------------------------------------------------------
@@ -696,22 +929,6 @@ void IDE::ReemplazarCoincidencias() {
 }
 
 void IDE::ActualizarAutocompletado() {
-    static const char* const api[] = {
-        "key", "keyPressed", "buttonPressed", "stick", "touch", "mouse", "finger",
-        "button", "random", "print", "object", "option", "property", "parameter",
-        "shared", "setShared", "changeScene", "config", "setConfig", "saveConfig",
-        "loadConfig", "silence", "isMuted", "info", "logInfo", "error", "debug",
-        "esDebug", "logQuantity", "logLine", "type", "name", "Position",
-        "SetPosition", "mover", "rotation", "setRotation", "rotate", "scaleObject",
-        "setScale", "scale", "visible", "setVisible", "animator", "pos3", "setPos3",
-        "color", "setColor", "energy", "setEnergy", "grupoVertices", "verticePos",
-        "setVerticePos", "setVerticeColor", "setVertices", "screen", "posPx",
-        "setPosPx", "getScreenPx", "setScreenPx", "setText", "show", "setOpacity",
-        "setFontScreenSize", "sound", "stopSound", "beep", "isPressed", "isDown",
-        "isColliding", "clamp", "isInside", "getScale", "getSafeArea", "fade",
-        "getUIBox", "screenOf", "setRail", "setRailNode", "setRailLookAt", "railOf",
-        "lensOf", "setLens", "cameraXZ", "target", "controllers", "controller"
-    };
     autoCompleteItems.clear();
     if (searchMode) {
         autoCompleteVisible = false;
@@ -733,8 +950,8 @@ void IDE::ActualizarAutocompletado() {
         autoCompleteVisible = false;
         return;
     }
-    for (size_t i = 0; i < sizeof(api) / sizeof(api[0]); i++) {
-        const std::string candidate(api[i]);
+    for (size_t i = 0; i < sizeof(kIdeApi) / sizeof(kIdeApi[0]); i++) {
+        const std::string candidate(kIdeApi[i].nombre);
         if (candidate.compare(0, prefix.size(), prefix) != 0) continue;
         if (candidate == prefix) continue;
         autoCompleteItems.push_back(candidate);
@@ -742,6 +959,11 @@ void IDE::ActualizarAutocompletado() {
     }
     autoCompleteVisible = !autoCompleteItems.empty();
     if (autoCompleteSelection >= (int)autoCompleteItems.size()) autoCompleteSelection = 0;
+}
+
+std::string IDE::DetalleAutocompletado(size_t index) const {
+    if (index >= autoCompleteItems.size()) return std::string();
+    return IdeDetalleApi(autoCompleteItems[index]);
 }
 
 bool IDE::AceptarAutocompletado() {
@@ -753,6 +975,82 @@ bool IDE::AceptarAutocompletado() {
     InsertarTexto(autoCompleteItems[autoCompleteSelection]);
     forceAutoComplete = false;
     autoCompleteVisible = false;
+    return true;
+}
+
+bool IDE::FormatearLua() {
+    std::vector<std::string> formateadas;
+    formateadas.reserve(lineas.size());
+    int comentarioEq = -1;
+    int cadenaEq = -1;
+    int profundidad = 0;
+    for (size_t i = 0; i < lineas.size(); i++) {
+        const std::string& original = lineas[i];
+        const size_t inicio = IdeEspaciosIniciales(original);
+        const std::string cuerpo = original.substr(inicio);
+        if (cuerpo.empty()) {
+            formateadas.push_back(std::string());
+            continue;
+        }
+        std::vector<std::string> palabras;
+        bool protegerLinea = false;
+        IdeIndentPalabras(cuerpo, &comentarioEq, &cadenaEq, &palabras, &protegerLinea);
+        if (protegerLinea) {
+            formateadas.push_back(original);
+            continue;
+        }
+        bool primeraCierra = !palabras.empty() &&
+            (palabras[0] == "end" || palabras[0] == "until" ||
+             palabras[0] == "else" || palabras[0] == "elseif");
+        if (primeraCierra && profundidad > 0) profundidad--;
+        std::string linea((size_t)profundidad * 4, ' ');
+        linea += cuerpo;
+        formateadas.push_back(linea);
+        for (size_t p = 0; p < palabras.size(); p++) {
+            const std::string& palabra = palabras[p];
+            if (p == 0 && primeraCierra) {
+                if (palabra == "else") profundidad++;
+                continue;
+            }
+            if (palabra == "function" || palabra == "then" ||
+                palabra == "do" || palabra == "repeat") {
+                profundidad++;
+            } else if (palabra == "end" || palabra == "until") {
+                if (profundidad > 0) profundidad--;
+            } else if (palabra == "else" || palabra == "elseif") {
+                if (profundidad > 0) profundidad--;
+                if (palabra == "else") profundidad++;
+            }
+        }
+    }
+    if (formateadas == lineas) {
+        Notificar("Lua is already formatted", false);
+        return false;
+    }
+    Mutar(0);
+    const int oldCurIndent = (int)IdeEspaciosIniciales(lineas[curLin]);
+    const int oldSelIndent = haySel ? (int)IdeEspaciosIniciales(lineas[selLin]) : 0;
+    lineas.swap(formateadas);
+    const int newCurIndent = (int)IdeEspaciosIniciales(lineas[curLin]);
+    if (curCol >= oldCurIndent) curCol += newCurIndent - oldCurIndent;
+    else curCol = (curCol < newCurIndent) ? curCol : newCurIndent;
+    if (haySel) {
+        const int newSelIndent = (int)IdeEspaciosIniciales(lineas[selLin]);
+        if (selCol >= oldSelIndent) selCol += newSelIndent - oldSelIndent;
+        else selCol = (selCol < newSelIndent) ? selCol : newSelIndent;
+    }
+    if (curCol < 0) curCol = 0;
+    if (curCol > (int)lineas[curLin].size()) curCol = (int)lineas[curLin].size();
+    if (haySel) {
+        if (selCol < 0) selCol = 0;
+        if (selCol > (int)lineas[selLin].size()) selCol = (int)lineas[selLin].size();
+    }
+    lastLineas = -1;
+    RecalcularBloques();
+    ActualizarAutocompletado();
+    AsegurarCursorVisible();
+    Notificar("Lua indentation formatted", false);
+    g_redraw = true;
     return true;
 }
 
@@ -1086,10 +1384,8 @@ void IDE::ClickContenido(int mx, int my, bool shift) {
     if (autoCompleteVisible && !autoCompleteItems.empty()) {
         int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
         int popupX = GutterW() + marginGS + curCol * LetterWidthGS + PosX;
-        int popupW = 0;
-        for (size_t i = 0; i < autoCompleteItems.size(); i++)
-            if ((int)autoCompleteItems[i].size() > popupW) popupW = (int)autoCompleteItems[i].size();
-        popupW = popupW * LetterWidthGS + marginGS * 2;
+        const int letterW = LetterWidthGS > 0 ? LetterWidthGS : 6;
+        const int popupW = IdeAnchoComplecion(this, letterW, GutterW());
         if (popupX + popupW > width) popupX = width - popupW;
         if (popupX < GutterW()) popupX = GutterW();
         int popupY = EditorTopOffset() + marginGS + curLin * lh + PosY + lh;
@@ -1375,10 +1671,7 @@ void IDE::Render() {
     if (autoCompleteVisible && !autoCompleteItems.empty()) {
         int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
         int popupX = gutterW + marginGS + curCol * LW + PosX;
-        int popupW = 0;
-        for (size_t i = 0; i < autoCompleteItems.size(); i++)
-            if ((int)autoCompleteItems[i].size() > popupW) popupW = (int)autoCompleteItems[i].size();
-        popupW = popupW * LW + marginGS * 2;
+        const int popupW = IdeAnchoComplecion(this, LW, gutterW);
         if (popupX + popupW > width) popupX = width - popupW;
         if (popupX < gutterW) popupX = gutterW;
         int popupY = top + marginGS + curLin * lh + PosY + lh;
@@ -1391,8 +1684,17 @@ void IDE::Render() {
             if ((int)i == autoCompleteSelection)
                 IdeQuad((float)popupX, (float)rowY, (float)(popupX + popupW),
                         (float)(rowY + lh), kIdeSeleccion);
+            const int maxChars = popupW > 2 * marginGS
+                ? (popupW - 2 * marginGS) / LW : 1;
+            const std::string& nombre = autoCompleteItems[i];
+            const size_t detalleChars = maxChars > (int)nombre.size() + 2
+                ? (size_t)(maxChars - (int)nombre.size() - 2) : 0;
+            const std::string detalle = IdeTruncar(DetalleAutocompletado(i), detalleChars);
             IdeTexto(popupX + marginGS, rowY,
-                     autoCompleteItems[i], ListaColores[static_cast<int>(ColorID::blanco)]);
+                     nombre, ListaColores[static_cast<int>(ColorID::blanco)]);
+            if (!detalle.empty())
+                IdeTexto(popupX + marginGS + ((int)nombre.size() + 2) * LW, rowY,
+                         detalle, ListaColores[static_cast<int>(ColorID::grisUI)]);
         }
     }
 

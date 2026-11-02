@@ -4,9 +4,13 @@ This document lists the Lua functions that are currently registered by the runti
 The source of truth is the C++ registrations in:
 
 - `libs/Whisk3DCore/script/W3dScript.cpp`
+- `libs/Whisk3DCore/physics/W3dFisica.cpp`
+- `main/W3dEscena.cpp`
 - `main/script/BindsJuego.cpp`
 
 The engine calls `start()` and `update(dt)` on attached scripts, but those are lifecycle hooks, not global API functions.
+In each signature below, parameters shown without square brackets are required;
+parameters inside `[...]` are optional.
 
 ## 1) Input and basic helpers
 
@@ -92,17 +96,29 @@ Pass `true` for `restart` to reinitialize it.
 The legacy name `cambiarEscena(name [, restart])` remains available for
 compatibility with existing scripts.
 
+### `changeSceneAsync(name [, activateWhenReady [, callback]])`
+Starts preparing a scene asynchronously. Returns `true` when the request is
+queued.
+- `name`: destination scene name.
+- `activateWhenReady`: optional boolean to activate it as soon as it is ready.
+- `callback`: optional callback called as `callback(name, progress, status)`;
+  progress is between 0 and 1, and status is a string.
+
+### `sceneAsyncReadyLoad(name)`
+Returns whether the named scene has completed asynchronous loading.
+- `name`: scene name to check.
+
 ## 3) Persistent config and script state
 
-### `config("key", default)`
+### `config("key" [, default])`
 Reads a persisted config value.
 - `key`: config key string.
-- `default`: fallback value returned when the key is missing.
+- `default`: optional fallback value returned when the key is missing.
 
-### `setConfig("key", value)`
+### `setConfig("key" [, value])`
 Writes a config value.
 - `key`: config key string.
-- `value`: value to store.
+- `value`: optional value to store; omitted values are stored as an empty string.
 
 ### `saveConfig()`
 Saves the current config values to disk.
@@ -175,7 +191,8 @@ Returns the object scale.
 Sets the absolute scale.
 
 ### `scale(obj, factor)`
-Applies a relative uniform scaling factor.
+Applies a relative uniform scaling factor. With no object argument, the game
+layer returns the responsive UI scale factor instead.
 
 ### `visible(obj)`
 Returns whether the object is visible.
@@ -187,6 +204,18 @@ Sets the visibility flag.
 Requests a vertex-animation clip on a mesh.
 - `animationId`: numeric animation identifier.
 - `startFrame`: optional frame that switches to the requested animation immediately. Without it, the requested animation is queued after the current clip.
+
+### `rotateTowards(obj, dx, dz [, factor])`
+Smoothly rotates an object toward a direction on the X/Z plane.
+- `obj`: object to rotate.
+- `dx`, `dz`: direction components.
+- `factor`: optional interpolation factor; defaults to `0.2`.
+
+### `instantiate(name [, x, y, z])`
+Clones a prefab from the project's library and returns the new object, or `nil`
+if the prefab is unavailable.
+- `name`: prefab name.
+- `x`, `y`, `z`: optional initial position in engine coordinates; supply all three.
 
 ### `pos3(obj)`
 Returns the object position as a 3-vector-like value.
@@ -251,6 +280,11 @@ Sets a 2D object size in pixels.
 Sets the text contents of a 2D text or button object.
 - `text`: string.
 
+### `setTextura(obj, path)`
+Sets the texture path of an image UI object.
+- `obj`: image object.
+- `path`: project-relative or absolute texture path.
+
 ### `show(obj)` / `show(obj, visible)`
 Shows or hides a 2D object.
 
@@ -275,7 +309,10 @@ Stops a sound by handle.
 - `fadeSec`: optional fade-out time.
 
 ### `beep(frequency, ms, volume)`
-Plays a synthesized beep/tone.
+Plays a synthesized tone.
+- `frequency`: tone frequency in Hz.
+- `ms`: duration in milliseconds.
+- `volume`: optional volume from 0 to 1.
 
 ### `isPressed(obj)`
 Returns `true` for one frame when a new touch or click begins inside the object's UI box.
@@ -290,8 +327,11 @@ Returns whether two UI/game regions or objects overlap/collide.
 ### `clamp(value, min, max)`
 Clamps a value into a range.
 
-### `isInside(x, y, area)`
-Checks whether a point lies inside a target area.
+### `isInside(area [, x [, y]])`
+Checks whether a point lies inside a target UI area.
+- `area`: target UI object.
+- `x`: optional point x-coordinate in canvas pixels; `nil` skips the x-axis test.
+- `y`: optional point y-coordinate; `nil` skips the y-axis test.
 
 ### `getScale(obj)`
 Returns the current visual scale for a UI object.
@@ -342,7 +382,93 @@ Returns the connected controller list.
 ### `controller(index)`
 Returns the controller object/state for the given index.
 
-## 9) Notes and compatibility
+### `setSector(obj, sector)`
+Selects the active 1-based visibility/PVS sector for an object. Sector `0`
+shows the full mesh.
+- `obj`: object with a culling/PVS modifier.
+- `sector`: sector index, or `0` for the whole mesh.
+
+### `visibilityCell(obj)`
+Returns the active visibility cell for an object, or `nil` if it is not part of
+a visibility system.
+- `obj`: object participating in visibility culling.
+
+### `setVisibilityAnchor(zone, obj)`
+Sets the object whose position selects the active cell in a visibility zone.
+- `zone`: visibility zone.
+- `obj`: anchor object.
+
+### `setVisibilityCurve(zone, t [, rail])`
+Updates a curve-driven visibility zone.
+- `zone`: visibility zone.
+- `t`: fractional position along the curve.
+- `rail`: optional curve object or curve name.
+
+### `setCollection(collection, mode)`
+Enables or disables static batching for a collection.
+- `collection`: collection object.
+- `mode`: `"static"` to enable batching or `"off"` to disable it.
+
+### `emitter(obj [, count])`
+Emits a particle burst immediately.
+- `obj`: particle emitter object.
+- `count`: optional burst count; defaults to `1`.
+
+### `quot()`
+Requests that the game exit.
+
+## 9) Physics helpers
+
+These APIs update simple engine-managed velocities and collisions. In builds
+without physics support they remain registered as safe no-op stubs.
+
+### `velocity(obj)`
+Returns the object's velocity as `vx, vy, vz`.
+- `obj`: object with a physics body.
+
+### `velocity(obj, vx, vy [, vz])`
+Sets velocity; the physics step moves the object each frame.
+- `obj`: object to move.
+- `vx`, `vy`: required velocity components.
+- `vz`: optional third component; defaults to zero.
+
+### `accelerate(obj, factor [, cap])`
+Multiplies the object's current velocity and returns its resulting speed.
+- `obj`: object with a physics body.
+- `factor`: velocity multiplier.
+- `cap`: optional maximum speed; zero or omitted means no cap.
+
+### `collisionBox(obj)`
+Returns the active collision box size as `width, height, depth`.
+- `obj`: object to query.
+
+### `collisionBox(obj, width, height [, depth])`
+Sets the collision box size.
+- `obj`: object to configure.
+- `width`, `height`: required dimensions.
+- `depth`: optional depth; defaults to zero.
+
+### `bounce(obj, other [, ...])`
+Separates the first object from overlapping objects and reflects its velocity.
+Returns `true` if a collision caused a bounce. Each `other` may be an object or
+a table of objects.
+- `obj`: moving object with velocity.
+- `other`: one or more objects or object tables.
+
+### `bounceWithin(obj, area [, sides])`
+Keeps the object inside an area's bounds, bouncing only against the named sides.
+Alternatively, pass numeric bounds as
+`bounceWithin(obj, x0, y0, x1, y1 [, z0, z1])`; `nil` bounds remain open.
+- `obj`: moving object with velocity.
+- `area`: area object, or numeric bounds.
+- `sides`: optional side names; omitted means all sides.
+
+### `bounceInside(obj, area)`
+Keeps the object inside all sides of an area's bounds.
+- `obj`: moving object with velocity.
+- `area`: boundary object.
+
+## 10) Notes and compatibility
 
 - The runtime intentionally registers English names in the current code (`key`, `keyPressed`, `object`, `property`, `setShared`, `screen`, `isColliding`, `clamp`, `getUIBox`, and so on).
 - Legacy Spanish names are still accepted in a compatibility path when the engine calls old script aliases, but the primary API is English-based.

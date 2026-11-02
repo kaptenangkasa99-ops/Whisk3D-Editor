@@ -23754,17 +23754,72 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
         ide->TextoTipeado("bar");
         ide->TeclaEditor(W3dK_RETURN, false);
         bool replaceAll = (ide->GetTexto() == "bar bar");
+        const std::string luaSinFormato =
+            "function start()\n"
+            "print(\"end\") -- end\n"
+            "if true then\n"
+            "print(\"ok\")\n"
+            "else\n"
+            "print(\"no\")\n"
+            "end\n"
+            "local literal = [[\n"
+            "  keep this indentation\n"
+            "]]\n"
+            "end\n";
+        const std::string luaFormateado =
+            "function start()\n"
+            "    print(\"end\") -- end\n"
+            "    if true then\n"
+            "        print(\"ok\")\n"
+            "    else\n"
+            "        print(\"no\")\n"
+            "    end\n"
+            "    local literal = [[\n"
+            "  keep this indentation\n"
+            "]]\n"
+            "end\n";
+        ide->SetTexto(luaSinFormato);
+        const bool formatted = ide->FormatearLua() && ide->GetTexto() == luaFormateado;
+        const bool formatStable = !ide->FormatearLua() && ide->GetTexto() == luaFormateado;
+        ide->DeshacerTexto();
+        const bool formatUndo = ide->GetTexto() == luaSinFormato;
         ide->SetTexto("");
         ide->TextoTipeado("keyP");
         bool completion = ide->ComplecionVisible() &&
                           !ide->autoCompleteItems.empty() &&
                           ide->autoCompleteItems[0] == "keyPressed";
+        const std::string completionDetail = ide->DetalleAutocompletado(0);
+        bool completionDetails = completionDetail.find("(name)") != std::string::npos &&
+                                 completionDetail.find("frame") != std::string::npos;
         bool completionAccepted = ide->AceptarAutocompletado() &&
                                   ide->GetTexto() == "keyPressed";
-        printf("      [idetest] find/replace=%s API completion=%s accept=%s\n",
-               replaceAll ? "OK" : "MAL", completion ? "OK" : "MAL",
-               completionAccepted ? "OK" : "MAL");
-        if (!replaceAll || !completion || !completionAccepted) ok = false;
+        ide->SetTexto("");
+        ide->TextoTipeado("rotateT");
+        const std::string rotateDetail = ide->DetalleAutocompletado(0);
+        ide->SetTexto("");
+        ide->TextoTipeado("isIns");
+        const std::string insideDetail = ide->DetalleAutocompletado(0);
+        ide->SetTexto("");
+        ide->TextoTipeado("changeSceneA");
+        const std::string asyncSceneDetail = ide->DetalleAutocompletado(0);
+        const bool rotateSignature =
+            rotateDetail.find("(obj, dx, dz [, factor])") != std::string::npos;
+        const bool insideSignature =
+            insideDetail.find("(area [, x [, y]])") != std::string::npos;
+        const bool asyncSceneSignature =
+            asyncSceneDetail.find("(name [, activateWhenReady [, callback]])") !=
+            std::string::npos;
+        printf("      [idetest] find/replace=%s Format=%s stable=%s undo=%s API completion=%s details=%s accept=%s signatures=%s/%s/%s\n",
+               replaceAll ? "OK" : "MAL", formatted ? "OK" : "MAL",
+               formatStable ? "OK" : "MAL", formatUndo ? "OK" : "MAL",
+               completion ? "OK" : "MAL", completionDetails ? "OK" : "MAL",
+               completionAccepted ? "OK" : "MAL",
+               rotateSignature ? "OK" : "MAL",
+               insideSignature ? "OK" : "MAL",
+               asyncSceneSignature ? "OK" : "MAL");
+        if (!replaceAll || !formatted || !formatStable || !formatUndo ||
+            !completion || !completionDetails || !completionAccepted ||
+            !rotateSignature || !insideSignature || !asyncSceneSignature) ok = false;
 
         // 5) GUARDADO ATOMICO verificado contra el disco
         std::string rutaLua = W3dDebugFile("idetest.lua");
@@ -23813,14 +23868,12 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             if (!kw || !num || !com || !str || !abre || !cierra) ok = false;
         }
 
-        // 7) BARRA por roles + el camino REAL del click: el selector abre y MARCA el abierto
+        // 7) BARRA por roles + los menus File/Edit del camino real de click
         bool roles = BarRolBtn(ide->BarButtons, BRIDE_Script) &&
-                     BarRolBtn(ide->BarButtons, BRIDE_Guardar) &&
-                     BarRolBtn(ide->BarButtons, BRIDE_Refresh) &&
                      BarRolBtn(ide->BarButtons, BRIDE_File) &&
                      BarRolBtn(ide->BarButtons, BRIDE_Edit) &&
                      BarRolBtn(ide->BarButtons, BRIDE_Help);
-        printf("      [idetest] barra por roles (Script/Save/Refresh/File/Edit/Help): %s\n",
+        printf("      [idetest] barra por roles (Script/File/Edit/Help): %s\n",
                roles ? "OK" : "FALTAN");
         if (!roles) ok = false;
         if (roles) {
@@ -23828,17 +23881,30 @@ bool W3dRunCommand(const std::string& linea, std::string& err) {
             ide->SetTexto("-- save button\nprint('saved')");
             ide->SincronizarBarra();
             ide->ActualizarBarra();
-            Button* bSave = BarRolBtn(ide->BarButtons, BRIDE_Guardar);
-            bool clickSave = bSave && LayoutClickBarraIDE(ide, bSave->sx + bSave->width / 2,
-                                                          bSave->sy + bSave->height / 2);
+            Button* bFile = BarRolBtn(ide->BarButtons, BRIDE_File);
+            bool clickFile = bFile && LayoutClickBarraIDE(ide, bFile->sx + bFile->width / 2,
+                                                           bFile->sy + bFile->height / 2);
+            bool saveAction = false;
+            bool formatMenuItem = false;
+            if (clickFile && MenuAbierto) {
+                for (size_t i = 0; i < MenuAbierto->items.size(); i++)
+                    if (MenuAbierto->items[i]->text == "Save")
+                        MenuAbierto->Ejecutar(MenuAbierto->items[i]->id);
+            }
             bool saveRead = false;
             std::string saveText = w3dFileSystem::ReadTextFile(rutaLua, &saveRead);
-            bool saveButton = clickSave && saveRead && saveText == ide->GetTexto() && !ide->sucio;
-            printf("      [idetest] click Save: dispatch=%d relectura=%d limpio=%d -> %s\n",
-                   clickSave ? 1 : 0, saveRead ? 1 : 0, ide->sucio ? 0 : 1,
-                   saveButton ? "OK" : "MAL");
-            if (!saveButton) ok = false;
+            saveAction = clickFile && saveRead && saveText == ide->GetTexto() && !ide->sucio;
+            Button* bEdit = BarRolBtn(ide->BarButtons, BRIDE_Edit);
+            bool clickEdit = bEdit && LayoutClickBarraIDE(ide, bEdit->sx + bEdit->width / 2,
+                                                           bEdit->sy + bEdit->height / 2);
+            if (clickEdit && MenuAbierto)
+                for (size_t i = 0; i < MenuAbierto->items.size(); i++)
+                    if (MenuAbierto->items[i]->text == "Format") formatMenuItem = true;
+            printf("      [idetest] click File/Save=%s Edit/Format=%s\n",
+                   saveAction ? "OK" : "MAL", formatMenuItem ? "OK" : "MAL");
+            if (!saveAction || !formatMenuItem) ok = false;
             remove(rutaLua.c_str());
+            if (MenuAbierto) MenuAbierto->Cerrar();
         }
         if (hayProyecto && !rutas.empty()) {
             // el titulo del selector lleva '*' con cambios sin guardar
