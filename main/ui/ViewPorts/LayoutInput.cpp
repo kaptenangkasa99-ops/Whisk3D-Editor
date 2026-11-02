@@ -291,7 +291,6 @@ void LayoutMostrarBienvenida() {
     if (!gMenuBienvenida) {
         gMenuBienvenida = new PopupMenu();
         gMenuBienvenida->titulo = "Welcome to Whisk3D";
-        gMenuBienvenida->closeOnMouseLeave = false;
         gMenuBienvenida->Agregar("New Project", 0, (int)IconType::mas)->accion = BienvenidaNuevo;
         gMenuBienvenida->Agregar("Open Project", 1, (int)IconType::carpeta)->accion = BienvenidaAbrir;
     }
@@ -4314,7 +4313,8 @@ bool LayoutMotionUI(int mx, int my) {
             return true;
         }
         if (MenuAbierto == gMenuBienvenida) {
-            MenuAbierto->MouseMove(mx, my);
+            if (MenuAbierto->Contains(mx, my))
+                MenuAbierto->MouseMove(mx, my);
             return true;
         }
         // el cursor esta SOBRE el desplegable abierto (su lista o cualquier submenu abierto)? Entonces el movimiento
