@@ -6,6 +6,8 @@ These starter projects are shared by the editor across platforms:
 - `audio/` — audio usage example.
 - `controls/` — keyboard and virtual-control example.
 - `platformer/` — small platformer with keyboard and multi-touch controls.
+- `fps/` — first-person arena shooter with keyboard, gamepad, and touch controls,
+  enemy pursuit, pooled projectiles, physics collisions, muzzle light, and particle trails.
 
 Keep this directory as the canonical source. Platform packaging may copy these
 files into platform-specific application assets, but those copies should be

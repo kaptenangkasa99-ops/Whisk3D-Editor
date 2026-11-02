@@ -25,7 +25,7 @@ developer's work branch.
 
 Inicializa los submódulos que faltan, configura y compila en **Release**. Los submódulos ya inicializados se conservan en su rama/commit actual, incluidos los cambios locales. El ejecutable queda en `platform\windows\build\Release\whisk3d.exe` (con la carpeta `res\` al lado). Para Debug: `build_windows.bat Debug`.
 
-The build stages the four New Project templates beside the executable, and the
+The build stages the five New Project templates beside the executable, and the
 installer includes them. Template lookup is based on the executable/resource
 directory, so launching from a Start Menu shortcut or another working directory
 still finds them.
@@ -38,10 +38,11 @@ Desde la **raíz del repo**:
 REM Inicializar una ruta solo cuando aun no esta clonada:
 git submodule update --init --recursive <ruta-del-submodulo>
 cmake -S . -B platform\windows\build
-cmake --build platform\windows\build --config Release
+cmake --build platform\windows\build --config Release --parallel %NUMBER_OF_PROCESSORS%
 ```
 
 CMake usa el Visual Studio que tengas y compila **x64** por defecto. Para forzar arquitectura, agregá al *configure* `-A x64` o `-A Win32` (Windows 32 bits).
+El script usa todos los procesadores lógicos disponibles; definí `W3D_JOBS` antes de ejecutarlo para limitar el paralelismo (por ejemplo, `set W3D_JOBS=4`).
 
 ## Instalador (.exe)
 

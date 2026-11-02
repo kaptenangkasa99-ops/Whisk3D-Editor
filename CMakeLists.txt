@@ -258,7 +258,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
         PATTERN "*.ini"
         PATTERN "Skins/*"
     )
-    foreach(W3D_TEMPLATE animation controls platformer audio)
+    foreach(W3D_TEMPLATE animation controls platformer fps audio)
         install(DIRECTORY "${CMAKE_SOURCE_DIR}/templates/${W3D_TEMPLATE}/"
             DESTINATION "share/Whisk3d/templates/${W3D_TEMPLATE}"
             PATTERN "platform-build" EXCLUDE
@@ -382,7 +382,7 @@ if(WIN32)
         PATTERN "*.ini"
         PATTERN "Skins/*"
     )
-    foreach(W3D_TEMPLATE animation controls platformer audio)
+    foreach(W3D_TEMPLATE animation controls platformer fps audio)
         install(DIRECTORY "${CMAKE_SOURCE_DIR}/templates/${W3D_TEMPLATE}/"
             DESTINATION "templates/${W3D_TEMPLATE}"
             PATTERN "platform-build" EXCLUDE

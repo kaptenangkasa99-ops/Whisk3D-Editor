@@ -4371,6 +4371,9 @@ static void AccionProyAbrirElegido(const std::string& ruta) {
 static void AccionProyAbrir() {
     AbrirFileBrowser("Open project", "Open", ".w3d", AccionProyAbrirElegido);
 }
+static void AccionMostrarBienvenida() {
+    LayoutMostrarBienvenida();
+}
 // valida que el proyecto tenga NOMBRE antes de guardar. Si falta, marca el campo en rojo
 // (PropText::error) + avisa por toast, y devuelve false: el caller NO guarda (antes, sin
 // nombre, caia silenciosamente en el explorador de "Guardar como" -> parecia que no pasaba nada).
@@ -5499,6 +5502,9 @@ void Properties::ConstruirGrupos(){
     // ===== tarjeta ARCHIVO (pestania Render, PRIMERA): el proyecto .w3d =====
     propArchivo = new GroupPropertie(T("Archive"));
     propArchivo->anchoValores = 0.62f;   // columna ancha (paths)
+    { PropButton* propBienvenida = new PropButton(T("Welcome screen"), IconType::carpeta);
+      propBienvenida->action = AccionMostrarBienvenida;
+      propArchivo->properties.push_back(propBienvenida); }
     propProyAbrir = new PropButton(T("Open project"), IconType::carpeta);
     propProyAbrir->action = AccionProyAbrir;
     propArchivo->properties.push_back(propProyAbrir);

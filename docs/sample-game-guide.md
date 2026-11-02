@@ -13,6 +13,10 @@ and press **Play**. The project already contains a player, ground, and
 touch-friendly controls. Move with **A/D** or the arrow keys and jump with
 **Space**. On touch devices, use the on-screen buttons.
 
+For a 3D combat sample with keyboard/gamepad/touch input, enemy pursuit,
+pooled projectiles, and physics collisions, open the
+[`FPS template`](../templates/fps/fps.w3d).
+
 The controller is in
 [`platformer.lua`](../templates/platformer/platformer.lua). It demonstrates
 the project's Y-up coordinates, frame-time movement, gravity, jumping, and

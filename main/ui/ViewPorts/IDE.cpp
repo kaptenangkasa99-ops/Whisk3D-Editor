@@ -41,6 +41,8 @@ static const float kIdeString[4]     = { 0.93f, 0.78f, 0.38f, 1.0f }; // amarill
 static const float kIdeKeyword[4]    = { 0.52f, 0.72f, 0.98f, 1.0f }; // azul
 static const float kIdeNumero[4]     = { 0.55f, 0.88f, 0.94f, 1.0f }; // celeste
 static const float kIdeSeleccion[4]  = { 0.22f, 0.36f, 0.55f, 1.0f }; // fondo de la seleccion
+static const float kIdeAutocompletadoFondo[4] = { 0.055f, 0.065f, 0.08f, 1.0f };
+static const float kIdeAutocompletadoBorde[4] = { 0.32f, 0.38f, 0.46f, 1.0f };
 
 // clipboard INTERNO: respaldo si el clipboard de SDL no esta (Symbian / headless)
 static std::string gIDEClipInterno;
@@ -460,19 +462,89 @@ static std::string IdeTruncar(const std::string& texto, size_t maximo) {
     return texto.substr(0, maximo - 3) + "...";
 }
 
-static int IdeAnchoComplecion(const IDE* ide, int letraW, int gutterW) {
-    if (!ide || letraW <= 0) return 0;
-    int maxChars = 0;
-    for (size_t i = 0; i < ide->autoCompleteItems.size(); i++) {
-        const std::string& nombre = ide->autoCompleteItems[i];
-        const int chars = (int)(nombre.size() + 2 + IdeDetalleApi(nombre).size());
-        if (chars > maxChars) maxChars = chars;
+struct IdeAutocompletadoLayout {
+    int x, y, listW, detailW, width, height;
+    std::vector<std::string> detailLines;
+};
+
+static void IdeEnvolverTexto(const std::string& texto, size_t maxChars,
+                             std::vector<std::string>* lineas) {
+    lineas->clear();
+    if (maxChars == 0) return;
+    size_t inicio = 0;
+    while (inicio < texto.size()) {
+        size_t fin = inicio + maxChars;
+        if (fin < texto.size()) {
+            size_t espacio = texto.rfind(' ', fin);
+            if (espacio != std::string::npos && espacio >= inicio)
+                fin = espacio;
+        }
+        if (fin == inicio) fin = inicio + maxChars;
+        lineas->push_back(texto.substr(inicio, fin - inicio));
+        inicio = fin;
+        while (inicio < texto.size() && texto[inicio] == ' ') inicio++;
     }
-    const int available = ide->width - gutterW - 2 * marginGS;
-    const int maxAvailableChars = available > 0 ? available / letraW : 1;
-    if (maxChars > maxAvailableChars) maxChars = maxAvailableChars;
-    if (maxChars < 1) maxChars = 1;
-    return maxChars * letraW + 2 * marginGS;
+    if (lineas->empty()) lineas->push_back(std::string());
+}
+
+static IdeAutocompletadoLayout IdeCalcularAutocompletadoLayout(
+        const IDE* ide, int letraW, int lh, int gutterW, int top) {
+    IdeAutocompletadoLayout layout = { 0, 0, 0, 0, 0, 0, std::vector<std::string>() };
+    if (!ide || ide->autoCompleteItems.empty() || letraW <= 0 || lh <= 0) return layout;
+
+    const int availableW = ide->width - gutterW - 2 * marginGS;
+    const int availableChars = availableW > 0 ? availableW / letraW : 1;
+    int maxNameChars = 1;
+    for (size_t i = 0; i < ide->autoCompleteItems.size(); i++) {
+        int chars = (int)ide->autoCompleteItems[i].size();
+        if (chars > maxNameChars) maxNameChars = chars;
+    }
+    const int maxListChars = availableChars > 12 ? availableChars / 3 : availableChars;
+    if (maxNameChars > maxListChars) maxNameChars = maxListChars;
+    if (maxNameChars < 1) maxNameChars = 1;
+    layout.listW = maxNameChars * letraW + 2 * marginGS;
+
+    const std::string nombre = ide->autoCompleteItems[
+        (size_t)ide->autoCompleteSelection < ide->autoCompleteItems.size()
+            ? (size_t)ide->autoCompleteSelection : 0];
+    const std::string detalle = IdeDetalleApi(nombre);
+    const size_t separador = detalle.find(" - ");
+    const std::string firma = nombre +
+        (separador == std::string::npos ? detalle : detalle.substr(0, separador));
+    const std::string descripcion = separador == std::string::npos
+        ? std::string() : detalle.substr(separador + 3);
+    const int detailAvailableChars = availableChars -
+        (layout.listW + 2 * marginGS) / letraW;
+    const int detailChars = detailAvailableChars > 0 ? detailAvailableChars : 1;
+    size_t preferredDetailChars = firma.size();
+    if (descripcion.size() > preferredDetailChars) preferredDetailChars = descripcion.size();
+    if (preferredDetailChars > (size_t)detailChars) preferredDetailChars = (size_t)detailChars;
+    if (preferredDetailChars < 1) preferredDetailChars = 1;
+    layout.detailW = (int)preferredDetailChars * letraW + 2 * marginGS;
+    if (layout.listW + layout.detailW > availableW)
+        layout.detailW = availableW > layout.listW ? availableW - layout.listW : 1;
+    layout.width = layout.listW + layout.detailW;
+
+    IdeEnvolverTexto(firma, (size_t)(layout.detailW > 2 * marginGS
+        ? (layout.detailW - 2 * marginGS) / letraW : 1), &layout.detailLines);
+    std::vector<std::string> wrappedDescription;
+    IdeEnvolverTexto(descripcion, (size_t)(layout.detailW > 2 * marginGS
+        ? (layout.detailW - 2 * marginGS) / letraW : 1), &wrappedDescription);
+    layout.detailLines.insert(layout.detailLines.end(),
+                              wrappedDescription.begin(), wrappedDescription.end());
+    int visibleRows = (int)ide->autoCompleteItems.size();
+    if ((int)layout.detailLines.size() > visibleRows)
+        visibleRows = (int)layout.detailLines.size();
+    layout.height = visibleRows * lh + 2 * marginGS;
+
+    layout.x = gutterW + marginGS + ide->curCol * letraW + ide->PosX;
+    if (layout.x + layout.width > ide->width) layout.x = ide->width - layout.width;
+    if (layout.x < gutterW) layout.x = gutterW;
+    layout.y = top + marginGS + ide->curLin * lh + ide->PosY + lh;
+    if (layout.y + layout.height > ide->height)
+        layout.y = top + marginGS + ide->curLin * lh + ide->PosY - layout.height;
+    if (layout.y < top) layout.y = top;
+    return layout;
 }
 
 // ---------------------------------------------------------------------------
@@ -1382,22 +1454,19 @@ void IDE::ClickContenido(int mx, int my, bool shift) {
     const int lh = (RenglonHeightGS > 0) ? RenglonHeightGS : 12;
     int lx = mx - x, ly = my - y;
     if (autoCompleteVisible && !autoCompleteItems.empty()) {
-        int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
-        int popupX = GutterW() + marginGS + curCol * LetterWidthGS + PosX;
         const int letterW = LetterWidthGS > 0 ? LetterWidthGS : 6;
-        const int popupW = IdeAnchoComplecion(this, letterW, GutterW());
-        if (popupX + popupW > width) popupX = width - popupW;
-        if (popupX < GutterW()) popupX = GutterW();
-        int popupY = EditorTopOffset() + marginGS + curLin * lh + PosY + lh;
-        if (popupY + popupH > height) popupY = EditorTopOffset() + marginGS + curLin * lh + PosY - popupH;
-        if (popupY < EditorTopOffset()) popupY = EditorTopOffset();
-        if (lx >= popupX && lx < popupX + popupW && ly >= popupY && ly < popupY + popupH) {
-            int row = (ly - popupY - marginGS) / lh;
-            if (row >= 0 && row < (int)autoCompleteItems.size()) {
-                autoCompleteSelection = row;
-                AceptarAutocompletado();
-                return;
+        const IdeAutocompletadoLayout layout = IdeCalcularAutocompletadoLayout(
+            this, letterW, lh, GutterW(), EditorTopOffset());
+        if (lx >= layout.x && lx < layout.x + layout.width &&
+            ly >= layout.y && ly < layout.y + layout.height) {
+            if (lx < layout.x + layout.listW) {
+                int row = (ly - layout.y - marginGS) / lh;
+                if (row >= 0 && row < (int)autoCompleteItems.size()) {
+                    autoCompleteSelection = row;
+                    AceptarAutocompletado();
+                }
             }
+            return;
         }
     }
 #ifdef __ANDROID__
@@ -1669,32 +1738,51 @@ void IDE::Render() {
                  ListaColores[static_cast<int>(ColorID::blanco)]);
     }
     if (autoCompleteVisible && !autoCompleteItems.empty()) {
-        int popupH = (int)autoCompleteItems.size() * lh + marginGS * 2;
-        int popupX = gutterW + marginGS + curCol * LW + PosX;
-        const int popupW = IdeAnchoComplecion(this, LW, gutterW);
-        if (popupX + popupW > width) popupX = width - popupW;
-        if (popupX < gutterW) popupX = gutterW;
-        int popupY = top + marginGS + curLin * lh + PosY + lh;
-        if (popupY + popupH > height) popupY = top + marginGS + curLin * lh + PosY - popupH;
-        if (popupY < top) popupY = top;
-        IdeQuad((float)popupX, (float)popupY, (float)(popupX + popupW),
-                (float)(popupY + popupH), ListaColores[static_cast<int>(ColorID::gris)]);
+        const IdeAutocompletadoLayout layout = IdeCalcularAutocompletadoLayout(
+            this, LW, lh, gutterW, top);
+        IdeQuad((float)layout.x, (float)layout.y,
+                (float)(layout.x + layout.width), (float)(layout.y + layout.height),
+                kIdeAutocompletadoFondo);
+        IdeQuad((float)layout.x, (float)layout.y,
+                (float)(layout.x + layout.width), (float)(layout.y + 1),
+                kIdeAutocompletadoBorde);
+        IdeQuad((float)layout.x, (float)(layout.y + layout.height - 1),
+                (float)(layout.x + layout.width), (float)(layout.y + layout.height),
+                kIdeAutocompletadoBorde);
+        IdeQuad((float)layout.x, (float)layout.y,
+                (float)(layout.x + 1), (float)(layout.y + layout.height),
+                kIdeAutocompletadoBorde);
+        IdeQuad((float)(layout.x + layout.width - 1), (float)layout.y,
+                (float)(layout.x + layout.width), (float)(layout.y + layout.height),
+                kIdeAutocompletadoBorde);
+        IdeQuad((float)(layout.x + layout.listW), (float)layout.y,
+                (float)(layout.x + layout.listW + 1),
+                (float)(layout.y + layout.height), kIdeAutocompletadoBorde);
+
+        const int listChars = layout.listW > 2 * marginGS
+            ? (layout.listW - 2 * marginGS) / LW : 1;
         for (size_t i = 0; i < autoCompleteItems.size(); i++) {
-            int rowY = popupY + marginGS + (int)i * lh;
+            int rowY = layout.y + marginGS + (int)i * lh;
             if ((int)i == autoCompleteSelection)
-                IdeQuad((float)popupX, (float)rowY, (float)(popupX + popupW),
-                        (float)(rowY + lh), kIdeSeleccion);
-            const int maxChars = popupW > 2 * marginGS
-                ? (popupW - 2 * marginGS) / LW : 1;
+                IdeQuad((float)(layout.x + 1), (float)rowY,
+                        (float)(layout.x + layout.listW), (float)(rowY + lh),
+                        kIdeSeleccion);
             const std::string& nombre = autoCompleteItems[i];
-            const size_t detalleChars = maxChars > (int)nombre.size() + 2
-                ? (size_t)(maxChars - (int)nombre.size() - 2) : 0;
-            const std::string detalle = IdeTruncar(DetalleAutocompletado(i), detalleChars);
-            IdeTexto(popupX + marginGS, rowY,
-                     nombre, ListaColores[static_cast<int>(ColorID::blanco)]);
-            if (!detalle.empty())
-                IdeTexto(popupX + marginGS + ((int)nombre.size() + 2) * LW, rowY,
-                         detalle, ListaColores[static_cast<int>(ColorID::grisUI)]);
+            IdeTexto(layout.x + marginGS, rowY,
+                     IdeTruncar(nombre, (size_t)listChars),
+                     ListaColores[static_cast<int>(ColorID::blanco)]);
+        }
+
+        const int detailX = layout.x + layout.listW + marginGS;
+        const size_t detailChars = layout.detailW > 2 * marginGS
+            ? (size_t)((layout.detailW - 2 * marginGS) / LW) : 1;
+        for (size_t i = 0; i < layout.detailLines.size(); i++) {
+            const int rowY = layout.y + marginGS + (int)i * lh;
+            const float* color = i == 0
+                ? ListaColores[static_cast<int>(ColorID::blanco)]
+                : ListaColores[static_cast<int>(ColorID::grisUI)];
+            IdeTexto(detailX, rowY,
+                     IdeTruncar(layout.detailLines[i], detailChars), color);
         }
     }
 

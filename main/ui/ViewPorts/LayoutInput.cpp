@@ -116,6 +116,7 @@ static const PlantillaProyecto kPlantillasProyecto[] = {
     { "Animation usage", "animation", "animation.w3d" },
     { "Control usage", "controls", "controls.w3d" },
     { "Platformer game", "platformer", "platformer.w3d" },
+    { "FPS game", "fps", "fps.w3d" },
     { "Audio usage", "audio", "audio.w3d" }
 };
 
@@ -241,10 +242,16 @@ static void BienvenidaPlantillaPlatformer() {
                      [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 2); },
                      true, w3dFileSystem::GetDefaultOutputDir());
 }
-static void BienvenidaPlantillaAudio() {
+static void BienvenidaPlantillaFPS() {
     if (gMenuPlantillas) gMenuPlantillas->Cerrar();
     AbrirFileBrowser("Create project from template", "Create", std::string(),
                      [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 3); },
+                     true, w3dFileSystem::GetDefaultOutputDir());
+}
+static void BienvenidaPlantillaAudio() {
+    if (gMenuPlantillas) gMenuPlantillas->Cerrar();
+    AbrirFileBrowser("Create project from template", "Create", std::string(),
+                     [](const std::string& path) { BienvenidaCrearDesdePlantilla(path, 4); },
                      true, w3dFileSystem::GetDefaultOutputDir());
 }
 
@@ -261,7 +268,8 @@ static void BienvenidaNuevo() {
         gMenuPlantillas->Agregar(kPlantillasProyecto[0].nombre, 1, (int)IconType::mas)->accion = BienvenidaPlantillaAnimation;
         gMenuPlantillas->Agregar(kPlantillasProyecto[1].nombre, 2, (int)IconType::mas)->accion = BienvenidaPlantillaControls;
         gMenuPlantillas->Agregar(kPlantillasProyecto[2].nombre, 3, (int)IconType::mas)->accion = BienvenidaPlantillaPlatformer;
-        gMenuPlantillas->Agregar(kPlantillasProyecto[3].nombre, 4, (int)IconType::mas)->accion = BienvenidaPlantillaAudio;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[3].nombre, 4, (int)IconType::mas)->accion = BienvenidaPlantillaFPS;
+        gMenuPlantillas->Agregar(kPlantillasProyecto[4].nombre, 5, (int)IconType::mas)->accion = BienvenidaPlantillaAudio;
     }
     gMenuPlantillas->Abrir(MenuPantallaW / 2 - gMenuPlantillas->width / 2,
                            MenuPantallaH / 2 - gMenuPlantillas->height / 2,
@@ -283,6 +291,7 @@ void LayoutMostrarBienvenida() {
     if (!gMenuBienvenida) {
         gMenuBienvenida = new PopupMenu();
         gMenuBienvenida->titulo = "Welcome to Whisk3D";
+        gMenuBienvenida->closeOnMouseLeave = false;
         gMenuBienvenida->Agregar("New Project", 0, (int)IconType::mas)->accion = BienvenidaNuevo;
         gMenuBienvenida->Agregar("Open Project", 1, (int)IconType::carpeta)->accion = BienvenidaAbrir;
     }
@@ -4302,6 +4311,10 @@ bool LayoutMotionUI(int mx, int my) {
                 int ms = g_menuDrag->MaxScroll(); if (s < 0) s = 0; if (s > ms) s = ms;
                 g_menuDrag->scroll = s; g_redraw = true;
             }
+            return true;
+        }
+        if (MenuAbierto == gMenuBienvenida) {
+            MenuAbierto->MouseMove(mx, my);
             return true;
         }
         // el cursor esta SOBRE el desplegable abierto (su lista o cualquier submenu abierto)? Entonces el movimiento

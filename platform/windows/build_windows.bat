@@ -21,6 +21,8 @@ where git   >nul 2>nul || (echo ERROR: git is not in PATH. && goto :fail)
 
 set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=Release"
+if not defined W3D_JOBS set "W3D_JOBS=%NUMBER_OF_PROCESSORS%"
+if not defined W3D_JOBS set "W3D_JOBS=1"
 
 REM Initialize only missing submodules. A normal `submodule update` checks out
 REM the gitlink recorded in this superproject and can move a developer's active
@@ -40,7 +42,8 @@ echo == Configuring (platform\windows\build)... (cmake detects the installed Vis
 cmake -S . -B platform\windows\build || goto :fail
 
 echo == Building (%CONFIG%)...
-cmake --build platform\windows\build --config %CONFIG% --parallel || goto :fail
+echo Using %W3D_JOBS% parallel build jobs (set W3D_JOBS to override).
+cmake --build platform\windows\build --config %CONFIG% --parallel %W3D_JOBS% || goto :fail
 
 echo.
 echo Whisk3D built:

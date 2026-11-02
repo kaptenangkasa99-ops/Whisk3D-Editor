@@ -2,7 +2,7 @@ if(NOT DEFINED W3D_TEMPLATE_SOURCE OR NOT DEFINED W3D_TEMPLATE_DEST)
     message(FATAL_ERROR "W3D_TEMPLATE_SOURCE and W3D_TEMPLATE_DEST are required")
 endif()
 
-foreach(template animation controls platformer audio)
+foreach(template animation controls platformer fps audio)
     set(source_dir "${W3D_TEMPLATE_SOURCE}/${template}")
     set(dest_dir "${W3D_TEMPLATE_DEST}/${template}")
     if(NOT IS_DIRECTORY "${source_dir}")
