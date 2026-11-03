@@ -1,10 +1,11 @@
 [submodule "libs/Whisk3DCore"]
-	path = libs/Whisk3DCore
-	url = https://github.com/kaptenangkasa99-ops/Whisk3DCore/tree/my-feature-branch
-[submodule "libs/WhiskUI"]
-	path = libs/WhiskUI
-	url = https://github.com/Dante-Leoncini/Whisk3D-UI
+    path = libs/Whisk3DCore
+    url = https://github.com/kaptenangkasa99-ops/Whisk3DCore.git
+    branch = my-feature-branch
+[submodule "libs/Whisk3D-UI"]
+    path = libs/Whisk3D-UI
+    url = https://github.com/kaptenangkasa99-ops/Whisk3D-UI.git
 [submodule "thirdparty/SDL2"]
-	path = thirdparty/SDL2
-	url = https://github.com/libsdl-org/SDL
-	branch = SDL2
+    path = thirdparty/SDL2
+    url = https://github.com/libsdl-org/SDL
+    branch = SDL2
