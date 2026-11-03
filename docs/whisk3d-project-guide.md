@@ -17,7 +17,7 @@ Whisk3D is split into a few clear layers:
   - meshes/materials/textures
   - rendering abstraction
   - math, physics, scripting, audio, filesystem, asset storage
-- UI toolkit: `libs/WhiskUI/`
+- UI toolkit: `libs/Whisk3D-UI/`
   - reusable cross-platform widgets and drawing primitives
 - Third-party dependencies: `thirdparty/`
   - SDL2, Lua, helper libs
@@ -28,7 +28,7 @@ Important design idea:
 
 - `main/` is the editor/editor runtime layer.
 - `libs/Whisk3DCore/` aims to be the reusable engine layer.
-- `libs/WhiskUI/` is an optional UI library for the editor and other apps.
+- `libs/Whisk3D-UI/` is an optional UI library for the editor and other apps.
 
 ---
 
@@ -82,7 +82,7 @@ Whisk3D-Editor/
 │   │   ├── video/
 │   │   ├── README.md
 │   │   └── cmake/
-│   ├── WhiskUI/
+│   ├── Whisk3D-UI/
 │   │   ├── core/
 │   │   ├── draw/
 │   │   ├── text/
@@ -562,7 +562,7 @@ This is a good example of the engine trying to separate platform-specific and ge
 
 ---
 
-## 14. UI toolkit: `libs/WhiskUI`
+## 14. UI toolkit: `libs/Whisk3D-UI`
 
 `WhiskUI` is a separate UI library intended to be lightweight and cross-platform.
 
@@ -667,7 +667,7 @@ The project structure is intentionally organized around a few major pillars:
 
 - `main/` = editor and editor runtime infrastructure
 - `libs/Whisk3DCore/` = reusable engine and platform-neutral runtime
-- `libs/WhiskUI/` = reusable UI toolkit
+- `libs/Whisk3D-UI/` = reusable UI toolkit
 - `thirdparty/` = dependencies and platform layers
 
 If you are working on a bug, the fastest path is usually:

@@ -56,6 +56,14 @@ done
 
 mkdir -p "$AAPK_PATH"
 
+# Preserve the public WhiskUI/... header namespace for native sources.
+UI_INCLUDE="$APROJECT_PATH/build/include/WhiskUI"
+rm -rf "$UI_INCLUDE"
+mkdir -p "$UI_INCLUDE"
+cp -R libs/Whisk3D-UI/core libs/Whisk3D-UI/draw \
+    libs/Whisk3D-UI/Propieties libs/Whisk3D-UI/text \
+    libs/Whisk3D-UI/theme libs/Whisk3D-UI/widgets "$UI_INCLUDE/"
+
 # Editor resources -> APK assets. REGENERATED on each build from canonical res/
 # (it is gitignored and NOT committed, to avoid duplication/outdating).
 echo "Copying res/ to APK (assets)..."

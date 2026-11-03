@@ -3472,10 +3472,14 @@ bool W3dSceneLoadDataAdditive(const std::string& path) {
     W3dConstraintsResolverNombres(SceneCollection);
     CargarAnimacionesImportadas(raiz);
     W3dNombresCargando = false;
+#ifndef W3D_GAME_RUNTIME
     W3dNombresRepararEscena(true);
+#endif
     W3dEscenaRegistrarTodas();
+#ifndef W3D_GAME_RUNTIME
     DeseleccionarTodo();
     loadedScene->Seleccionar();
+#endif
     CargarTodasTexturasPendientes();
     delete raiz;
     g_redraw = true;
@@ -4000,7 +4004,15 @@ static bool AbrirW3DTexto(const std::string& src) {
         Node* escena = Find(project, "Escena");
         Node* layout = Find(project, "Layout");
         if (!escena) w3dLogfW("[W3D] el archivo no trae 'Escena': abre sin objetos");
-        if (escena) BuildScene(escena);
+        if (escena) {
+            BuildScene(escena);
+            // Root-level UI scenes are build targets, just like in the JSON
+            // format. Legacy text projects can declare them beside Escena.
+            for (size_t child = 0; child < project->children.size(); ++child)
+                if (project->children[child] != escena &&
+                    project->children[child]->type == "UI")
+                    BuildObjectRecursive(project->children[child], SceneCollection);
+        }
         if (layout && !layout->children.empty())
             rootViewport = BuildLayout(layout->children[0]);
         else
@@ -4151,7 +4163,9 @@ void AbrirW3D(const std::string& ruta) {
     // ReloadAll (que resuelve targetName/RielName por nombre) para que los punteros se
     // resuelvan contra los nombres YA definitivos. Avisa de forma visible: renombrar
     // puede romper scripts lua que buscan por nombre.
+#ifndef W3D_GAME_RUNTIME
     W3dNombresRepararEscena(true);
+#endif
 
     // recargar los targets de todos los objetos modificadores
     SearchLoop();

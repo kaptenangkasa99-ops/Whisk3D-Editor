@@ -251,6 +251,10 @@
             "archivo": "touch.w3dui"
           }
         ]
+      },
+      {
+        "tipo": "ui",
+        "archivo": "build.w3dui"
       }
     ]
   },

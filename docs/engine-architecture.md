@@ -28,7 +28,7 @@ Project container and asset IO            Game runtime entry point
 The repository is a hybrid editor and engine rather than a fully separated
 editor shell and runtime library. `main/` contains the editor and project
 workflows; `libs/Whisk3DCore/` contains shared scene, rendering, scripting,
-math, asset, audio, and other engine systems. `libs/WhiskUI/` supplies reusable
+math, asset, audio, and other engine systems. `libs/Whisk3D-UI/` supplies reusable
 UI infrastructure. Some editor-oriented state and behavior still exists in
 Core, and the game build excludes editor-only portions where required.
 

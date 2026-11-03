@@ -15,7 +15,7 @@
 #include <e32std.h>
 #include <e32keys.h>
 #include <string.h>
-#include "TextField.h"     // TextField, g_textFieldActivo (USERINCLUDE libs\WhiskUI\widgets)
+#include "TextField.h" // TextField, g_textFieldActivo (USERINCLUDE libs\Whisk3D-UI\widgets)
 
 extern bool NumEditActivo();        // WhiskUI/PropFloat.cpp: hay una edicion NUMERICA (un PropFloat)?
 

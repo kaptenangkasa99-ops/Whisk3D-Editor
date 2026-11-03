@@ -7,6 +7,8 @@ work with simultaneous touches.
 `platformer.lua` contains a small gravity and jump loop that you can extend.
 The ground and player models are included as `ground.obj` and `player.obj`, so
 the template does not depend on files from the original authoring machine.
+An empty root-level `BuildSetup` UI provides the build target for standalone
+game builds; the playable touch controls remain attached to the 3D scene.
 
 For setup, scripting, camera, level, animation, and touch-control guidance,
 see the [sample game guide](../../docs/sample-game-guide.md).

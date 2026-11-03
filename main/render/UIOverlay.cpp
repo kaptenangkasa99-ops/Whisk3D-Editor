@@ -34,6 +34,11 @@ extern float g_gameRenderW, g_gameRenderH;
 
 namespace gfx = w3dEngine;
 
+static void FinalizarDibujoAtlas() {
+    gfx::DisableArray(gfx::TexCoordArray);
+    gfx::Disable(gfx::Blend);
+}
+
 // OVERRIDE de la ventana (ver UIOverlay.h): un viewport 2D en VISTA DE JUEGO con UI dinamica
 // declara que la ventana simulada es SU rect util. Estado global consciente: hay UNA pantalla de
 // juego, y quien la define es el viewport en vista de juego (dibujo, input y binds ven lo mismo).
@@ -747,7 +752,7 @@ static void DibujarTextoBloque(Texto2D* t, float sx, float sy, float rw, float r
         at->DrawText(lin[i].c_str(), tx, ty + lh * i, px,
                      tc[0], tc[1], tc[2], tc[3] * op);
     }
-    at->End();
+    FinalizarDibujoAtlas();
 }
 
 // mide el tamano NATURAL del boton (padding + icono + texto), en px de PANTALLA.
@@ -854,7 +859,7 @@ static void DibujarBoton(Boton2D* b, float x0, float y0, float x1, float y1,
         at->Begin();
         at->DrawText(b->texto.c_str(), cx, ty, px,
                      cTexto[0], cTexto[1], cTexto[2], cTexto[3] * op);
-        at->End();
+        FinalizarDibujoAtlas();
     }
     // BORDE de HOVER: feedback de mouse-over. Se dibuja SOLO con un mouse presente
     // (gHoverOk; en tactil no hay hover) y con el cursor DENTRO del rect resuelto del
@@ -1179,7 +1184,7 @@ static void DibujarElemMundoRec(Object* o, float rx0, float ry0, float rw, float
             gfx::Enable(gfx::DepthTest);           // que la profundidad se note contra la escena
             at->DrawText(txt.c_str(), ox, oy, pxU,
                          tcM[0], tcM[1], tcM[2], tcM[3] * op);
-            at->End();
+            FinalizarDibujoAtlas();
         }
     } else if (o->getType() == ObjectType::boton2d || o->getType() == ObjectType::expandir2d) {
         // en el modo mundo el boton/expandir no se dibujan (es inspeccion de profundidad)

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "nombre": "BuildSetup",
+  "ventana": {
+    "igualQueRender": true,
+    "ancho": 640,
+    "alto": 480,
+    "escalaGlobal": 1,
+    "color": [0, 0, 0, 0]
+  },
+  "paleta": "",
+  "paletas": [],
+  "hijos": []
+}

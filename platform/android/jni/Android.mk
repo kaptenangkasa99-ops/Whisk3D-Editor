@@ -30,7 +30,7 @@ CORE := Whisk3DCore
 # editor Android. Sus stubs y globals se duplican con las implementaciones reales del editor
 # (Undo.cpp, lectura-escritura.cpp, Pick3D.cpp, SimJuego.cpp, etc.) si se compilan juntos.
 SRC_FILES := $(shell find $(PROJECT_ROOT)/main $(PROJECT_ROOT)/libs/$(CORE)/objects \
-$(PROJECT_ROOT)/libs/$(CORE)/animation $(PROJECT_ROOT)/libs/WhiskUI \
+$(PROJECT_ROOT)/libs/$(CORE)/animation $(PROJECT_ROOT)/libs/Whisk3D-UI \
 \( -path '$(PROJECT_ROOT)/main/test' -o -path '$(PROJECT_ROOT)/main/runtime' \) -prune \
 -o -name '*.cpp' -print)
 SRC_FILES += $(PROJECT_ROOT)/libs/$(CORE)/io/w3dFilesystem.cpp
@@ -89,11 +89,13 @@ $(PROJECT_ROOT)/libs/$(CORE)/gfx \
 $(PROJECT_ROOT)/libs/$(CORE)/io \
 $(PROJECT_ROOT)/libs/$(CORE)/thirdparty \
 $(PROJECT_ROOT)/libs \
-$(PROJECT_ROOT)/libs/WhiskUI/widgets \
-$(PROJECT_ROOT)/libs/WhiskUI/text \
-$(PROJECT_ROOT)/libs/WhiskUI/draw \
-$(PROJECT_ROOT)/libs/WhiskUI/theme \
-$(PROJECT_ROOT)/libs/WhiskUI/core \
+$(MY_PATH)/../build/include \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/widgets \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/text \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/draw \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/theme \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/core \
+$(PROJECT_ROOT)/libs/Whisk3D-UI/Propieties \
 $(PROJECT_ROOT)/thirdparty \
 $(PROJECT_ROOT)/thirdparty/lua/src \
 $(PROJECT_ROOT)/thirdparty/SDL2/include

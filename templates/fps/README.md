@@ -25,4 +25,5 @@ objects at runtime. The sample uses `velocity()`, `collisionBox()`, and
 
 The scene uses simple included cube geometry. Tune movement, enemy health,
 projectile speed, pool size, and particle settings in the individual Lua
-scripts and `fps.w3d`.
+scripts and `fps.w3d`. An empty root-level `BuildSetup` UI provides the target
+for standalone game builds; the playable touch controls remain in the scene.

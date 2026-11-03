@@ -16,7 +16,7 @@ Si el instalador falla, probablemente tengas que "hackear" el teléfono para ign
 
 El proyecto de Symbian está en esta carpeta:
 
-- `group/Whisk3D.mmp` — el proyecto (fuentes, includes, libs). Comparte casi todo el código con el resto de las plataformas (`main/`, `libs/Whisk3DCore`, `libs/WhiskUI`); lo específico del teléfono está en `src/`.
+- `group/Whisk3D.mmp` — el proyecto (fuentes, includes, libs). Comparte casi todo el código con el resto de las plataformas (`main/`, `libs/Whisk3DCore`, `libs/Whisk3D-UI`); lo específico del teléfono está en `src/`.
 - `src/` — la capa de Symbian: app framework (`Whisk3D*.cpp`), input (teclado/keypad, mouse virtual, HID bluetooth), carga de texturas por ICL, y el reloj/glue.
 - `data/`, `sis/` — recursos e instaladores.
 

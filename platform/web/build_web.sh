@@ -15,11 +15,18 @@ set -e
 cd "$(dirname "$0")/../.." # el script vive en platform/web/ -> raiz del repo 2 niveles arriba
 
 CORE=libs/Whisk3DCore
+UI=libs/Whisk3D-UI
 OUT=platform/web/build
 mkdir -p "$OUT"
 
+# Preserve the public WhiskUI/... header namespace for native sources.
+UI_INCLUDE="$OUT/include/WhiskUI"
+rm -rf "$UI_INCLUDE"
+mkdir -p "$UI_INCLUDE"
+cp -R "$UI"/core "$UI"/draw "$UI"/Propieties "$UI"/text "$UI"/theme "$UI"/widgets "$UI_INCLUDE/"
+
 # --- fuentes: mismo set que el CMakeLists, pero con el backend ES2 en vez del de desktop ---
-SRC=$(find main "$CORE/objects" "$CORE/animation" libs/WhiskUI -name '*.cpp')
+SRC=$(find main "$CORE/objects" "$CORE/animation" "$UI" -name '*.cpp')
 SRC="$SRC $CORE/io/w3dFilesystem.cpp $CORE/gfx/w3dTexture.cpp $CORE/io/w3dCompress.cpp $CORE/io/W3dZip.cpp"
 # OJO: los .cpp del Core de io/ NO entran por el find de arriba (que solo barre main/, objects/,
 # animation/ y WhiskUI) -> van A MANO, igual que en el CMakeLists. Estos tres son el formato v4
@@ -56,8 +63,8 @@ fi
 INC="-Iplatform/web -I. -Imain -Imain/app -Imain/config -Imain/io -Imain/undo"
 INC="$INC -Imain/ui -Imain/ui/ViewPorts -Imain/ui/GeometriaUI"
 INC="$INC -I$CORE -I$CORE/base -I$CORE/gfx -I$CORE/io -I$CORE/thirdparty"
-INC="$INC -Ilibs -Ilibs/WhiskUI/widgets -Ilibs/WhiskUI/text -Ilibs/WhiskUI/draw"
-INC="$INC -Ilibs/WhiskUI/theme -Ilibs/WhiskUI/core -Ithirdparty -Ithirdparty/lua/src"
+INC="$INC -Ilibs -I$OUT/include -I$UI/widgets -I$UI/text -I$UI/draw"
+INC="$INC -I$UI/theme -I$UI/core -I$UI/Propieties -Ithirdparty -Ithirdparty/lua/src"
 
 # --- defines: solo el backend WebGL. OJO: NO va -DW3D_STB_IMPL: en el editor la
 #     implementacion de stb_image ya la instancia constructor.cpp (una sola vez). Con

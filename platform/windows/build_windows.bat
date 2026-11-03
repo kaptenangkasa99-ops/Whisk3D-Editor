@@ -28,7 +28,7 @@ REM Initialize only missing submodules. A normal `submodule update` checks out
 REM the gitlink recorded in this superproject and can move a developer's active
 REM feature branch (or fail when that checkout has local Core changes).
 echo == Checking submodules (initialized checkouts and branches are preserved)...
-for %%S in (thirdparty/SDL2 libs/Whisk3DCore libs/WhiskUI) do (
+for %%S in (thirdparty/SDL2 libs/Whisk3DCore libs/Whisk3D-UI) do (
   git submodule status %%S | findstr /r /c:"^-" >nul
   if not errorlevel 1 (
     echo    Initializing missing submodule %%S...

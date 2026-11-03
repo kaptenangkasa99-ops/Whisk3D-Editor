@@ -1573,7 +1573,12 @@ static bool EscribirCMake(const std::string& ruta, const std::string& nombre,
     fputs("set(CMAKE_CXX_STANDARD 17)\n", f);
     fputs("if(NOT DEFINED W3DROOT)\n  message(FATAL_ERROR \"pasa -DW3DROOT=<raiz del repo Whisk3D>\")\nendif()\n", f);
     fputs("set(CORE ${W3DROOT}/libs/Whisk3DCore)\n", f);
-    fputs("set(UILIB ${W3DROOT}/libs/WhiskUI)\n", f);
+    fputs("set(UILIB ${W3DROOT}/libs/Whisk3D-UI)\n", f);
+    fputs("file(REMOVE_RECURSE ${CMAKE_BINARY_DIR}/include/WhiskUI)\n"
+          "file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include/WhiskUI)\n"
+          "file(COPY ${UILIB}/core ${UILIB}/draw ${UILIB}/Propieties ${UILIB}/text "
+          "${UILIB}/theme ${UILIB}/widgets DESTINATION ${CMAKE_BINARY_DIR}/include/WhiskUI)\n"
+          "include_directories(${CMAKE_BINARY_DIR}/include)\n", f);
     fputs("set(GAME ${W3DROOT}/../Whisk3D-Examples/game)\n", f);
     fputs("if(DEFINED W3D_RUNTIME_SOURCE)\n"
           "  set(W3D_CUSTOM_RUNTIME_SOURCE ON)\n"
@@ -1827,7 +1832,7 @@ static bool EscribirBuildAndroid(const std::string& ruta, const std::string& rep
     fputs("# GENERADO por Whisk3D (Compilar juego -> Android). No hace falta editarlo.\n", f);
     fputs("ROOT  := $(W3DROOTABS)\n", f);   // lo pisa el sed de abajo con la ruta real
     fputs("W3D   := $(ROOT)/Whisk3D\nEXAMP := $(ROOT)/Whisk3D-Examples\n", f);
-    fputs("CORE  := $(W3D)/libs/Whisk3DCore\nUILIB := $(W3D)/libs/WhiskUI\n", f);
+    fputs("CORE  := $(W3D)/libs/Whisk3DCore\nUILIB := $(W3D)/libs/Whisk3D-UI\n", f);
     fputs("include $(W3D)/thirdparty/SDL2/Android.mk\n", f);
     fputs("LOCAL_PATH := $(MY_PATH)\ninclude $(CLEAR_VARS)\n", f);
     // "main" por convencion de SDLActivity (System.loadLibrary("main") -> libmain.so)
@@ -2573,7 +2578,7 @@ bool CompilarJuego(UI* u, int plataforma, int modoVentana, int orientacion,
             // TODOS los nucleos: misma cota que el resto (ver W3dCompilarJobs)
             "export EMCC_CORES=%d; "
             "W3D=\"%s\"; GAME=\"$W3D/../Whisk3D-Examples/game\"; "
-            "CORE=$W3D/libs/Whisk3DCore; UILIB=$W3D/libs/WhiskUI; LUA=$W3D/thirdparty/lua/src; "
+            "CORE=$W3D/libs/Whisk3DCore; UILIB=$W3D/libs/Whisk3D-UI; LUA=$W3D/thirdparty/lua/src; "
             "LUASRC=$(ls $LUA/*.c | grep -vE '/lua\\.c|/luac\\.c'); "
             "emcc main.cpp %s$GAME/w3drun.cpp "
             "$CORE/gles2/w3dGraphicsGLES2.cpp "   // backend de shaders (WebGL)

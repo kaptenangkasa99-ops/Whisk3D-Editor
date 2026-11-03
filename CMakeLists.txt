@@ -53,12 +53,26 @@ endif()
 # Sources
 # ---------------------------------------------------
 
+set(W3D_UI_DIR "${CMAKE_SOURCE_DIR}/libs/Whisk3D-UI")
+set(W3D_UI_INCLUDE_DIR "${CMAKE_BINARY_DIR}/include")
+file(REMOVE_RECURSE "${W3D_UI_INCLUDE_DIR}/WhiskUI")
+file(MAKE_DIRECTORY "${W3D_UI_INCLUDE_DIR}/WhiskUI")
+file(COPY
+    "${W3D_UI_DIR}/core"
+    "${W3D_UI_DIR}/draw"
+    "${W3D_UI_DIR}/Propieties"
+    "${W3D_UI_DIR}/text"
+    "${W3D_UI_DIR}/theme"
+    "${W3D_UI_DIR}/widgets"
+    DESTINATION "${W3D_UI_INCLUDE_DIR}/WhiskUI"
+)
+
 file(GLOB_RECURSE SRC_FILES
     ${CMAKE_SOURCE_DIR}/main/*.cpp
     # el modelo de datos (antes en core/) se unio al engine: engine/objects, animation, ui
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/objects/*.cpp
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/animation/*.cpp
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/*.cpp
+    ${W3D_UI_DIR}/*.cpp
 )
 
 # These translation units belong to compiled game projects, not the editor.
@@ -173,13 +187,15 @@ target_include_directories(whisk3d PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/io
     ${CMAKE_SOURCE_DIR}/libs/Whisk3DCore/thirdparty # stb: dep del engine, vive CON el core ("stb/stb_image.h")
     ${CMAKE_SOURCE_DIR}/libs
-    # WhiskUI reorganizado por tema: sus subcarpetas son include dirs para que los includes INTERNOS pelados
-    # ("icons.h", "card.h") resuelvan entre subcarpetas (los externos usan "WhiskUI/draw/icons.h").
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/widgets
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/text
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/draw
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/theme
-    ${CMAKE_SOURCE_DIR}/libs/WhiskUI/core
+    # Whisk3D-UI keeps the WhiskUI/... header namespace through a build-tree include alias.
+    ${W3D_UI_INCLUDE_DIR}
+    # UI subdirectories also resolve the toolkit's internal bare includes ("icons.h", "card.h").
+    ${W3D_UI_DIR}/widgets
+    ${W3D_UI_DIR}/text
+    ${W3D_UI_DIR}/draw
+    ${W3D_UI_DIR}/theme
+    ${W3D_UI_DIR}/core
+    ${W3D_UI_DIR}/Propieties
     ${CMAKE_SOURCE_DIR}/thirdparty
 )
 

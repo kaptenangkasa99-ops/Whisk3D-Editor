@@ -16,3 +16,5 @@ generated from this directory.
 Each starter project has a logical `Scene` root assigned as its initial scene.
 Keep referenced model, script, and UI assets inside the template folder and use
 relative paths so a newly created project opens without machine-specific paths.
+Each project also includes an empty root-level `BuildSetup` UI. It is the
+standalone builder's target; playable controls stay attached to the game scene.

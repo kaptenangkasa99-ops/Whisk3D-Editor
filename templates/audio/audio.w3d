@@ -27,4 +27,7 @@ Whisk3D {
             archivo: "touch.w3dui"
         }
     }
+    UI {
+        archivo: "build.w3dui"
+    }
 }

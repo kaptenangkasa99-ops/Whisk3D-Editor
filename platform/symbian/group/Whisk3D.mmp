@@ -145,7 +145,7 @@ SOURCE          Undo.cpp // Ctrl+Z (undo por comandos; lo llaman ObjectMode/Layo
 SOURCEPATH      ..\..\..\main\ui\GeometriaUI
 SOURCE          GeometriaUI.cpp Floor.cpp
 
-SOURCEPATH      ..\..\..\libs\WhiskUI\Propieties
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\Propieties
 SOURCE          PropertieBase.cpp GroupPropertie.cpp PropFloat.cpp
 SOURCE          propGap.cpp PropBool.cpp PropList.cpp PropColor.cpp
 SOURCE          PropSelectText.cpp PropButton.cpp PropLabel.cpp
@@ -155,15 +155,15 @@ SOURCEPATH      ..\..\..\main\ui\ViewPorts\PopUp
 SOURCE          PopUpBase.cpp ColorPicker.cpp FileBrowser.cpp RedoMeshPanel.cpp ConfirmarPopup.cpp ProgressPopup.cpp
 
 // La UI (WhiskUI) es su propia capa reutilizable en libs/. Ver documentacion/ui.html
-SOURCEPATH      ..\..\..\libs\WhiskUI\core
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\core
 SOURCE          UI.cpp
-SOURCEPATH      ..\..\..\libs\WhiskUI\theme
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\theme
 SOURCE          colores.cpp
-SOURCEPATH      ..\..\..\libs\WhiskUI\draw
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\draw
 SOURCE          object2D.cpp rectangle.cpp icons.cpp glesdraw.cpp
-SOURCEPATH      ..\..\..\libs\WhiskUI\text
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\text
 SOURCE          font.cpp bitmapText.cpp W3dFont.cpp
-SOURCEPATH      ..\..\..\libs\WhiskUI\widgets
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\widgets
 SOURCE          card.cpp Button.cpp PopupMenu.cpp Tab.cpp
 
 // --- subsistemas nuevos que faltaban en el build de Symbian (link): vertex animation,
@@ -196,7 +196,7 @@ SOURCEPATH      ..\..\..\libs\Whisk3DCore\objects
 SOURCE          VisSet.cpp MallaDatos.cpp
 SOURCEPATH      ..\..\..\libs\Whisk3DCore\base
 SOURCE          W3dConfig.cpp W3dClipboardSymbian.cpp
-SOURCEPATH      ..\..\..\libs\WhiskUI\draw
+SOURCEPATH      ..\..\..\libs\Whisk3D-UI\draw
 SOURCE          W3dAtlasPacker.cpp
 // objetos del editor que faltaban: LOD (niveles de detalle) y el espejo/agua
 SOURCEPATH      ..\..\..\main\objects
@@ -265,11 +265,12 @@ USERINCLUDE     ..\..\..\main\undo
 // (igual que en PC, que tiene libs/ en su include path).
 USERINCLUDE     ..\..\..\libs
 // WhiskUI reorganizado por tema: sus subcarpetas son include dir para los includes INTERNOS pelados ("icons.h")
-USERINCLUDE     ..\..\..\libs\WhiskUI\widgets
-USERINCLUDE     ..\..\..\libs\WhiskUI\text
-USERINCLUDE     ..\..\..\libs\WhiskUI\draw
-USERINCLUDE     ..\..\..\libs\WhiskUI\theme
-USERINCLUDE     ..\..\..\libs\WhiskUI\core
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\widgets
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\text
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\draw
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\theme
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\core
+USERINCLUDE     ..\..\..\libs\Whisk3D-UI\Propieties
 
 SYSTEMINCLUDE   .
 SYSTEMINCLUDE   \epoc32\include\stdapis
