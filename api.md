@@ -1,479 +1,2326 @@
-# Whisk3D Lua API reference
-
-This document lists the Lua functions that are currently registered by the runtime.
-The source of truth is the C++ registrations in:
-
-- `libs/Whisk3DCore/script/W3dScript.cpp`
-- `libs/Whisk3DCore/physics/W3dFisica.cpp`
-- `main/W3dEscena.cpp`
-- `main/script/BindsJuego.cpp`
-
-The engine calls `start()` and `update(dt)` on attached scripts, but those are lifecycle hooks, not global API functions.
-In each signature below, parameters shown without square brackets are required;
-parameters inside `[...]` are optional.
-
-## 1) Input and basic helpers
-
-### `key(name)`
-Returns `true` while the named key is held down.
-- `name`: string, for example `"w"`, `"a"`, `"space"`, `"escape"`.
-
-### `keyPressed(name)`
-Returns `true` only on the frame when the key transitions from released to pressed.
-- `name`: string key name.
-
-### `buttonPressed(name)`
-Returns `true` on the frame the gamepad button is pressed.
-- `name`: button name such as `"a"`, `"b"`, `"x"` or `"y"`.
-
-### `stick(name)`
-Returns the x/y value of a stick.
-- `name`: `"izq"` or `"der"` for left or right stick.
-- Returns: `x, y`
-
-### `touch()`
-Returns the current touch state for the primary touch slot.
-- Returns: `x, y, active`
-- Coordinates use the game canvas in pixels, with `(0, 0)` at the center.
-
-### `mouse()`
-Returns mouse position and active state.
-- Returns: `x, y, active`
-
-### `finger(index)`
-Returns the touch data for a finger. Use this with `getUIBox(obj)` when a
-control needs to respond to a particular button or to support multiple fingers.
-- `index`: finger number; in Lua the engine treats this as 1-based, so `finger(1)` is the first finger.
-- Returns: `x, y, active`
-- Coordinates use the game canvas in pixels, with `(0, 0)` at the center.
+# Whisk3D Lua scripting guide and API reference
 
-### `button(name)`
-Returns the current pressed state of a button.
-- `name`: controller button name.
+This is the combined scripting guide and API reference. It starts with the
+script lifecycle and practical tutorials, then documents the registered Lua
+functions with runnable examples. See [guide.md](./guide.md) for a compatibility
+link to this document.
 
-### `random([min], [max])`
-Returns a pseudo-random number.
-- If only one argument is given, it is treated as the upper bound and the result is in `[0, max)`.
-- If two arguments are given, the result is in `[min, max)`.
+This engine treats Lua like a component system: a `.lua` file can be attached to any object, and that script runs in its own Lua state. In practice, the pattern is very close to Unity's `MonoBehaviour` style:
 
-### `print(...)`
-Logs one or more values using the engine log system instead of the normal stdout console.
+- A script is attached to an object.
+- The script exposes editable values via `properties`.
+- `start()` runs once when play starts.
+- `update(dt)` runs every frame.
+- You access other objects with `object("Name")`.
 
-## 2) Script instance lookup and shared data
+The runtime binds C++ functions into each script's Lua state. Lua names are case-sensitive; use the exact spelling shown in this guide. A script can use the standard Lua base, `math`, `string`, and `table` libraries, plus the Whisk3D functions below. The game/UI bindings are registered alongside the Core API in the editor and game runtime.
 
-### `object("Name")`
-Looks up an object reference by a script-assigned name or by the exact scene object name.
-- `Name`: object name string.
+Projects are saved in the v5 layout: the `.w3d` file is JSON and referenced assets
+live in neighboring folders such as `scripts/`, `texturas/`, and `escenas/`.
+Older project formats remain readable and are migrated to v5 the next time they
+are saved. Use the editor test runner with `main/test/scenarios/v5-save.w3dtest`
+to verify legacy migration, repeated saves, reopening, and Lua property refresh.
+
+The Console viewport has Info, Warn, and Error filters, an optional Group toggle
+for collapsing consecutive duplicate messages, and supports drag-selection with
+Ctrl+C to copy (Ctrl+A selects the visible log).
+
+The Lua IDE toolbar includes File, Edit, and Help menus for opening/saving Lua
+scripts, loading the `start()`/`update(dt)` starter code, common editing commands,
+and a link to this combined guide and API reference. Save As asks for a
+filename, then a destination folder. Ctrl+Space opens API completion suggestions;
+use Up/Down and Tab to choose a suggestion. Ctrl+F finds the next match, and
+Ctrl+H replaces all matches after entering the search and replacement text. On
+Android, tap the code area to bring up the system keyboard.
+
+---
+
+## 1) Script lifecycle
+
+Every script can define these globals:
+
+```lua
+properties = {
+    speed = 6,
+    jump = 10,
+    label = "player",
+    active = true,
+    difficulty = { "easy", "normal", "hard" },
+}
+
+function start()
+    -- runs once when the game starts
+end
+
+function update(dt)
+    -- runs every frame; dt is seconds
+end
+```
+
+What this means in Unity terms:
+
+- `start()` ~= `Start()`
+- `update(dt)` ~= `Update(float dt)`
+- `properties` ~= serialized fields / inspector values
+
+You can read instance values with:
+
+```lua
+local speed = property("speed")
+local mode = option("difficulty")
+local ref = object("ball")
+```
+
+If a value is not assigned for that instance, the script default from `properties` is used. `property()` reads values; use Lua locals or `shared()` for changing runtime state.
+
+---
+
+## 2) What functions are actually exposed to Lua
+
+These are the actual global functions registered in the engine. They are not theoretical; they are bound at runtime.
+
+### 2.1 Core / object access
+
+```lua
+object("ObjectName")
+option("optionName")
+property("propertyName")
+parameter("propertyName" [, default])
+```
+
+Purpose:
+
+- `object()` first gets an editor-assigned object reference by property name, then searches the current scene by exact object name.
+- `object("Self")` returns the object the script is attached to.
+- `option()` reads a dropdown value chosen in the editor.
+- `property()` reads a custom numeric/bool/string value declared in `properties`.
+- `parameter()` is a legacy numeric helper. In the current implementation it
+  looks up `propiedad` rather than the registered `property`, so it returns its
+  fallback (zero by default). Use `property()` to read configured values.
+
+#### Example
+
+```lua
+local ball = object("Ball")
+if ball then
+    local x, y, z = Position(ball)
+    print("Ball:", x, y, z)
+end
+```
+
+---
+
+### 2.2 Transform / object movement
+
+```lua
+Position(obj)
+SetPosition(obj, x, y, z)
+mover(obj, dx, dy, dz)
+rotation(obj)
+setRotation(obj, x, y, z)
+rotate(obj, x, y, z)
+scaleObject(obj)
+setScale(obj, sx, sy, sz)
+scale(obj, factor)
+visible(obj)
+setVisible(obj, true_or_false)
+```
 
-### `option("name")`
-Reads the dropdown/option value for the current instance.
-- `name`: option field name.
+These are the main transform calls.
 
-### `property("name")`
-Reads the property value exposed in the script `properties` table.
-- `name`: property name.
+- `SetPosition(...)` is absolute positioning.
+- `mover(...)` moves relative to the current transform.
+- `setRotation(...)` sets absolute rotation in degrees.
+- `rotate(...)` rotates relative to current rotation.
+- `scaleObject(obj)` reads the scale; `scale(obj, factor)` applies a uniform relative scale.
 
-### `parameter("name" [, default])`
-Legacy numeric helper. It is kept for compatibility and returns the configured property value or the fallback default.
-- `name`: property name.
-- `default`: optional fallback value when the property is unset.
+Unity equivalents:
 
-### `shared("key")`
-Reads a value from the shared script state.
-- `key`: string key to read.
+- `SetPosition(obj, x, y, z)` ~= `transform.position = Vector3(x, y, z)`
+- `mover(obj, dx, dy, dz)` ~= `transform.Translate(dx, dy, dz)`
+- `setRotation(obj, x, y, z)` ~= `transform.eulerAngles = Vector3(x, y, z)`
+- `setVisible(obj, true)` ~= `SetActive(true)` or `Renderer.enabled = true`
+
+---
 
-### `setShared("key", value)`
-Writes a value into the shared script state.
-- `key`: string key.
-- `value`: number, boolean or string.
+### 2.3 Input
 
-### `changeScene(name [, restart])`
-Requests a switch to a scene already included in the project. The switch is
-applied at the end of the current frame. The destination initializes the first
-time it is entered; an initialized scene resumes its existing script state.
-Pass `true` for `restart` to reinitialize it.
+```lua
+key("w")
+keyPressed("w")
+buttonPressed("a")
+stick("izq")
+stick("der")
+touch()
+mouse()
+finger(1)
+button("a")
+```
 
-The legacy name `cambiarEscena(name [, restart])` remains available for
-compatibility with existing scripts.
+Common uses:
 
-### `changeSceneAsync(name [, activateWhenReady [, callback]])`
-Starts preparing a scene asynchronously. Returns `true` when the request is
-queued.
-- `name`: destination scene name.
-- `activateWhenReady`: optional boolean to activate it as soon as it is ready.
-- `callback`: optional callback called as `callback(name, progress, status)`;
-  progress is between 0 and 1, and status is a string.
+```lua
+if key("d") then
+    -- move right
+end
+
+if keyPressed("space") then
+    -- jump once
+end
+
+local x, y, active = touch()
+local x, y = stick("izq")
+local pressed = button("a")
+```
+
+Unity equivalents:
 
-### `sceneAsyncReadyLoad(name)`
-Returns whether the named scene has completed asynchronous loading.
-- `name`: scene name to check.
+- `key("w")` ~= `Input.GetKey("w")`
+- `keyPressed("space")` ~= `Input.GetKeyDown(KeyCode.Space)`
+- `stick("izq")` ~= `Gamepad left stick vector`
+- `button("a")` ~= `Input.GetButton("A")`
 
-## 3) Persistent config and script state
+---
 
-### `config("key" [, default])`
-Reads a persisted config value.
-- `key`: config key string.
-- `default`: optional fallback value returned when the key is missing.
+### 2.4 Audio and sound
 
-### `setConfig("key" [, value])`
-Writes a config value.
-- `key`: config key string.
-- `value`: optional value to store; omitted values are stored as an empty string.
+```lua
+sound("sounds/bip.wav", volume, pitch, loop)
+stopSound(handle, fadeSec)
+beep(frequency, ms, volume)
+```
+
+Examples:
+
+```lua
+sound("sounds/coin.wav", 0.7, 1.0, false)
+beep(440, 120, 0.4)
+```
+
+Unity equivalents:
 
-### `saveConfig()`
-Saves the current config values to disk.
+- `sound(...)` ~= `AudioSource.PlayOneShot(...)`
+- `beep(...)` ~= a lightweight synthesized sfx tone
+
+---
+
+### 2.5 Shared state between scripts
 
-### `loadConfig()`
-Loads config values from disk.
+```lua
+shared("score")
+setShared("score", 42)
+```
 
-### `silence(enabled)`
-Sets the global Lua/game audio mute state.
-- `enabled`: boolean.
+This is the engine's global cross-script data channel.
 
-### `isMuted()`
-Returns whether audio is globally muted.
+Example:
 
-## 4) Logging helpers
+```lua
+setShared("score", (shared("score") or 0) + 1)
+```
 
-### `info(...)`, `logInfo(...)`
-Writes an info-level log entry.
+Unity equivalent:
 
-### `error(...)`
-Writes an error-level log entry.
+- `setShared(...)` ~= static singleton / static variable / shared state manager
+- `shared(...)` ~= global static value accessed from multiple scripts
+
+---
+
+### 2.6 Config and logging
+
+```lua
+config("key", "defaultValue")
+setConfig("key", "value")
+saveConfig()
+loadConfig()
+silence(true)
+isMuted()
+info("message")
+logInfo("message")
+error("message")
+debug("message")
+print("hello")
+```
+
+Unity equivalents:
+
+- `config(...)` ~= `PlayerPrefs.GetString(...)`
+- `setConfig(...)` ~= `PlayerPrefs.SetString(...)`
+- `info(...)` ~= `Debug.Log(...)`
+- `logInfo(...)` ~= `Debug.LogWarning(...)`
+- `error(...)` ~= `Debug.LogError(...)`
+
+---
+
+### 2.7 UI / 2D game objects
+
+These are bound by the game layer:
+
+```lua
+screen()
+posPx(obj)
+setPosPx(obj, x, y)
+getScreenPx(obj)
+setScreenPx(obj, w, h)
+setText(obj, text)
+setTextura(obj, "path/image.png")
+show(obj, true)
+setOpacity(obj, 1.0)
+setFontScreenSize(obj, size)
+```
+
+Use these for HUD, buttons, health bars, menus, and screen-space UI.
+
+Unity equivalent:
+
+- `screen()` ~= `Screen.width`, `Screen.height`
+- `setText(obj, text)` ~= `Text.text = ...`
+- `setTextura(obj, ...)` ~= `Image.sprite = ...`
+
+---
+
+### 2.8 Camera / viewport helpers
+
+```lua
+screenOf(obj)
+setRail(obj, curve, node)
+setRailNode(obj, value)
+setRailLookAt(obj, true)
+railOf(obj)
+lensOf(obj)
+setLens(obj, fov, near, far)
+cameraXZ()
+target()
+parameter("name", default)
+```
+
+These are the camera/gameplay helpers for moving along curves, setting lenses, and using camera-relative motion.
+
+Unity equivalents:
+
+- `cameraXZ()` ~= camera-forward/right plane vectors
+- `target()` ~= a player target or follow target reference
+- `setRail(...)` ~= path-following camera controller
+
+---
+
+## 3) Minimal game sample
+
+This is a tiny player controller using the actual functions exposed by the engine.
+
+```lua
+properties = {
+    speed = 6.0,
+    jump = 12.0,
+    acceleration = 14.0,
+}
+
+local player = nil
+local yBase = 0
+local jumpActive = false
+
+function start()
+    player = object("Player")
+    if not player then
+        error("Player object not found")
+        return
+    end
+
+    local x, y, z = Position(player)
+    yBase = y
+    setShared("points", 0)
+    info("Game ready")
+end
+
+function update(dt)
+    if not player then return end
+
+    local vx = 0.0
+    local vy = 0.0
+
+    if key("a") or key("left") then
+        vx = vx - 1
+    end
+
+    if key("d") or key("right") then
+        vx = vx + 1
+    end
+
+    if keyPressed("space") and not jumpActive then
+        jumpActive = true
+        vy = property("jump")
+    end
+
+    if not key("space") and jumpActive then
+        local x, y, z = Position(player)
+        if y <= yBase then
+            jumpActive = false
+            SetPosition(player, x, yBase, z)
+        end
+    end
+
+    mover(player, vx * property("speed") * dt, vy * dt, 0)
+
+    local x, y, z = Position(player)
+    if y < yBase then
+        SetPosition(player, x, yBase, z)
+        jumpActive = false
+    end
+end
+```
+
+### A more game-like sample: coin collection
+
+```lua
+properties = {
+    name = "Coin",
+    value = 1,
+}
+
+local coin = nil
+local active = true
+
+function start()
+    coin = object("Coin")
+    if coin then
+        print("Coin loaded")
+    end
+end
+
+function update(dt)
+    if not coin or not active then return end
+
+    local x, y, z = Position(coin)
+    local player = object("Player")
+    if player then
+        local px, py, pz = Position(player)
+        local dist = math.sqrt((px - x) ^ 2 + (py - y) ^ 2 + (pz - z) ^ 2)
+
+        if dist < 1.5 then
+            setShared("points", (shared("points") or 0) + property("value"))
+            setVisible(coin, false)
+            active = false
+            sound("sounds/coin.wav", 0.7, 1.0, false)
+        end
+    end
+end
+```
+
+This is the same idea as a Unity `OnTriggerEnter` + score update, but written in Lua with object references and shared state.
+
+---
 
-### `debug(...)`
-Writes a debug-level log entry.
+## 4) Unity C# equivalent mental model
+
+Think of Whisk3D Lua as a lightweight Unity-like scripting system.
+
+| Whisk3D Lua | Unity C# idea |
+| --- | --- |
+| `properties = { ... }` | `[SerializeField]` / inspector editable fields |
+| `function start()` | `Start()` |
+| `function update(dt)` | `Update()` |
+| `object("Name")` | `GameObject.Find("Name")` |
+| `SetPosition(obj, x, y, z)` | `transform.position = new Vector3(x, y, z)` |
+| `mover(obj, dx, dy, dz)` | `transform.Translate(dx, dy, dz)` |
+| `rotate(obj, x, y, z)` | `transform.Rotate(x, y, z)` |
+| `setVisible(obj, true)` | `gameObject.SetActive(true)` or renderer enabled |
+| `shared("score")` | static/global state |
+| `setShared("score", v)` | `GameManager.Instance.score = v` |
+| `key("w")` | `Input.GetKey("w")` |
+| `keyPressed("space")` | `Input.GetKeyDown(KeyCode.Space)` |
+| `sound("file.wav")` | `AudioSource.PlayOneShot(...)` |
+| `info(...)` | `Debug.Log(...)` |
+| `error(...)` | `Debug.LogError(...)` |
+
+The main difference is that in Whisk3D the script is attached to a scene object and the engine exposes a direct C++-bound API, while Unity uses C# layer APIs around UnityEngine.
+
+---
+
+## 5) How to make a small game in this project
+
+### Step 1: Add a script to an object
+
+Create or assign a `.lua` file to an object in the editor.
+
+### Step 2: Expose data in the inspector
+
+```lua
+properties = {
+    speed = 5,
+    score = 0,
+    name = "Enemy",
+    active = true,
+}
+```
+
+These values appear as editable instance values in the editor.
+
+### Step 3: Get references to other objects
+
+```lua
+local player = object("Player")
+local enemy = object("Enemy")
+```
+
+### Step 4: Move or react each frame
+
+```lua
+function update(dt)
+    local x, y, z = Position(player)
+    if key("d") then
+        mover(player, 2 * dt, 0, 0)
+    end
+end
+```
+
+### Step 5: Share state across scripts
 
-### `esDebug()`
-Returns whether debug logging is enabled.
+```lua
+setShared("score", (shared("score") or 0) + 1)
+```
 
-### `logQuantity(...)`
-Logs a quantity/value message.
+This is how multiple objects coordinate without a complex manager object.
 
-### `logLine(...)`
-Logs a single line of text.
+### Step 6: Keep logic simple
 
-## 5) Object transform and visibility APIs
+Use this pattern:
 
-These functions act on an object reference returned by `object()` or a specific object handle.
+- `start()` for setup and references
+- `update(dt)` for movement and checks
+- `shared()` for game-wide state
+- `object("...")` for object lookup
+- one script per object or a few scripts working together
+
+---
+
+## 6) Recommended beginner structure
 
-### `type(obj)`
-Returns the object type name or type identifier.
+For a simple game, prefer this layout:
 
-### `name(obj)`
-Returns the object name.
+- `Player.lua` — movement, input, collisions
+- `Coin.lua` — pickup logic
+- `Enemy.lua` — chase / attack logic
+- `HUD.lua` — reads `shared("score")` and updates UI text
 
-### `Position(obj)`
-Returns the world position of the object.
-- Returns: `x, y, z`
+This looks very much like Unity's `PlayerController`, `Pickup`, `EnemyAI`, and `HUD` scripts.
 
-### `SetPosition(obj, x, y, z)`
-Sets the absolute position of the object.
+---
 
-### `mover(obj, dx, dy, dz)`
-Moves the object by a relative offset.
+## 7) Quick cheatsheet
 
-### `rotation(obj)`
-Returns the rotation in degrees.
-- Returns: `x, y, z`
+```lua
+-- create/read instance values
+property("speed")
+option("difficulty")
+object("Ball")
 
-### `setRotation(obj, x, y, z)`
-Sets the absolute rotation in degrees.
+-- transform
+SetPosition(obj, x, y, z)
+mover(obj, dx, dy, dz)
+setRotation(obj, x, y, z)
+rotate(obj, x, y, z)
+setVisible(obj, true)
 
-### `rotate(obj, x, y, z)`
-Rotates the object by a relative angle in degrees.
+-- input
+key("w")
+keyPressed("space")
+stick("izq")
+touch()
+mouse()
 
-### `scaleObject(obj)`
-Returns the object scale.
-- Returns: `x, y, z`
+-- audio
+sound("sfx.wav")
+beep(440, 120, 0.5)
 
-### `setScale(obj, sx, sy, sz)`
-Sets the absolute scale.
+-- state
+setShared("score", 10)
+shared("score")
 
-### `scale(obj, factor)`
-Applies a relative uniform scaling factor. With no object argument, the game
-layer returns the responsive UI scale factor instead.
+-- config
+config("music", "on")
+setConfig("music", "off")
 
-### `visible(obj)`
-Returns whether the object is visible.
+-- log
+info("hello")
+logInfo("warning")
+error("bad")
+```
 
-### `setVisible(obj, visible)`
-Sets the visibility flag.
+---
 
-### `animator(obj, animationId [, startFrame])`
-Requests a vertex-animation clip on a mesh.
-- `animationId`: numeric animation identifier.
-- `startFrame`: optional frame that switches to the requested animation immediately. Without it, the requested animation is queued after the current clip.
+## 8) Final idea
 
-### `rotateTowards(obj, dx, dz [, factor])`
-Smoothly rotates an object toward a direction on the X/Z plane.
-- `obj`: object to rotate.
-- `dx`, `dz`: direction components.
-- `factor`: optional interpolation factor; defaults to `0.2`.
+Whisk3D Lua is not a random Lua environment. It is a Unity-like object scripting layer with:
 
-### `instantiate(name [, x, y, z])`
-Clones a prefab from the project's library and returns the new object, or `nil`
-if the prefab is unavailable.
-- `name`: prefab name.
-- `x`, `y`, `z`: optional initial position in engine coordinates; supply all three.
+- object references by name
+- inspector-like property values
+- lifecycle hooks `start()` and `update(dt)`
+- shared game state via `shared()`
+- direct transforms, audio, UI, and input hooks
 
-### `pos3(obj)`
-Returns the object position as a 3-vector-like value.
+If you think in Unity terms, the mental mapping is:
 
-### `setPos3(obj, x, y, z)`
-Sets the object position using 3 values.
+- object script instance = `MonoBehaviour`
+- `properties` = serialized fields
+- `object("X")` = `GameObject.Find("X")`
+- `shared()` = static/global manager state
+- `start()` = `Start()`
+- `update(dt)` = `Update()`
 
-## 6) Lights and simple rendering properties
+That is the shortest path to writing a game in this engine.
 
-### `color(light)`
-Returns the light tint as `r, g, b` with values in the normalized 0..1 range.
+---
 
-### `setColor(light, r, g, b)`
-Sets the light color while preserving the current brightness.
+# API Reference
 
-### `energy(light)`
-Returns the current light brightness.
+Complete API documentation for all Lua functions exposed by Whisk3D. Functions are organized by category.
 
-### `setEnergy(light, value)`
-Sets the light brightness.
-- `value`: normalized brightness in the 0..1 range.
+## Complete registered API index
 
-## 7) Mesh and vertex helpers
+These are the Whisk3D globals registered for scripts. Names and capitalization are intentional. The stock Lua base, `math`, `string`, and `table` libraries are also available; `print` is redirected to the engine log, and Whisk3D replaces Lua's standard `error` with its own log function.
 
-These are advanced helpers used for procedural mesh work.
+| Category | Registered functions |
+| --- | --- |
+| Object and properties | `object`, `property`, `option`, `parameter`, `type`, `name` |
+| Transforms and visibility | `Position`, `SetPosition`, `mover`, `rotation`, `setRotation`, `rotate`, `scaleObject`, `setScale`, `scale`, `visible`, `setVisible`, `pos3`, `setPos3` |
+| Input and random | `key`, `keyPressed`, `buttonPressed`, `button`, `stick`, `touch`, `finger`, `mouse`, `random` |
+| Shared state and configuration | `shared`, `setShared`, `config`, `setConfig`, `saveConfig`, `loadConfig` |
+| Logging and sound | `print`, `info`, `logInfo`, `error`, `debug`, `esDebug`, `logQuantity`, `logLine`, `beep`, `sound`, `stopSound`, `silence`, `isMuted` |
+| Lighting and animation | `color`, `setColor`, `energy`, `setEnergy`, `animator`, `rotateTowards`, `instantiate` |
+| Vertex editing | `grupoVertices`, `verticePos`, `setVerticePos`, `setVerticeColor`, `setVertices` |
+| Physics | `velocity`, `accelerate`, `collisionBox`, `bounce`, `bounceWithin`, `bounceInside` |
+| Screen and UI | `screen`, `posPx`, `setPosPx`, `getScreenPx`, `setScreenPx`, `setText`, `setTextura`, `show`, `setOpacity`, `setFontScreenSize`, `isPressed`, `isDown`, `isColliding`, `clamp`, `isInside`, `getScale`, `getSafeArea`, `fade`, `getUIBox`, `screenOf`, `quot` |
+| Camera, visibility, and game | `setRail`, `setRailNode`, `setRailLookAt`, `railOf`, `lensOf`, `setLens`, `cameraXZ`, `target`, `controllers`, `controller`, `setSector`, `visibilityCell`, `setVisibilityAnchor`, `setVisibilityCurve`, `setCollection`, `emitter`, `changeScene`, `changeSceneAsync`, `sceneAsyncReadyLoad` |
 
-### `grupoVertices(obj, groupName)`
-Accesses a named vertex group.
+The physics functions are still registered in builds made without the physics module, but those builds provide disabled stubs. Some scene, visibility, particle, and collection operations depend on runtime hooks; see their individual descriptions below.
 
-### `verticePos(obj, groupName, index)`
-Reads the position of a vertex from a vertex group.
+## Object & Script Lifecycle
 
-### `setVerticePos(obj, groupName, index, x, y, z)`
-Updates the stored position of a vertex.
+### `object(name: string) → Object | nil`
+Looks up an editor-assigned script reference first, then searches by exact name in the scene containing this script. Passing `"Self"` returns the object that owns the script.
 
-### `setVerticeColor(obj, groupName, index, r, g, b, a)`
-Sets an RGBA color on a vertex.
+**Parameters:**
+- `name`: Object name to search for
 
-### `setVertices(obj, groupName, data)`
-Sets vertex data for a mesh group.
+**Returns:** Object reference or nil if not found
 
-## 8) Runtime/game helpers
+**Example:**
+```lua
+local player = object("Player")
+if player then
+    print("Found player")
+end
+local selfObject = object("Self")
+```
 
-These functions are registered by the 2D game layer in `main/script/BindsJuego.cpp`.
+---
 
-### `screen()`
-Returns the current render canvas size or screen dimensions for the game UI.
+### `property(name: string) → number | string | bool`
+Reads a property value from the current script's `properties` table.
 
-### `posPx(obj)`
-Returns the position of a 2D object in pixels on the current screen/canvas.
+**Parameters:**
+- `name`: Property key name
 
-### `setPosPx(obj, x, y)`
-Sets a 2D object position in canvas pixels.
+**Returns:** Property value, or nil if not defined
 
-### `getScreenPx(obj)`
-Returns the object size in pixels.
+**Example:**
+```lua
+function update(dt)
+    local speed = property("speed")
+    mover(object("Self"), speed * dt, 0, 0)
+end
+```
 
-### `setScreenPx(obj, w, h)`
-Sets a 2D object size in pixels.
+---
 
-### `setText(obj, text)`
-Sets the text contents of a 2D text or button object.
-- `text`: string.
+### `option(name: string) → string`
+Reads a dropdown option value from the current script.
 
-### `setTextura(obj, path)`
-Sets the texture path of an image UI object.
-- `obj`: image object.
-- `path`: project-relative or absolute texture path.
+**Parameters:**
+- `name`: Option key name
 
-### `show(obj)` / `show(obj, visible)`
-Shows or hides a 2D object.
+**Returns:** Selected option value, or an empty string if no value is assigned
 
-### `setOpacity(obj, alpha)`
-Sets the opacity/alpha of a UI object.
-- `alpha`: normalized float in 0..1.
+**Example:**
+```lua
+local difficulty = option("difficulty")
+if difficulty == "hard" then
+    local enemyCount = 10
+    print("Hard mode enemy count:", enemyCount)
+end
+```
 
-### `setFontScreenSize(obj, size)`
-Changes the screen-size scale used by a text element.
+---
 
-### `sound(path, volume, pitch, loop)`
+### `parameter(name: string [, default: number]) → number`
+Legacy numeric-property helper. In the current implementation it looks up
+`propiedad`, which is not a registered global, and therefore returns the fallback
+value (zero when omitted). Use `property(name)` to read configured values.
+
+**Parameters:**
+- `name`: Property key name
+- `default`: Fallback value; optional, defaults to `0`
+
+**Returns:** Numeric property value
+
+**Example:**
+```lua
+local health = parameter("health", 100)
+```
+
+---
+
+## Transform / Movement
+
+### `Position(obj: Object) → x, y, z`
+Gets the object's local position relative to its parent (or its world position when it has no parent).
+
+**Parameters:**
+- `obj`: Object to query
+
+**Returns:** Three numbers: x, y, z coordinates
+
+**Example:**
+```lua
+local x, y, z = Position(player)
+print("Player at:", x, y, z)
+```
+
+---
+
+### `SetPosition(obj: Object, x: number, y: number, z: number)`
+Sets the object's position relative to its parent (or its world position when it has no parent).
+
+**Parameters:**
+- `obj`: Object to move
+- `x, y, z`: Target coordinates
+
+**Returns:** None
+
+**Example:**
+```lua
+SetPosition(player, 0, 5, 0)  -- teleport to (0, 5, 0)
+```
+
+---
+
+### `mover(obj: Object, dx: number, dy: number, dz: number)`
+Moves an object relative to its current position.
+
+**Parameters:**
+- `obj`: Object to move
+- `dx, dy, dz`: Movement deltas
+
+**Returns:** None
+
+**Example:**
+```lua
+function update(dt)
+    if key("w") then
+        mover(player, 0, 0, 5 * dt)  -- move forward
+    end
+end
+```
+
+---
+
+### `rotation(obj: Object) → x, y, z`
+Gets the rotation of an object in degrees.
+
+**Parameters:**
+- `obj`: Object to query
+
+**Returns:** Three numbers: euler angles x, y, z (in degrees)
+
+**Example:**
+```lua
+local rx, ry, rz = rotation(player)
+```
+
+---
+
+### `setRotation(obj: Object, x: number, y: number, z: number)`
+Sets the absolute rotation of an object in degrees.
+
+**Parameters:**
+- `obj`: Object to rotate
+- `x, y, z`: Target euler angles in degrees
+
+**Returns:** None
+
+**Example:**
+```lua
+setRotation(enemy, 0, 45, 0)  -- face 45 degrees
+```
+
+---
+
+### `rotate(obj: Object, x: number, y: number, z: number)`
+Rotates an object relative to its current rotation.
+
+**Parameters:**
+- `obj`: Object to rotate
+- `x, y, z`: Rotation deltas in degrees
+
+**Returns:** None
+
+**Example:**
+```lua
+rotate(projectile, 0, 10 * dt, 0)  -- spin around Y axis
+```
+
+---
+
+### `scaleObject(obj: Object) → sx, sy, sz`
+Gets the object's scale.
+
+**Parameters:**
+- `obj`: Object to query
+
+**Returns:** Three numbers: scale x, y, z
+
+**Example:**
+```lua
+local sx, sy, sz = scaleObject(enemy)
+```
+
+---
+
+### `setScale(obj: Object, sx: number [, sy: number [, sz: number]])`
+Sets the absolute scale of an object. Omitted axes use `sx`, so one number sets a uniform scale.
+
+**Parameters:**
+- `obj`: Object to scale
+- `sx`: Target X scale
+- `sy, sz`: Optional Y and Z scales (default to `sx`)
+
+**Returns:** None
+
+**Example:**
+```lua
+setScale(explosion, 2, 2, 2)  -- double size
+```
+
+---
+
+### `scale(obj: Object, factor: number)`
+Multiplies all three scale axes by the same relative factor.
+
+**Parameters:**
+- `obj`: Object to scale
+- `factor`: Scale multiplier
+
+**Returns:** None
+
+**Example:**
+```lua
+scale(ui_button, 1.1)  -- 10% bigger on every axis
+```
+
+---
+
+### `visible(obj: Object) → bool`
+Checks if an object is visible.
+
+**Parameters:**
+- `obj`: Object to check
+
+**Returns:** true if visible, false otherwise
+
+**Example:**
+```lua
+if visible(coin) then
+    print("Coin is visible")
+end
+```
+
+---
+
+### `setVisible(obj: Object, visible: bool)`
+Sets the visibility of an object.
+
+**Parameters:**
+- `obj`: Object to modify
+- `visible`: true to show, false to hide
+
+**Returns:** None
+
+**Example:**
+```lua
+setVisible(npc, false)  -- hide the NPC
+```
+
+---
+
+### `name(obj: Object) → string`
+Gets the name of an object.
+
+**Parameters:**
+- `obj`: Object to query
+
+**Returns:** Object name
+
+**Example:**
+```lua
+local objName = name(player)
+```
+
+---
+
+### `type(obj: Object) → string`
+Gets the type of an object (e.g., "mesh", "light", "camera", "texto2d").
+
+**Parameters:**
+- `obj`: Object to query
+
+**Returns:** Type name as string
+
+**Example:**
+```lua
+if type(obj) == "mesh" then
+    -- it's a 3D mesh
+end
+```
+
+---
+
+## Input
+
+### `key(name: string) → bool`
+Checks if a key is currently pressed.
+
+**Parameters:**
+- `name`: Key name ("w", "a", "s", "d", "space", "left", "right", "up", "down", etc.)
+
+**Returns:** true if pressed, false otherwise
+
+**Example:**
+```lua
+if key("w") then
+    mover(player, 0, 0, speed * dt)
+end
+```
+
+---
+
+### `keyPressed(name: string) → bool`
+Checks if a key was just pressed (only true for one frame). The registered
+function name is exactly `keyPressed`.
+Use this spelling in scripts; `keyDown` is not registered.
+
+**Parameters:**
+- `name`: Key name
+
+**Returns:** true only on the frame the key is pressed, false otherwise
+
+**Example:**
+```lua
+if keyPressed("space") then
+    startJump()
+end
+```
+
+---
+
+### `buttonPressed(name: string) → bool`
+Checks if a gamepad button was just pressed.
+
+**Parameters:**
+- `name`: Button name ("a", "b", "x", "y", "start", "select", etc.)
+
+**Returns:** true on the frame pressed, false otherwise
+
+**Example:**
+```lua
+if buttonPressed("a") then
+    attack()
+end
+```
+
+---
+
+### `button(name: string) → bool`
+Checks if a gamepad button is currently pressed.
+
+**Parameters:**
+- `name`: Button name
+
+**Returns:** true if pressed, false otherwise
+
+**Example:**
+```lua
+if button("lb") then
+    -- trigger action
+end
+```
+
+---
+
+### `stick(side: string) → x, y`
+Gets the analog stick position.
+
+**Parameters:**
+- `side`: `"izq"` (left, default) or `"der"` (right)
+
+**Returns:** Two numbers: x and y in range [-1, 1]
+
+**Example:**
+```lua
+local lx, ly = stick("izq")
+local rx, ry = stick("der")
+mover(player, lx * speed * dt, 0, ly * speed * dt)
+```
+
+---
+
+### `touch() → x, y, active`
+Gets the primary touch position and state in canvas coordinates (centered at 0, 0).
+
+**Parameters:** None
+
+**Returns:** Three values: x, y (canvas coordinates), active (true if touching)
+
+**Example:**
+```lua
+local x, y, active = touch()
+if active then
+    print("Touch at:", x, y)
+end
+```
+
+---
+
+### `finger(index: number) → x, y, active`
+Gets the state of a specific touch finger (multitouch).
+
+**Parameters:**
+- `index`: Finger index (0-3)
+
+**Returns:** Three values: x, y (canvas coordinates), active (true if touching)
+
+**Example:**
+```lua
+local x, y, active = finger(0)
+```
+
+---
+
+### `mouse() → x, y`
+Gets the mouse cursor position in canvas coordinates (centered at 0, 0).
+
+**Parameters:** None
+
+**Returns:** Two numbers: x, y in canvas coordinates
+
+**Example:**
+```lua
+local mx, my = mouse()
+```
+
+---
+
+## Audio
+
+### `sound(path: string, volume: number, pitch: number, loop: bool) → handle | nil`
 Plays a sound effect.
-- `path`: relative or absolute asset path.
-- `volume`: 0..1, optional.
-- `pitch`: 1 = normal pitch, optional.
-- `loop`: boolean, optional.
-- Returns: sound handle id.
 
-### `stopSound(handle, fadeSec)`
-Stops a sound by handle.
-- `handle`: sound handle returned by `sound()`.
-- `fadeSec`: optional fade-out time.
+**Parameters:**
+- `path`: Path to sound file (e.g., "sounds/coin.wav")
+- `volume`: Optional volume (0.0 to 1.0, default 1.0)
+- `pitch`: Optional pitch multiplier (1.0 = normal, default 1.0)
+- `loop`: Optional boolean; true to loop, false to play once
 
-### `beep(frequency, ms, volume)`
+**Returns:** Handle to stop the sound later, or `nil` if playback could not start
+
+**Example:**
+```lua
+local sfx = sound("sounds/coin.wav", 0.7, 1.0, false)
+if sfx then stopSound(sfx) end
+```
+
+---
+
+### `stopSound(handle: number, fadeSec: number)`
+Stops a currently playing sound.
+
+**Parameters:**
+- `handle`: Sound handle from `sound()` call
+- `fadeSec`: Fade duration in seconds (0 = instant)
+
+**Returns:** None
+
+**Example:**
+```lua
+stopSound(music_handle, 2.0)  -- fade out over 2 seconds
+```
+
+---
+
+### `beep(frequency: number, ms: number, volume: number)`
 Plays a synthesized tone.
-- `frequency`: tone frequency in Hz.
-- `ms`: duration in milliseconds.
-- `volume`: optional volume from 0 to 1.
 
-### `isPressed(obj)`
-Returns `true` for one frame when a new touch or click begins inside the object's UI box.
+**Parameters:**
+- `frequency`: Frequency in Hz (e.g., 440 = A4)
+- `ms`: Duration in milliseconds
+- `volume`: Volume (0.0 to 1.0)
 
-### `isDown(obj)`
-Returns `true` while a touch or mouse button is held inside the object's UI box. Use it for
-continuous controls such as virtual left/right buttons; use `isPressed` for one-shot actions.
+**Returns:** None
 
-### `isColliding(a, b)`
-Returns whether two UI/game regions or objects overlap/collide.
+**Example:**
+```lua
+beep(440, 100, 0.5)  -- A4 note for 100ms
+```
 
-### `clamp(value, min, max)`
-Clamps a value into a range.
+---
 
-### `isInside(area [, x [, y]])`
-Checks whether a point lies inside a target UI area.
-- `area`: target UI object.
-- `x`: optional point x-coordinate in canvas pixels; `nil` skips the x-axis test.
-- `y`: optional point y-coordinate; `nil` skips the y-axis test.
+## Shared State & Config
 
-### `getScale(obj)`
-Returns the current visual scale for a UI object.
+### `shared(key: string) → value`
+Reads a global value shared across all scripts.
 
-### `getSafeArea()`
-Returns the current safe-area rectangle for the screen.
+**Parameters:**
+- `key`: Key name
 
-### `fade(obj, ...)`
-Applies a fade/transition on a UI object.
+**Returns:** Stored value or nil if not set
 
-### `getUIBox(obj)`
-Returns the current rendered UI box of an object as its center `x, y` and
-dimensions `w, h`, in game-canvas pixels.
+**Example:**
+```lua
+local score = shared("score") or 0
+```
 
-### `screenOf(obj)`
-Returns the screen-space data for the given UI object.
+---
 
-### `setRail(obj, railName)`
-Assigns a rail to a UI or object.
+### `setShared(key: string [, value: number | string | bool | nil])`
+Sets a global value accessible to all scripts.
 
-### `setRailNode(obj, nodeIndex)`
-Moves the object to a specific rail node.
+**Parameters:**
+- `key`: Key name
+- `value`: Number, string, or boolean to store; nil or an omitted value removes
+  the key. Other Lua types are not supported.
 
-### `setRailLookAt(obj, target)`
-Sets a rail look-at orientation target.
+**Returns:** None
 
-### `railOf(obj)`
-Returns the rail associated with an object.
+**Example:**
+```lua
+setShared("score", shared("score") + 10)
+```
 
-### `lensOf(obj)`
-Returns the lens/camera data for an object.
+---
 
-### `setLens(obj, lensData)`
-Sets the lens/camera data for an object.
+### `config(key: string [, default: string]) → string`
+Reads a persistent config value (saved to disk).
 
-### `cameraXZ(obj)`
-Returns the camera X/Z orientation data.
+**Parameters:**
+- `key`: Config key
+- `default`: Fallback value if the key is not set; optional, defaults to `""`
 
-### `target(obj)`
-Returns the target object or data used for camera or tracking logic.
+**Returns:** Config value
 
-### `parameter(name, default)`
-Same compatibility helper described earlier, used in the UI/game layer for properties stored in the runtime project.
+**Example:**
+```lua
+local musicVolume = config("musicVolume", "0.8")
+```
 
-### `controllers()`
-Returns the connected controller list.
+---
 
-### `controller(index)`
-Returns the controller object/state for the given index.
+### `setConfig(key: string [, value: string | number])`
+Sets a config value in memory. Call `saveConfig()` to persist it.
 
-### `setSector(obj, sector)`
-Selects the active 1-based visibility/PVS sector for an object. Sector `0`
-shows the full mesh.
-- `obj`: object with a culling/PVS modifier.
-- `sector`: sector index, or `0` for the whole mesh.
+**Parameters:**
+- `key`: Config key
+- `value`: Value to store as a string; optional, defaults to `""`
 
-### `visibilityCell(obj)`
-Returns the active visibility cell for an object, or `nil` if it is not part of
-a visibility system.
-- `obj`: object participating in visibility culling.
+**Returns:** None
 
-### `setVisibilityAnchor(zone, obj)`
-Sets the object whose position selects the active cell in a visibility zone.
-- `zone`: visibility zone.
-- `obj`: anchor object.
+**Example:**
+```lua
+setConfig("difficulty", "hard")
+```
 
-### `setVisibilityCurve(zone, t [, rail])`
-Updates a curve-driven visibility zone.
-- `zone`: visibility zone.
-- `t`: fractional position along the curve.
-- `rail`: optional curve object or curve name.
+---
 
-### `setCollection(collection, mode)`
-Enables or disables static batching for a collection.
-- `collection`: collection object.
-- `mode`: `"static"` to enable batching or `"off"` to disable it.
+### `saveConfig() → bool`
+Saves all config changes to the platform's persistent storage.
 
-### `emitter(obj [, count])`
-Emits a particle burst immediately.
-- `obj`: particle emitter object.
-- `count`: optional burst count; defaults to `1`.
+**Parameters:** None
+
+**Returns:** true if saving succeeded
+
+**Example:**
+```lua
+setConfig("lastLevel", "5")
+saveConfig()
+```
+
+---
+
+### `loadConfig() → bool`
+Loads config from the platform's persistent storage.
+
+**Parameters:** None
+
+**Returns:** true if saved configuration was loaded
+
+**Example:**
+```lua
+loadConfig()
+local level = config("lastLevel", "1")
+```
+
+---
+
+### `silence([muted: bool])`
+Enables or disables global mute. The parameter uses Lua truthiness; omit it or
+pass false to unmute.
+
+**Parameters:** `muted`: true to mute; false or omitted to unmute
+
+**Returns:** None
+
+**Example:**
+```lua
+silence(true)
+```
+
+---
+
+### `isMuted() → bool`
+Checks if audio is muted.
+
+**Parameters:** None
+
+**Returns:** true if muted, false otherwise
+
+**Example:**
+```lua
+if not isMuted() then
+    sound("sounds/sfx.wav", 0.5, 1.0, false)
+end
+```
+
+---
+
+## Logging
+
+### `info(message: string)`
+Prints an info message to the console.
+
+**Parameters:**
+- `message`: Message text
+
+**Returns:** None
+
+**Example:**
+```lua
+info("Player spawned at x=" .. x)
+```
+
+---
+
+### `logInfo(message: string)`
+Writes a warning-level message to the engine log.
+
+**Parameters:**
+- `message`: Message text
+
+**Returns:** None
+
+**Example:**
+```lua
+logInfo("Low on ammo!")
+```
+
+---
+
+### `error(message: string)`
+Writes an error message to the engine log. This replaces Lua's standard `error()` and does not stop the script; use `assert()` to abort the current callback.
+
+**Parameters:**
+- `message`: Error text
+
+**Returns:** None
+
+**Example:**
+```lua
+if not player then
+    error("Player not found!")
+end
+```
+
+---
+
+### `debug(message: string)`
+Prints a debug message (only shown if debug mode is enabled).
+
+**Parameters:**
+- `message`: Debug text
+
+**Returns:** None
+
+**Example:**
+```lua
+debug("Frame " .. frameCount .. ": " .. x .. ", " .. y)
+```
+
+---
+
+### `esDebug() → bool`
+Checks if the engine is running in debug mode.
+
+**Parameters:** None
+
+**Returns:** true if debug mode, false otherwise
+
+**Example:**
+```lua
+if esDebug() then
+    debug("Detailed debug info")
+end
+```
+
+---
+
+### `print(message: string)`
+Prints a message (standard Lua print, redirected to the Whisk3D console).
+
+**Parameters:**
+- `message`: Message text
+
+**Returns:** None
+
+**Example:**
+```lua
+print("x=" .. x .. ", y=" .. y)
+```
+
+---
+
+## 2D Screen / UI
+
+### `screen() → width, height`
+Gets the screen resolution.
+
+**Parameters:** None
+
+**Returns:** Two numbers: width and height in pixels
+
+**Example:**
+```lua
+local w, h = screen()
+print("Screen: " .. w .. "x" .. h)
+```
+
+---
+
+### `posPx(obj: Object) → x, y`
+Gets the 2D screen position of a UI element (in screen pixels).
+
+**Parameters:**
+- `obj`: UI object
+
+**Returns:** Two numbers: x, y in screen coordinates
+
+**Example:**
+```lua
+local x, y = posPx(button)
+```
+
+---
+
+### `setPosPx(obj: Object, x: number | nil, y: number | nil)`
+Sets the 2D screen position of a UI element. Pass nil to leave an axis unchanged.
+
+**Parameters:**
+- `obj`: UI object
+- `x`: X position (nil to keep current)
+- `y`: Y position (nil to keep current)
+
+**Returns:** None
+
+**Example:**
+```lua
+setPosPx(button, 100, nil)  -- move right only
+```
+
+---
+
+### `getScreenPx(obj: Object) → width, height`
+Gets the 2D size of a UI element in screen pixels.
+
+**Parameters:**
+- `obj`: UI object
+
+**Returns:** Two numbers: width, height
+
+**Example:**
+```lua
+local w, h = getScreenPx(panel)
+```
+
+---
+
+### `setScreenPx(obj: Object, width: number, height: number)`
+Sets the 2D size of a UI element in screen pixels.
+
+**Parameters:**
+- `obj`: UI object
+- `width`: Width in pixels
+- `height`: Height in pixels
+
+**Returns:** None
+
+**Example:**
+```lua
+setScreenPx(panel, 256, 128)
+```
+
+---
+
+### `setText(obj: Object, text: string)`
+Sets the text of a 2D text object.
+
+**Parameters:**
+- `obj`: Text2D object
+- `text`: Text content
+
+**Returns:** None
+
+**Example:**
+```lua
+setText(scoreLabel, "Score: " .. score)
+```
+
+---
+
+### `setTextura(obj: Object, path: string)`
+Sets the texture/image of a 2D image object.
+
+**Parameters:**
+- `obj`: Image2D or UI element
+- `path`: Path to image file
+
+**Returns:** None
+
+**Example:**
+```lua
+setTextura(healthBar, "images/health_full.png")
+```
+
+---
+
+### `show(obj: Object, visible: bool)`
+Shows or hides a 2D UI element (alias for `setVisible`).
+
+**Parameters:**
+- `obj`: UI object
+- `visible`: true to show, false to hide
+
+**Returns:** None
+
+**Example:**
+```lua
+show(pauseMenu, true)
+```
+
+---
+
+### `setOpacity(obj: Object, opacity: number)`
+Sets the transparency of a 2D element.
+
+**Parameters:**
+- `obj`: UI object
+- `opacity`: Opacity from 0.0 (transparent) to 1.0 (opaque)
+
+**Returns:** None
+
+**Example:**
+```lua
+setOpacity(fadeOverlay, 0.5)
+```
+
+---
+
+### `setFontScreenSize(obj: Object, size: number)`
+Sets the screen-space font size of a 2D text object.
+
+**Parameters:**
+- `obj`: Text2D object
+- `size`: Font size in screen pixels
+
+**Returns:** None
+
+**Example:**
+```lua
+setFontScreenSize(title, 48)
+```
+
+---
+
+### `getUIBox(obj: Object) → x, y, width, height`
+Gets the screen-space bounding box of a UI element (after layout resolution).
+
+**Parameters:**
+- `obj`: UI object
+
+**Returns:** Four numbers: center x, center y, width, height
+
+**Example:**
+```lua
+local cx, cy, w, h = getUIBox(button)
+```
+
+---
+
+### `screenOf(obj: Object) → x, y, inFront`
+Projects a 3D object's position to 2D screen coordinates.
+
+**Parameters:**
+- `obj`: 3D object to project
+
+**Returns:** Three values: screen x, screen y, inFront (bool - true if in front of camera)
+
+**Example:**
+```lua
+local sx, sy, inFront = screenOf(enemy)
+if inFront then
+    setPosPx(enemyIndicator, sx, sy)
+end
+```
+
+---
+
+## 2D Collision & Interaction
+
+### `isDown(obj: Object) → bool`
+Returns true while a touch or mouse button is held inside the object's resolved
+UI bounds. Unlike `isPressed`, this is continuous rather than a one-frame press
+event.
+
+**Example:**
+```lua
+local leftButton = object("LeftButton")
+if leftButton and isDown(leftButton) then
+    mover(player, -moveSpeed * dt, 0, 0)
+end
+```
+
+---
+
+### `isColliding(a: Object, b: Object) → bool`
+Checks if two 2D screen objects overlap.
+
+**Parameters:**
+- `a`: First object
+- `b`: Second object
+
+**Returns:** true if overlapping, false otherwise
+
+**Example:**
+```lua
+if isColliding(player, coin) then
+    collectCoin()
+end
+```
+
+---
+
+### `clamp(obj: Object, area: Object [, axis: string])` / `clamp(obj, min, max [, axis])`
+Constrains a 2D object to stay within an area object or the supplied canvas-coordinate bounds.
+
+**Parameters:**
+- `obj`: Object to constrain
+- `area`: Area object, or numeric minimum and maximum bounds
+- `axis`: Optional axis selector (`"x"`, `"y"`, or `"xy"`; defaults to both)
+
+**Returns:** None
+
+**Example:**
+```lua
+clamp(ball, bounds)  -- keep ball inside bounds
+clamp(paddle, bounds, "y")  -- only constrain Y axis
+clamp(paddle, -200, 200, "x") -- constrain to numeric X bounds
+```
+
+---
+
+### `isInside(area: Object, x: number, y: number) → bool`
+Checks if a 2D point is inside an area's bounding box.
+
+**Parameters:**
+- `area`: Area/collision object
+- `x, y`: Point coordinates
+
+**Returns:** true if point is inside, false otherwise
+
+**Example:**
+```lua
+local mx, my = mouse()
+if isInside(button, mx, my) then
+    print("Mouse over button")
+end
+```
+
+---
+
+### `isPressed(obj: Object) → bool`
+Checks if a UI button/area was just tapped/clicked this frame.
+
+**Parameters:**
+- `obj`: Button or UI object
+
+**Returns:** true only on the frame of the tap/click, false otherwise
+
+**Example:**
+```lua
+if isPressed(playButton) then
+    startGame()
+end
+```
+
+---
+
+### `fade(obj: Object, target: number, step: number)`
+Smoothly fades an object's opacity toward a target value.
+
+**Parameters:**
+- `obj`: Object to fade
+- `target`: Target opacity (0.0 to 1.0)
+- `step`: Max change per frame
+
+**Returns:** None
+
+**Example:**
+```lua
+fade(fadeOverlay, 1.0, 0.01)  -- fade to black
+```
+
+---
+
+### `getScale() → factor`
+Gets the responsive scale factor (min(width, height) / 480).
+
+**Parameters:** None
+
+**Returns:** Scale factor for responsive UI sizing
+
+**Example:**
+```lua
+local scale = getScale()
+local scaledSize = 100 * scale
+```
+
+---
+
+### `getSafeArea() → x, y, width, height`
+Gets the safe area (avoiding notches/UI bars) in screen coordinates.
+
+**Parameters:** None
+
+**Returns:** Four numbers: safe area rect
+
+**Example:**
+```lua
+local sx, sy, sw, sh = getSafeArea()
+```
+
+---
+
+## Animation & Camera
+
+### `animator(obj: Object, animation: number [, startFrame: number])`
+Selects a vertex animation by its numeric index. With two arguments it queues the animation after the current clip; an optional start frame changes to it immediately.
+
+**Parameters:**
+- `obj`: Object with animation
+- `animation`: Animation index
+- `startFrame`: Optional frame at which to start immediately
+
+**Returns:** None
+
+**Example:**
+```lua
+animator(player, 1)
+animator(enemy, 2, 0)
+```
+
+---
+
+### `rotateTowards(obj: Object, dx: number, dz: number [, factor: number])`
+Smoothly rotates an object toward a direction on the XZ plane.
+
+**Parameters:**
+- `obj`: Object to rotate
+- `dx, dz`: Direction vector on the XZ plane
+- `factor`: Optional interpolation amount (default `0.2`)
+
+**Returns:** None
+
+**Example:**
+```lua
+local px, py, pz = Position(player)
+local ex, ey, ez = Position(enemy)
+rotateTowards(enemy, px - ex, pz - ez, 0.2)
+```
+
+---
+
+### `setRail(obj: Object, curve: Object | string, nodeOffset: number)`
+Makes a camera follow a bezier curve path.
+
+**Parameters:**
+- `obj`: Camera object
+- `curve`: Curve object or curve name
+- `nodeOffset`: Starting node (optional)
+
+**Returns:** None
+
+**Example:**
+```lua
+setRail(camera, "railPath")
+```
+
+---
+
+### `setRailNode(obj: Object, value: number)`
+Sets the current position along a rail path (0 to 1).
+
+**Parameters:**
+- `obj`: Camera on a rail
+- `value`: Position from 0 (start) to 1 (end)
+
+**Returns:** None
+
+**Example:**
+```lua
+setRailNode(camera, 0.5)  -- halfway along the path
+```
+
+---
+
+### `setRailLookAt(obj: Object, enabled: bool)`
+Enables/disables the camera looking along the rail direction.
+
+**Parameters:**
+- `obj`: Camera
+- `enabled`: true to look along rail, false to ignore
+
+**Returns:** None
+
+**Example:**
+```lua
+setRailLookAt(camera, true)
+```
+
+---
+
+### `railOf(obj: Object) → name`
+Gets the name of the rail curve a camera is following.
+
+**Parameters:**
+- `obj`: Camera
+
+**Returns:** Rail curve name
+
+**Example:**
+```lua
+local railName = railOf(camera)
+```
+
+---
+
+### `lensOf(obj: Object) → fov, near, far`
+Gets the camera lens properties.
+
+**Parameters:**
+- `obj`: Camera object
+
+**Returns:** Three numbers: field of view, near plane, far plane
+
+**Example:**
+```lua
+local fov, near, far = lensOf(camera)
+```
+
+---
+
+### `setLens(obj: Object, fov: number, near: number, far: number)`
+Sets the camera lens properties.
+
+**Parameters:**
+- `obj`: Camera object
+- `fov`: Field of view angle
+- `near`: Near clipping plane
+- `far`: Far clipping plane
+
+**Returns:** None
+
+**Example:**
+```lua
+setLens(camera, 60, 0.1, 1000)
+```
+
+---
+
+### `cameraXZ() → forwardX, forwardZ, rightX, rightZ`
+Gets camera-relative direction vectors (ignoring Y).
+
+**Parameters:** None
+
+**Returns:** Four numbers: forward x, forward z, right x, right z
+
+**Example:**
+```lua
+local fx, fz, rx, rz = cameraXZ()
+mover(player, rx * speed * dt, 0, fz * speed * dt)
+```
+
+---
+
+### `target() → obj`
+Gets the target object the current script is following.
+
+**Parameters:** None
+
+**Returns:** Target object or nil
+
+**Example:**
+```lua
+local follow = target()
+```
+
+---
+
+## Misc / Game Control
+
+### `random() → number` / `random(min: integer, max: integer) → integer`
+Returns a random float in `[0, 1)`, or an integer in the inclusive range when both bounds are provided.
+
+**Parameters:** Optional integer minimum and maximum (both required together)
+
+**Returns:** Random float `[0, 1)` or inclusive-range integer
+
+**Example:**
+```lua
+if random() < 0.5 then
+    jumpLeft()
+else
+    jumpRight()
+end
+```
+
+---
+
+### `instantiate(prefab: string [, x: number, y: number, z: number]) → Object | nil`
+Creates an instance of a prefab from the project's prefab library.
+
+**Parameters:**
+- `prefab`: Prefab name
+- `x, y, z`: Optional position in engine coordinates
+
+**Returns:** New object reference, or `nil` if the prefab is unavailable
+
+**Example:**
+```lua
+local newBullet = instantiate("Bullet", 0, 1, 0)
+```
+
+---
 
 ### `quot()`
-Requests that the game exit.
+Requests the game to close.
 
-## 9) Physics helpers
+**Parameters:** None
 
-These APIs update simple engine-managed velocities and collisions. In builds
-without physics support they remain registered as safe no-op stubs.
+**Returns:** None
 
-### `velocity(obj)`
-Returns the object's velocity as `vx, vy, vz`.
-- `obj`: object with a physics body.
+**Example:**
+```lua
+if keyPressed("escape") then
+    quot()
+end
+```
 
-### `velocity(obj, vx, vy [, vz])`
-Sets velocity; the physics step moves the object each frame.
-- `obj`: object to move.
-- `vx`, `vy`: required velocity components.
-- `vz`: optional third component; defaults to zero.
+---
 
-### `accelerate(obj, factor [, cap])`
-Multiplies the object's current velocity and returns its resulting speed.
-- `obj`: object with a physics body.
-- `factor`: velocity multiplier.
-- `cap`: optional maximum speed; zero or omitted means no cap.
+### `emitter(obj: Object, count: number)`
+Emits particles from a particle emitter object.
 
-### `collisionBox(obj)`
-Returns the active collision box size as `width, height, depth`.
-- `obj`: object to query.
+**Parameters:**
+- `obj`: Particle emitter object
+- `count`: Number of particles to emit
 
-### `collisionBox(obj, width, height [, depth])`
-Sets the collision box size.
-- `obj`: object to configure.
-- `width`, `height`: required dimensions.
-- `depth`: optional depth; defaults to zero.
+**Returns:** None
 
-### `bounce(obj, other [, ...])`
-Separates the first object from overlapping objects and reflects its velocity.
-Returns `true` if a collision caused a bounce. Each `other` may be an object or
-a table of objects.
-- `obj`: moving object with velocity.
-- `other`: one or more objects or object tables.
+**Example:**
+```lua
+emitter(dustEmitter, 10)
+```
 
-### `bounceWithin(obj, area [, sides])`
-Keeps the object inside an area's bounds, bouncing only against the named sides.
-Alternatively, pass numeric bounds as
-`bounceWithin(obj, x0, y0, x1, y1 [, z0, z1])`; `nil` bounds remain open.
-- `obj`: moving object with velocity.
-- `area`: area object, or numeric bounds.
-- `sides`: optional side names; omitted means all sides.
+---
 
-### `bounceInside(obj, area)`
-Keeps the object inside all sides of an area's bounds.
-- `obj`: moving object with velocity.
-- `area`: boundary object.
+## Controller / Input Devices
 
-## 10) Notes and compatibility
+### `controllers() → count`
+Gets the number of connected game controllers.
 
-- The runtime intentionally registers English names in the current code (`key`, `keyPressed`, `object`, `property`, `setShared`, `screen`, `isColliding`, `clamp`, `getUIBox`, and so on).
-- Legacy Spanish names are still accepted in a compatibility path when the engine calls old script aliases, but the primary API is English-based.
-- Script lifecycle hooks remain:
-  - `start()`
-  - `update(dt)`
+**Parameters:** None
 
-The API is still evolving, so this file should be treated as the current verified snapshot rather than a rigid formal specification.
+**Returns:** Number of controllers (0-4)
+
+**Example:**
+```lua
+if controllers() > 0 then
+    print("Gamepad detected")
+end
+```
+
+---
+
+### `controller(index: number) → name, type`
+Gets the name and type of a connected controller. The index is 1-based.
+
+**Parameters:**
+- `index`: Controller index (1-based)
+
+**Returns:** Controller name and type strings, or `nil` if that index is not connected
+
+**Example:**
+```lua
+for i=1, controllers() do
+    local controllerName, controllerType = controller(i)
+    print("Controller " .. i .. ": " .. controllerName .. " (" .. controllerType .. ")")
+end
+```
+
+---
+
+## Color & Lighting
+
+### `color(obj: Object) → r, g, b`
+Gets the normalized tone of a light; light brightness is read separately with `energy()`.
+
+**Parameters:**
+- `obj`: Object (light, material, etc.)
+
+**Returns:** Three numbers: r, g, b (0.0 to 1.0); returns zeros for non-light objects
+
+**Example:**
+```lua
+local r, g, b, a = color(light)
+```
+
+---
+
+### `setColor(obj: Object, r: number, g: number, b: number)`
+Sets a light's normalized tone while retaining its brightness.
+
+**Parameters:**
+- `obj`: Object
+- `r, g, b`: Color components (0.0 to 1.0)
+
+**Returns:** None
+
+**Example:**
+```lua
+setColor(light, 1.0, 0.5, 0.0)  -- orange
+```
+
+---
+
+### `energy(obj: Object) → value`
+Gets the brightness/energy of a light.
+
+**Parameters:**
+- `obj`: Light object
+
+**Returns:** Energy value
+
+**Example:**
+```lua
+local brightness = energy(light)
+```
+
+---
+
+### `setEnergy(obj: Object, value: number)`
+Sets the brightness/energy of a light.
+
+**Parameters:**
+- `obj`: Light object
+- `value`: Energy multiplier
+
+**Returns:** None
+
+**Example:**
+```lua
+setEnergy(light, 0.5)  -- dim the light
+```
+
+---
+
+## Vertex Manipulation (Advanced)
+
+### `grupoVertices(obj: Object, group: string) → indices`
+Gets the list of vertex groups in a mesh.
+
+**Parameters:**
+- `obj`: Mesh object
+- `group`: Vertex group name
+
+**Returns:** Array of 1-based vertex indices in the named group (empty if missing)
+
+**Example:**
+```lua
+local indices = grupoVertices(mesh, "body")
+for i, vertexIndex in ipairs(indices) do
+    print("Vertex:", vertexIndex)
+end
+```
+
+---
+
+### `verticePos(obj: Object, index: number) → x, y, z`
+Gets the local position of a mesh vertex. Use a 1-based render-vertex index, such as one returned by `grupoVertices`.
+
+**Parameters:**
+- `obj`: Mesh object
+- `index`: Vertex index
+
+**Returns:** Three numbers: x, y, z
+
+**Example:**
+```lua
+local x, y, z = verticePos(mesh, indices[1])
+```
+
+---
+
+### `setVerticePos(obj: Object, index: number, x: number, y: number, z: number)`
+Sets a mesh vertex's local position. Use a 1-based render-vertex index.
+
+**Parameters:**
+- `obj`: Mesh object
+- `index`: Vertex index
+- `x, y, z`: New position
+
+**Returns:** None
+
+**Example:**
+```lua
+setVerticePos(mesh, indices[1], 1, 2, 3)
+```
+
+---
+
+### `setVerticeColor(obj: Object, index: number, r: number, g: number, b: number [, a: number])`
+Sets the color of a vertex.
+
+**Parameters:**
+- `obj`: Mesh object
+- `index`: Vertex index
+- `r, g, b`: Color (0.0 to 1.0)
+- `a`: Optional alpha (defaults to 1.0)
+
+**Returns:** None
+
+**Example:**
+```lua
+setVerticeColor(mesh, indices[1], 1.0, 0.0, 0.0, 1.0)  -- red
+```
+
+---
+
+### `setVertices(obj: Object, vertices: table)`
+Sets multiple vertices in one call. `vertices` is a flat sequence of 4-value groups: `{index, x, y, z, ...}`; indices are 1-based.
+
+**Parameters:**
+- `obj`: Mesh object
+- `vertices`: Flat table of vertex index and local position tuples
+
+**Returns:** None
+
+**Example:**
+```lua
+local indices = grupoVertices(mesh, "body")
+setVertices(mesh, { indices[1], 1, 2, 3, indices[2], 4, 5, 6 })
+```
+
+---
+
+## 3D Positioning (Advanced)
+
+### `pos3(obj: Object) → x, y, z`
+Gets the object's local position (legacy alias for `Position`).
+
+**Parameters:**
+- `obj`: Object
+
+**Returns:** Three position coordinates
+
+**Example:**
+```lua
+local x, y, z = pos3(obj)
+```
+
+---
+
+### `setPos3(obj: Object, x: number, y: number, z: number)`
+Sets the object's local position (legacy alias for `SetPosition`).
+
+**Parameters:**
+- `obj`: Object
+- `x, y, z`: Position
+
+**Returns:** None
+
+**Example:**
+```lua
+setPos3(obj, 0, 5, 0)
+```
+
+---
+
+## Physics
+
+Physics functions use English names in Lua; their previous Spanish global names
+are no longer registered.
+
+### `velocity(obj) → vx, vy, vz` / `velocity(obj, vx, vy [, vz])`
+Reads an object's velocity, or sets it. Setting velocity makes the physics step move the object each frame. In 2D, coordinates are canvas pixels per second; in 3D, they are engine units per second.
+
+```lua
+velocity(ball, 180, 120) -- set X/Y velocity
+local vx, vy, vz = velocity(ball)
+```
+
+### `accelerate(obj, factor [, limit]) → speed`
+Multiplies an existing velocity by `factor`, preserving direction. An optional positive `limit` caps the resulting speed.
+
+```lua
+local speed = accelerate(ball, 1.05, maxSpeed)
+```
+
+### `collisionBox(obj) → width, height, depth` / `collisionBox(obj, width, height [, depth])`
+Reads the active collision-box size or assigns a custom size.
+
+```lua
+collisionBox(ball, 24, 24) -- 2D collision box in canvas pixels
+```
+
+### `bounce(obj, other [, other2, ...]) → hit`
+Checks for overlap with one or more objects (or a table of objects), separates the moving object, and reverses the collision-axis velocity. The first object must have velocity set.
+
+```lua
+if bounce(ball, {leftWall, rightWall}) then beep(440, 60, 0.4) end
+```
+
+### `bounceWithin(obj, area [, sides]) → hit`
+Keeps an object within an area's collision box. `sides` can name the closed boundaries; omitted sides remain open. It also accepts numeric bounds: `bounceWithin(obj, x0, y0, x1, y1 [, z0, z1])`; pass `nil` for an open boundary.
+
+```lua
+bounceWithin(ball, court, "arriba abajo")
+```
+
+### `bounceInside(obj, area) → hit`
+Keeps an object inside all boundaries of the specified area.
+
+```lua
+bounceInside(ball, court)
+```
+
+### Lua example: velocity-based movement
+
+The physics step integrates velocity before each frame's `update(dt)`. Whisk3D
+does not apply gravity automatically, so a script can update vertical velocity
+itself and clamp the object at the floor:
+
+```lua
+properties = { speed = 6, jump = 12, gravity = 24 }
+
+local player
+local groundY = 0
+local jumping = false
+
+function start()
+    player = object("Player")
+    local _, y = Position(player)
+    groundY = y
+    velocity(player, 0, 0, 0)
+end
+
+function update(dt)
+    local vx, vy, vz = velocity(player)
+    local moveX = 0
+    if key("d") or key("right") then moveX = moveX + 1 end
+    if key("a") or key("left") then moveX = moveX - 1 end
+    vx = moveX * property("speed")
+
+    local _, y = Position(player)
+    if keyPressed("space") and not jumping and y <= groundY then
+        vy = property("jump")
+        jumping = true
+    end
+    if jumping then vy = vy - property("gravity") * dt end
+
+    velocity(player, vx, vy, vz)
+    local x, y, z = Position(player)
+    if y < groundY then
+        SetPosition(player, x, groundY, z)
+        velocity(player, vx, 0, vz)
+        jumping = false
+    end
+end
+```
+
+## Additional registered helpers
+
+### Logs
+
+#### `logQuantity() → count`
+Returns the number of entries currently held in the engine log ring buffer. It
+returns zero in builds where the log ring is disabled.
+
+```lua
+local count = logQuantity()
+if count > 0 then
+    local newestMessage, newestLevel = logLine(count)
+    print(newestLevel .. ": " .. newestMessage)
+end
+```
+
+#### `logLine(index: integer) → message, level`
+Reads a 1-based index from the ring buffer, where 1 is the oldest currently
+buffered entry. The level is `"info"`, `"aviso"`, `"error"`, or `""` when no
+entry exists at that index. An out-of-range index returns two empty strings.
+
+```lua
+for i = 1, logQuantity() do
+    local message, level = logLine(i)
+    print(level .. ": " .. message)
+end
+```
+
+### Visibility, collections, and scenes
+
+#### `setSector(mesh: Object [, sector: integer])`
+Selects a 1-based sector for a mesh's culling modifier. Sector `0` selects the
+whole mesh; an out-of-range sector also falls back to the whole mesh. The
+sector defaults to `0`. It does nothing if the object has no supported culling
+modifier or if the platform hook is unavailable.
+
+```lua
+local roomMesh = object("RoomMesh")
+local visibleSector = 2
+if roomMesh then setSector(roomMesh, visibleSector) end
+```
+
+#### `visibilityCell(obj: Object) → integer | nil`
+Returns an object's active visibility cell, or `nil` if the object is not
+participating in the visibility system or its hook is unavailable.
+
+```lua
+local player = object("Player")
+local cell = player and visibilityCell(player)
+if cell ~= nil then
+    print("Player visibility cell:", cell)
+end
+```
+
+#### `setVisibilityAnchor(zone: Object, obj: Object)`
+Sets the object whose position determines the active cell for a visibility zone.
+The function has no return value.
+
+```lua
+local caveZone = object("CaveVisibility")
+local player = object("Player")
+if caveZone and player then setVisibilityAnchor(caveZone, player) end
+```
+
+#### `setVisibilityCurve(zone: Object, t: number [, rail: Object | string])`
+Updates a curve-driven visibility zone with progress `t`. The optional rail
+identifies the curve by object or name. The hook defaults `t` to `0` if omitted.
+The function has no return value.
+
+```lua
+local tunnelZone = object("TunnelVisibility")
+if tunnelZone then
+    setVisibilityCurve(tunnelZone, 0.5, "TunnelRail")
+end
+```
+
+#### `setCollection(collection: Object [, mode: string])`
+Changes a collection's static-batch mode. The mode defaults to `"off"`; use
+`"static"` to enable static batching, and `"off"` to disable it.
+The function has no return value.
+
+```lua
+local scenery = object("Scenery")
+if scenery then setCollection(scenery, "static") end
+```
+
+#### `changeScene(name: string [, restart: boolean])`
+Requests a switch to the named scene. `restart` defaults to false; pass true to
+request a restart. The function has no return value.
+
+```lua
+setVisibilityCurve(tunnelZone, railOf(camera) == "TunnelRail" and 0.5 or 0)
+changeScene("NextLevel")
+```
+
+`cambiarEscena` remains available as a compatibility alias for existing scripts.
+The misspelled global `sceneAsycReadyLoad` is also retained for compatibility;
+new scripts should use `sceneAsyncReadyLoad`.
+
+#### `changeSceneAsync(name [, activateWhenReady [, callback]]) → queued`
+Starts preparing a scene asynchronously. Returns true if the request was
+queued. `activateWhenReady` defaults to false; the optional callback receives
+the scene name, progress from 0 to 1, and a status string.
+
+```lua
+local queued = changeSceneAsync("NextLevel", false, function(name, progress, status)
+    print(name, math.floor(progress * 100) .. "%", status)
+end)
+```
+
+#### `sceneAsyncReadyLoad(name) → bool`
+Returns true when the named scene has finished asynchronous preparation.
+
+```lua
+if sceneAsyncReadyLoad("NextLevel") then
+    changeScene("NextLevel")
+end
+```
+
+End-to-end preload example:
+```lua
+local nextScene = "NextLevel"
+local loadQueued = false
+
+function start()
+    loadQueued = changeSceneAsync(nextScene, false, function(name, progress, status)
+        print(name, math.floor(progress * 100) .. "%", status)
+    end)
+end
+
+function update(dt)
+    if loadQueued and sceneAsyncReadyLoad(nextScene) then
+        loadQueued = false
+        changeScene(nextScene)
+    end
+end
+```
+
+These operations depend on the relevant editor/runtime feature hook being available. The request is processed by the game loop; it does not synchronously replace the active scene inside the current callback.
+
+### Vertex batch data
+
+`setVertices(mesh, values)` accepts a flat array of `{index, x, y, z, ...}` groups. It does not accept a vertex-group name or a table of `{x=..., y=..., z=...}` records. Use `grupoVertices(mesh, groupName)` to get 1-based vertex indices, then pass the desired indices and coordinates:
+
+```lua
+local body = grupoVertices(mesh, "body")
+if #body >= 2 then
+    setVertices(mesh, {body[1], 0, 1, 0, body[2], 1, 1, 0})
+end
+```
+
+This reference lists the Whisk3D globals registered by the runtime. For more complete game examples, see the samples above and the project's example games.

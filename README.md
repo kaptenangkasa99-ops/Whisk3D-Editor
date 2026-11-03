@@ -44,6 +44,7 @@ platform-specific directory. The New Project flow uses these templates; each
 platform may package or copy them into its own application assets as needed.
 
 For gameplay examples, see the [sample game guide](docs/sample-game-guide.md).
+For the combined Lua scripting guide and API reference, see [api.md](api.md).
 For the editor/runtime design, see the
 [engine architecture](docs/engine-architecture.md).
 

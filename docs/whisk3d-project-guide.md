@@ -38,7 +38,8 @@ Important design idea:
 Whisk3D-Editor/
 ├── CMakeLists.txt                 # root build definition
 ├── README.md                      # project overview
-├── guide.md                       # user docs
+├── api.md                         # Lua scripting guide and API reference
+├── guide.md                       # compatibility link to api.md
 ├── docs/
 │   ├── engine-architecture.md
 │   ├── sample-game-guide.md

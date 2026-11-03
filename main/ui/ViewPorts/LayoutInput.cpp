@@ -2450,8 +2450,8 @@ static void LayoutAccionIDEEdit(int id) {
 
 static void LayoutAccionIDEHelp(int id) {
     const char* url = id == IDE_HELP_API
-        ? "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/api.md"
-        : "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/guide.md";
+        ? "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/api.md#api-reference"
+        : "https://github.com/kaptenangkasa99-ops/Whisk3D-Editor/blob/main/api.md";
     if (SDL_OpenURL(url) < 0) Notificar(std::string("Could not open documentation: ") + SDL_GetError(), true);
 }
 
